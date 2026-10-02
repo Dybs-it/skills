@@ -1,0 +1,11 @@
+{
+  "name": "dybs",
+  "owner": { "name": "Jos Koomen" },
+  "plugins": [
+    {
+      "name": "dybs",
+      "source": "./",
+      "description": "The Dybs method: Getting Started skills."
+    }
+  ]
+}

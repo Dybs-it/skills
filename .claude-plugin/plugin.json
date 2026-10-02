@@ -1,0 +1,6 @@
+{
+  "name": "dybs",
+  "version": "0.1.0",
+  "description": "The Dybs method: Getting Started skills that build a short, human-accepted project context (project, PRD, scope, domain, architecture, UX, UI) for AI coding agents.",
+  "author": { "name": "Jos Koomen" }
+}
