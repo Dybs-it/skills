@@ -13,8 +13,9 @@ for fixes. Your output is the check-in brief.
 
 ## 1. Mechanical check
 
-Run `node <pkg>/scripts/dybs-validate.mjs .` (where `<pkg>` is two levels
-above this file). Every error is listed first in the brief. Missing docs
+From the project root, run `node <skills>/dybs-start/scripts/dybs-validate.mjs .`
+where `<skills>` is the folder that holds this skill (`npx dybs-skills
+validate` does the same). Every error is listed first in the brief. Missing docs
 that are not under `skip:` are errors here, even though the validator treats
 them as a next step.
 

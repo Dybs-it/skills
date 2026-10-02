@@ -1,13 +1,22 @@
 {
   "name": "dybs-skills",
   "version": "0.1.0",
-  "private": true,
-  "description": "The Dybs method as agent skills: Getting Started (project, PRD, scope, domain, architecture, UX, UI).",
+  "description": "The Dybs method as agent skills, installed with npx into Claude Code, Codex, Gemini CLI, OpenCode and other agents.",
   "type": "module",
+  "bin": {
+    "dybs-skills": "bin/dybs-skills.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "skills/",
+    "NOTICE.md"
+  ],
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "validate": "node scripts/dybs-validate.mjs"
+    "validate": "node skills/dybs-start/scripts/dybs-validate.mjs"
   },
+  "keywords": ["dybs", "agent-skills", "claude-code", "codex", "ai-agents"],
   "engines": {
     "node": ">=20"
   }

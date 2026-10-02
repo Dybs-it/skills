@@ -154,7 +154,7 @@ function nextStep(results) {
   return pending ? pending.name : null;
 }
 
-function main(argv) {
+export function main(argv) {
   const args = argv.slice(2);
   const json = args.includes('--json');
   const docIdx = args.indexOf('--doc');

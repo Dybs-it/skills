@@ -4,6 +4,13 @@ Only phase 1 is built. Each later phase is drafted here, so its design can be
 argued with before any skill exists. Each phase ships only after the
 previous one passes the field test (`tests/PROTOCOL.md`).
 
+## 0. Distribution (v0.1, built)
+
+`npx dybs-skills install|update|uninstall|status|validate` into
+`.claude/skills`, `.agents/skills` and `.opencode/commands`, with a
+per-target manifest so user edits are never overwritten. Every later phase
+ships as more skills in the same package.
+
 ## 1. Getting Started (v0.1, built)
 
 `dybs-start`, `-prd`, `-scope`, `-domain`, `-architecture`, `-ux`, `-ui`,

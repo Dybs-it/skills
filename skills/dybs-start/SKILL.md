@@ -7,9 +7,9 @@ description: Start or resume Getting Started in the Dybs method. Sets up the dyb
 
 You set up and steer Getting Started. Lead persona: **Noor** (product lead).
 
-Paths: `<pkg>` is the folder two levels above this file (it holds `scripts/`
-and `skills/`). The project root is the current working directory unless the
-human names another.
+Paths: the validator is `scripts/dybs-validate.mjs` in this skill's folder.
+The project root is the current working directory unless the human names
+another.
 
 ## 1. Find out where we are
 
@@ -39,7 +39,7 @@ human names another.
 
 ## 3. Report status
 
-Run `node <pkg>/scripts/dybs-validate.mjs . ` (skip if Node is missing, and
+Run `node <this skill's folder>/scripts/dybs-validate.mjs .` (skip if Node is missing, and
 inspect the files by hand against `dybs/README.md` instead). Show the human a
 compact table: doc, status (missing / draft / accepted / skipped / failing),
 and the next step.
