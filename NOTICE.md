@@ -7,12 +7,17 @@ This project is original work inspired by:
   line from its LICENSE file if text is ever adapted). Ideas borrowed: agent
   personas as lenses, a staged path from product thinking to architecture
   and UX before implementation.
-- **Matt Pocock's skills**, https://github.com/mattpocock/skills. Ideas
-  borrowed: interviewing one question at a time with a recommended answer,
-  a shared domain glossary as agent context, short decision records.
+- **Matt Pocock's skills**, MIT License, Copyright (c) 2026 Matt Pocock,
+  https://github.com/mattpocock/skills. The interview method in every
+  skill's `interview.md` (rounds, the frontier of open questions, a
+  recommended answer per question, facts looked up rather than asked) is
+  adapted from his `grilling` skill. The domain disciplines in `dybs-domain`
+  and the three tests for a decision record in `dybs-architecture` are
+  adapted from his `domain-modeling` skill.
+- From the BMad Method also: the brain dump before questions, the concern
+  scan, journeys with a named person, and a decision log.
 
-No source text from either project is included. If text is ever adapted from
-the BMad Method, keep its MIT copyright notice in the adapted file and here.
-Check the license of any other source before adapting its text.
+Adapted text is rewritten, not copied verbatim. MIT permits both; the notice
+above and the one in `interview.md` keep the attribution. Check the license of any other source before adapting its text.
 
 This repository's own license is not chosen yet.

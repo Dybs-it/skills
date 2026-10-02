@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync } 
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { DOCS, ORDER, validateDoc, validateProject } from '../skills/dybs-start/scripts/dybs-validate.mjs';
+import { DOCS, ORDER, validateDoc, validateProject, depthFor } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
@@ -68,7 +68,7 @@ test('missing section is an error', () => {
 
 test('over the word cap is an error', () => {
   const dir = copySample();
-  edit(dir, 'context/scope.md', (t) => t + '\n' + 'word '.repeat(DOCS.scope.maxWords));
+  edit(dir, 'context/scope.md', (t) => t + '\n' + 'word '.repeat(DOCS.scope.maxWords.quick));
   const r = validateProject(dir).results.find((x) => x.name === 'scope');
   assert.ok(r.errors.some((e) => e.includes('cap is')));
   rmSync(dir, { recursive: true });
@@ -76,7 +76,7 @@ test('over the word cap is an error', () => {
 
 test('HTML comments do not count toward the cap', () => {
   const dir = copySample();
-  edit(dir, 'context/scope.md', (t) => t + `\n<!-- ${'guidance '.repeat(DOCS.scope.maxWords)} -->\n`);
+  edit(dir, 'context/scope.md', (t) => t + `\n<!-- ${'guidance '.repeat(DOCS.scope.maxWords.thorough)} -->\n`);
   const r = validateProject(dir).results.find((x) => x.name === 'scope');
   assert.deepEqual(r.errors, []);
   rmSync(dir, { recursive: true });
@@ -133,4 +133,33 @@ test('missing doc is reported as missing, not as an error', () => {
 test('packaged README stays in step with the validator order', () => {
   const readme = readFileSync(join(ROOT, 'skills/dybs-start/assets/README.md'), 'utf8');
   assert.match(readme, new RegExp(ORDER.join(', ')));
+});
+
+test('depth: unset means quick; project depth and per-doc lists override', () => {
+  assert.equal(depthFor('prd', {}), 'quick');
+  assert.equal(depthFor('prd', { depth: 'thorough' }), 'thorough');
+  assert.equal(depthFor('ui', { depth: 'thorough', quick: 'ui, ux' }), 'quick');
+  assert.equal(depthFor('architecture', { depth: 'quick', thorough: 'architecture' }), 'thorough');
+  assert.equal(depthFor('prd', { depth: 'nonsense' }), 'quick');
+});
+
+test('thorough depth allows a longer doc than quick', () => {
+  const dir = copySample();
+  const extra = 'word '.repeat(DOCS.scope.maxWords.quick);
+  edit(dir, 'context/scope.md', (t) => t + '\n' + extra);
+  const quick = validateProject(dir).results.find((x) => x.name === 'scope');
+  assert.ok(quick.errors.some((e) => e.includes('quick cap')));
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip:\nthorough: scope'));
+  const thorough = validateProject(dir).results.find((x) => x.name === 'scope');
+  assert.equal(thorough.depth, 'thorough');
+  assert.deepEqual(thorough.errors, []);
+  rmSync(dir, { recursive: true });
+});
+
+test('an invalid depth in a doc is an error', () => {
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t.replace('status: accepted', 'status: accepted\ndepth: deep'));
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(r.errors.some((e) => e.includes('"depth"')));
+  rmSync(dir, { recursive: true });
 });

@@ -1,6 +1,6 @@
 ---
 name: dybs-start
-description: Start or resume Getting Started in the Dybs method. Sets up the dybs/ folder in a project, detects new or existing code, records the human's check-in choice, writes project.md, and routes to the next context doc (prd, scope, domain, architecture, ux, ui). Use when the user says "dybs start", "getting started", "set up dybs", "what's next in getting started", or invokes dybs-start by name.
+description: Start or resume Getting Started in the Dybs method. Sets up the dybs/ folder in a project, detects new or existing code, asks how deep to go (quick for side projects, thorough for long-term products) and when to check in, writes project.md, and routes to the next context doc (prd, scope, domain, architecture, ux, ui). Use when the user says "dybs start", "getting started", "set up dybs", "what's next in getting started", or invokes dybs-start by name.
 ---
 
 # dybs-start
@@ -23,16 +23,31 @@ another.
 1. Create `dybs/` and `dybs/context/decisions/`.
 2. Copy `assets/README.md` and `assets/team.md` from this skill into `dybs/`
    unchanged.
-3. Ask the human, one at a time, each with your recommended answer:
+3. **Collect first.** Ask what they already have (notes, docs, links,
+   designs, code) and read it, as `interview.md` (in this skill's folder)
+   describes. Everything later skills ask builds on this.
+4. Ask the human in one round, numbered, each with your recommended answer
+   (format in `interview.md`):
    - **Name and one line.** For existing projects, propose them from the
      README or manifest.
+   - **Depth.** Explain the choice in two lines, using the table in
+     `interview.md`:
+     - **quick**: about 5 to 10 minutes per doc, core questions only. For
+       side projects, experiments, a first try.
+     - **thorough**: about 15 to 30 minutes per doc (one to two hours in
+       total), every question until nothing is open. For long-term products.
+     Recommend from what you read: a long-lived product, a team, money or
+     users' data at stake point to thorough; a weekend idea points to quick.
+     Mention that single docs can differ (`thorough: architecture` in a quick
+     project) and that a quick doc can be deepened later.
    - **Check-ins.** Offer the three settings from `dybs/README.md`
      (`each-doc`, `end`, `none`). Recommend `each-doc` for a first run, since
      they are testing the method.
    - **Skips.** Propose skipping `ux` and `ui` only if there is clearly no
      user interface (a library, a CLI with no design needs). Otherwise skip
      nothing.
-4. Write `dybs/project.md` from `assets/project.md`. Fill Why, Who and Now
+5. Write `dybs/project.md` from `assets/project.md`, including `depth`, and
+   start `dybs/log.md` with one line per answer. Fill Why, Who and Now
    from what you read and heard. For existing projects, Now describes what
    actually runs today, read from the code, not from aspirations in docs.
    Mark anything you inferred *(assumption)*.
@@ -41,8 +56,9 @@ another.
 
 Run `node <this skill's folder>/scripts/dybs-validate.mjs .` (skip if Node is missing, and
 inspect the files by hand against `dybs/README.md` instead). Show the human a
-compact table: doc, status (missing / draft / accepted / skipped / failing),
-and the next step.
+compact table: doc, depth, status (missing / draft / accepted / skipped /
+failing), and the next step. If a doc was written at quick depth while the
+project is now thorough, offer to deepen it.
 
 ## 4. Route
 

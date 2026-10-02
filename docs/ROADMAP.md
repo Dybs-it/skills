@@ -14,10 +14,12 @@ later phase ships as more skills in the same repo. See decision 0002.
 Later: make the repo public with a license, publish the CLI to npm, list it
 on skills.sh.
 
-## 1. Getting Started (v0.1, built)
+## 1. Getting Started (v0.3, built)
 
 `dybs-start`, `-prd`, `-scope`, `-domain`, `-architecture`, `-ux`, `-ui`,
-`-check`. Output: `dybs/` with an accepted context.
+`-check`. Output: `dybs/` with an accepted context. Two depths, quick and
+thorough, share one interview method (`interview.md`) and one doc format.
+See decision 0003.
 
 ## 2. Ideas (next)
 

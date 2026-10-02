@@ -13,43 +13,44 @@ import { pathToFileURL } from 'node:url';
 export const DOCS = {
   project: {
     file: 'project.md',
-    maxWords: 250,
+    maxWords: { quick: 250, thorough: 350 },
     sections: ['Why', 'Who', 'Now'],
   },
   prd: {
     file: 'context/prd.md',
-    maxWords: 900,
+    maxWords: { quick: 900, thorough: 1800 },
     sections: ['Problem', 'Users', 'Goals', 'Requirements', 'Success measures', 'Open questions'],
   },
   scope: {
     file: 'context/scope.md',
-    maxWords: 450,
+    maxWords: { quick: 450, thorough: 800 },
     sections: ['In', 'Out', 'Later', 'Constraints'],
   },
   domain: {
     file: 'context/domain.md',
-    maxWords: 700,
+    maxWords: { quick: 700, thorough: 1500 },
     sections: ['Glossary', 'Rules'],
   },
   architecture: {
     file: 'context/architecture.md',
-    maxWords: 900,
+    maxWords: { quick: 900, thorough: 1800 },
     sections: ['Shape', 'Decisions', 'Boundaries', 'Quality bars'],
   },
   ux: {
     file: 'context/ux.md',
-    maxWords: 700,
+    maxWords: { quick: 700, thorough: 1400 },
     sections: ['Principles', 'Key flows', 'Behaviour rules', 'Accessibility'],
   },
   ui: {
     file: 'context/ui.md',
-    maxWords: 700,
+    maxWords: { quick: 700, thorough: 1400 },
     sections: ['Tone', 'Tokens', 'Components', 'Do and don\'t'],
   },
 };
 
 export const ORDER = ['project', 'prd', 'scope', 'domain', 'architecture', 'ux', 'ui'];
 export const STATUSES = ['draft', 'accepted'];
+export const DEPTHS = ['quick', 'thorough'];
 const PLACEHOLDER = /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/;
 
 export function parseFrontmatter(text) {
@@ -73,13 +74,24 @@ export function wordCount(body) {
   return (prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 }
 
-function skipped(projectData) {
-  // project.md may declare `skip: ui, ux` for docs that do not apply.
-  const raw = projectData?.skip || '';
-  return new Set(raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+function list(raw) {
+  return new Set((raw || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
 }
 
-export function validateDoc(name, text) {
+// project.md sets `depth: quick|thorough` for every doc; `quick:` and
+// `thorough:` list docs that differ from it. Unset means quick.
+export function depthFor(name, projectData) {
+  if (list(projectData?.thorough).has(name)) return 'thorough';
+  if (list(projectData?.quick).has(name)) return 'quick';
+  return DEPTHS.includes(projectData?.depth) ? projectData.depth : 'quick';
+}
+
+function skipped(projectData) {
+  // project.md may declare `skip: ui, ux` for docs that do not apply.
+  return list(projectData?.skip);
+}
+
+export function validateDoc(name, text, depth = 'quick') {
   const spec = DOCS[name];
   const errors = [];
   const warnings = [];
@@ -91,6 +103,9 @@ export function validateDoc(name, text) {
     if (data.doc !== name) errors.push(`frontmatter "doc" must be "${name}" (found "${data.doc ?? ''}")`);
     if (!STATUSES.includes(data.status)) errors.push(`frontmatter "status" must be one of ${STATUSES.join('|')}`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.updated || '')) errors.push('frontmatter "updated" must be YYYY-MM-DD');
+    if (data.depth !== undefined && !DEPTHS.includes(data.depth)) {
+      errors.push(`frontmatter "depth" must be one of ${DEPTHS.join('|')}`);
+    }
     if (data.status === 'accepted' && !/^\d{4}-\d{2}-\d{2}$/.test(data.accepted || '')) {
       errors.push('accepted docs need frontmatter "accepted: YYYY-MM-DD" (set only on the human\'s word)');
     }
@@ -101,10 +116,11 @@ export function validateDoc(name, text) {
   for (const s of missing) errors.push(`missing section "## ${s}"`);
 
   const words = wordCount(body);
-  if (words > spec.maxWords) {
-    errors.push(`${words} words, cap is ${spec.maxWords}. Cut, or move detail to context/decisions/`);
-  } else if (words > spec.maxWords * 0.9) {
-    warnings.push(`${words} words, close to the cap of ${spec.maxWords}`);
+  const cap = spec.maxWords[depth];
+  if (words > cap) {
+    errors.push(`${words} words, ${depth} cap is ${cap}. Cut, or move the why to dybs/log.md or context/decisions/`);
+  } else if (words > cap * 0.9) {
+    warnings.push(`${words} words, close to the ${depth} cap of ${cap}`);
   }
 
   if (PLACEHOLDER.test(body.replace(/<!--[\s\S]*?-->/g, ''))) {
@@ -113,7 +129,7 @@ export function validateDoc(name, text) {
     else warnings.push(msg);
   }
 
-  return { name, file: spec.file, status: data?.status ?? null, words, errors, warnings };
+  return { name, file: spec.file, status: data?.status ?? null, depth, words, errors, warnings };
 }
 
 export function validateProject(root, only) {
@@ -143,7 +159,7 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors: [], warnings: [] });
       continue;
     }
-    results.push(validateDoc(name, readFileSync(path, 'utf8')));
+    results.push(validateDoc(name, readFileSync(path, 'utf8'), depthFor(name, projectData)));
   }
   const ok = results.every((r) => r.errors.length === 0);
   return { ok, results };

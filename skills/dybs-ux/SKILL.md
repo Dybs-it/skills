@@ -5,50 +5,58 @@ description: Write or revise dybs/context/ux.md, the experience guidelines for h
 
 # dybs-ux
 
-Lead persona: **Mila** (experience designer). Follow `dybs/README.md`. If
-`dybs/` is missing, run `dybs-start` first. If `project.md` lists `ux` under
-`skip:`, say so and stop.
+Lead persona: **Mila** (experience designer). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`ux` under `skip:`, say so and stop.
 
 **Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
-`context/domain.md`. **Writes:** `dybs/context/ux.md` from `template.md`
-(cap: 700 words).
+`context/domain.md`, `log.md`. **Writes:** `dybs/context/ux.md` from
+`template.md` (cap: 700 words quick, 1400 thorough).
 
 These are guidelines an agent applies while building any screen, not a
 screen-by-screen specification.
 
-## Gather
+## Read first
 
-Existing project: walk the main flows in code (routes, views, forms) and
-note how it handles loading, empty, error and success states today. The
+Existing project: walk the main flows in code (routes, views, forms) and note
+how loading, empty, error and success states are handled today. The
 inconsistencies you find are the most useful input.
 
-Ask, one at a time with recommendations:
+## Readiness checklist
 
-1. Which 3 to 5 tasks must feel effortless? (From the PRD's must-haves.)
-2. What does the user feel when something goes wrong, and what should they
-   be able to do next?
-3. Who might be using it in a hard situation (keyboard only, screen reader,
-   small screen, poor connection, in a hurry)?
-4. Any product whose behaviour the human wants this to feel like, and why?
+**core**
+- [ ] The 3 to 5 tasks that must feel effortless (from the PRD's must-haves),
+      each as steps from intent to done
+- [ ] For each of those, the main way it fails and what the user can do next
+- [ ] Rules for loading, empty, error and success states
+- [ ] Accessibility target (for example WCAG 2.2 AA)
+
+**thorough**
+- [ ] 3 to 5 principles, each with the trade-off it makes, confirmed
+- [ ] Every must-have flow, including recovery from failure
+- [ ] Destructive actions: confirm, undo, or both
+- [ ] Notifications and reminders: when, how often, and how to turn off
+- [ ] First run: what a new user sees before there is any data
+- [ ] Users in hard situations (keyboard only, screen reader, small screen,
+      poor connection, in a hurry) and the rules that follow
+- [ ] Voice for user-facing text, using glossary terms
+- [ ] Products whose behaviour this should feel like, and why
 
 ## Write
 
-- **Principles:** 3 to 5, each with what it means in practice. "Clear" is
-  not a principle; "every destructive action can be undone for 10 seconds" is.
-- **Key flows:** the must-have tasks, each as numbered steps from intent to
-  done, including the main way it fails.
-- **Behaviour rules:** how every screen handles loading, empty, error,
-  success and confirmation. Write them as rules agents can apply anywhere.
-- **Accessibility:** the target level (for example WCAG 2.2 AA) and the
-  concrete rules that follow from the users above.
-- **Copy** (optional): voice and terms for user-facing text, using the
-  domain glossary.
+- **Principles:** each with what it means in practice. "Clear" is not a
+  principle; "every destructive action can be undone for 10 seconds" is.
+- **Key flows:** numbered steps per flow, including the main failure.
+- **Behaviour rules:** loading, empty, error, success, confirmation, as rules
+  agents can apply anywhere.
+- **Accessibility:** target level plus concrete rules.
+- **Copy** (optional): voice and terms.
 
 ## Check in
 
-Validate with `--doc ux`. Under **Needs you**, list the principles that
-trade something away (speed versus safety, for example) so the human
-confirms the trade.
+Validate (`--doc ux`). Under **Needs you**, list the principles that trade
+something away (speed versus safety, for example) so the human confirms the
+trade.
 
 ## If something is not installed
 

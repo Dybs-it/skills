@@ -4,6 +4,9 @@ status: draft
 updated: {{YYYY-MM-DD}}
 name: {{Project name}}
 kind: {{greenfield | existing}}
+depth: {{quick | thorough}}
+quick:
+thorough:
 checkins: each-doc
 skip:
 ---

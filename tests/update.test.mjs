@@ -141,13 +141,29 @@ test('every skill except dybs-start carries the same standalone section', () => 
   for (const s of others) assert.equal(block(s), block(others[0]), s);
 });
 
+test('every skill carries an identical interview.md', () => {
+  const base = readFileSync(join(SKILLS_SRC, 'dybs-start', 'interview.md'), 'utf8');
+  for (const s of skillNames()) {
+    assert.equal(readFileSync(join(SKILLS_SRC, s, 'interview.md'), 'utf8'), base, s);
+  }
+});
+
+test('every doc skill points to interview.md and has core and thorough checklists', () => {
+  for (const s of skillNames().filter((n) => !['dybs-start', 'dybs-check'].includes(n))) {
+    const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
+    assert.match(t, /interview\.md/, s);
+    assert.match(t, /\*\*core\*\*\n- \[ \]/, `${s} core checklist`);
+    assert.match(t, /\*\*thorough\*\*\n- \[ \]/, `${s} thorough checklist`);
+  }
+});
+
 test('dybs-check doc contract table matches the validator', () => {
   const t = readFileSync(join(SKILLS_SRC, 'dybs-check', SKILL), 'utf8');
   for (const n of ORDER) {
     const row = t.split('\n').find((l) => l.startsWith(`| \`${n}\` |`));
     assert.ok(row, `no row for ${n}`);
     assert.ok(row.includes(DOCS[n].sections.join(', ')), `${n} sections`);
-    assert.ok(row.includes(`| ${DOCS[n].maxWords} |`), `${n} cap`);
+    assert.ok(row.includes(`| ${DOCS[n].maxWords.quick} / ${DOCS[n].maxWords.thorough} |`), `${n} cap`);
   }
 });
 

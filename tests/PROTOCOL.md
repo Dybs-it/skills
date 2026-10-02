@@ -4,11 +4,13 @@ The unit tests prove the validator. They cannot prove the skills are good.
 That takes real projects. Run each step on real work and record the result
 in `tests/runs/<date>-<project>.md` (copy the record below).
 
-## Pick two projects
+## Pick two projects, one per depth
 
-1. **Greenfield:** an idea you actually want to build. Small is fine.
-2. **Existing:** a real codebase you know well (Dybs itself is a good hard
-   case), so you can judge whether extraction is accurate.
+1. **Greenfield, quick:** an idea you actually want to build. Small is fine.
+   Target: under 30 minutes for all docs.
+2. **Existing, thorough:** a real codebase you know well (Dybs itself is a
+   good hard case), so you can judge whether extraction is accurate.
+   Target: 1 to 2 hours, then the agent-ready test in `dybs-check`.
 
 Use a fresh branch or a copy. Nothing here should touch code, only `dybs/`.
 
@@ -18,7 +20,9 @@ For each skill in order, run it, then answer:
 
 | Check | Pass when |
 |---|---|
-| **Questions** | At most ~5 questions, one at a time, each with a recommendation you could accept with "yes". |
+| **Questions** | Numbered rounds, each question with a recommendation you could accept with "yes". Nothing asked that it could have looked up. |
+| **Depth respected** | quick: at most two rounds, core items only. thorough: kept going until nothing was open. |
+| **Log** | Every decision you made is in `dybs/log.md`. |
 | **Accuracy** (existing) | No claim about the code that you know is false. Count the false ones. |
 | **Assumptions marked** | Inferred facts say *(assumption)* or are open questions. |
 | **Readable** | You read the whole doc without skimming. Time it. |
@@ -38,18 +42,18 @@ code beyond the files it would change, the context works.
 ## Record
 
 ```
-# <date> <project> (<greenfield|existing>), checkins: <setting>
+# <date> <project> (<greenfield|existing>), depth: <quick|thorough>, checkins: <setting>
 
-| Step | Questions | False claims | Read time | Validator | Verdict |
-|---|---|---|---|---|---|
-| start | | | | | |
-| prd | | | | | |
-| scope | | | | | |
-| domain | | | | | |
-| architecture | | | | | |
-| ux | | | | | |
-| ui | | | | | |
-| check | | | | | |
+| Step | Rounds | Questions | Minutes | False claims | Validator | Verdict |
+|---|---|---|---|---|---|---|
+| start | | | | | | |
+| prd | | | | | | |
+| scope | | | | | | |
+| domain | | | | | | |
+| architecture | | | | | | |
+| ux | | | | | | |
+| ui | | | | | | |
+| check | | | | | | |
 
 **Real test:** <requirement used> → <right / partly / wrong>, why
 **Change for next version:** <one or two concrete edits to a skill>

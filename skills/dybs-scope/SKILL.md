@@ -6,41 +6,49 @@ description: Write or revise dybs/context/scope.md, the hard edges of the projec
 # dybs-scope
 
 Lead persona: **Noor**, with **Bas** (the skeptic) pushing on every "In"
-item. Follow `dybs/README.md`. If `dybs/` is missing, run `dybs-start` first.
+item. Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`.
 
-**Reads:** `project.md`, `context/prd.md`. **Writes:** `dybs/context/scope.md`
-from `template.md` (cap: 450 words).
+**Reads:** `project.md`, `context/prd.md`, `log.md`. **Writes:**
+`dybs/context/scope.md` from `template.md` (cap: 450 words quick, 800
+thorough).
 
-## Gather
+## Read first
 
-Start from the PRD's requirements. For each one, propose In, Later or Out
-with a one-line reason, as a table, and let the human correct it in one pass
-instead of asking item by item. Then ask, one at a time with recommendations:
-
-1. Is there a date, budget or team-size limit that shapes what fits?
-2. What platforms, environments or integrations are fixed (already decided
-   by someone else)?
-3. Is there anything people will assume is included that is not?
+Start from the PRD's requirements. Before the first round, propose In, Later
+or Out for every requirement in one table, each with a one-line reason, so
+the human can correct the whole cut at once.
 
 Existing project: also list what the code already does that is *not* in the
 PRD. Each one is either In (document it) or a candidate for removal (an open
 point for the human, never your call).
 
+## Readiness checklist
+
+**core**
+- [ ] Every PRD requirement placed exactly once: In, Out or Later
+- [ ] Hard constraints: date, budget, team size, fixed platforms or systems
+- [ ] What people will assume is included but is not
+
+**thorough**
+- [ ] The first usable version: the smallest In set someone could use for real
+- [ ] A trigger for every Later item (what would bring it in)
+- [ ] Dependencies on other people, teams or services, and what happens if
+      they slip
+- [ ] Existing behaviour not in the PRD, each kept or marked for removal
+- [ ] Compliance or legal limits, or "none" with a reason
+
 ## Write
 
 - **In:** what this version delivers. Reference requirement ids (`R1`).
-- **Out:** what it explicitly does not do. This section prevents more wasted
-  work than any other. Make it concrete.
-- **Later:** wanted, but not now. Each item names what would trigger it.
-- **Constraints:** fixed facts (platforms, deadlines, compliance, budget,
-  must-use systems), each with its source.
-
-Every PRD requirement appears exactly once across In, Out and Later. If you
-find a requirement that fits none, that is a check-in item.
+- **Out:** what it explicitly does not do. Concrete; this section prevents
+  more wasted work than any other.
+- **Later:** wanted, not now, each with its trigger.
+- **Constraints:** fixed facts, each with its source.
 
 ## Check in
 
-Validate with `--doc scope`. Under **Needs you**, list the cut lines you are
+Validate (`--doc scope`). Under **Needs you**, list the cut lines you are
 least sure about, especially any (must) requirement you placed in Later.
 
 ## If something is not installed

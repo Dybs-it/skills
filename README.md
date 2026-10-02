@@ -43,6 +43,27 @@ project → prd → scope → domain → architecture → ux → ui → check
 | `dybs-ui` | `context/ui.md` | Jun |
 | `dybs-check` | nothing; one check-in brief across all docs | Bas |
 
+### Quick or thorough
+
+`dybs-start` asks how deep to go, and recommends one:
+
+| | quick | thorough |
+|---|---|---|
+| For | side projects, experiments, a first try | long-term products |
+| Time | about 5 to 10 minutes per doc | about 15 to 30 minutes per doc (1 to 2 hours in total) |
+| Interview | core questions, at most two rounds | every question, until nothing is open |
+| Gaps | marked *(assumption)* with an open question | answered, or parked by you with a reason |
+| Check | consistency across docs | plus an agent-ready test by fresh sub-agents |
+
+Both write the same docs, so agents and tools never care which you chose.
+Single docs can differ (`thorough: architecture` in a quick project), and a
+quick doc can be deepened later without starting over.
+
+Every interview works the same way (`interview.md` in each skill): it first
+collects what you have and looks up facts itself, then asks numbered rounds
+of questions, each with a recommended answer you can accept with "yes".
+Every decision lands in `dybs/log.md`.
+
 Every skill works on its own. Without `dybs-start` installed, a skill says
 which one to add; without the validator, it checks the doc by hand.
 

@@ -5,51 +5,66 @@ description: Write or revise dybs/context/architecture.md, the shape of the syst
 
 # dybs-architecture
 
-Lead persona: **Tess** (architect). Follow `dybs/README.md`. If `dybs/` is
-missing, run `dybs-start` first.
+Lead persona: **Tess** (architect). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`.
 
 **Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
-`context/domain.md`. **Writes:** `dybs/context/architecture.md` from
-`template.md` (cap: 900 words) and files in `dybs/context/decisions/` from
-`decision-template.md`.
+`context/domain.md`, `log.md`. **Writes:** `dybs/context/architecture.md` from
+`template.md` (cap: 900 words quick, 1800 thorough) and decision records in
+`dybs/context/decisions/` from `decision-template.md`.
 
-This is not a design document for every module. It records what an agent
-building any one part must know so its part fits the rest.
+This is not a design for every module. It records what an agent building any
+one part must know so its part fits the rest.
 
-## Gather
+## Read first
 
-Existing project: read before asking. Manifests and lockfiles (languages,
-frameworks, versions), entry points, folder layout, data stores, external
-services, build and test commands, CI config, and any existing architecture
-or ADR docs. Describe what **is**, not what docs wish. Gaps between the two
-are open points for the human.
+Existing project: manifests and lockfiles (languages, frameworks, versions),
+entry points, folder layout, data stores, external services, build and test
+commands, CI config, existing architecture or ADR docs. Describe what **is**.
+Gaps between code and docs are questions for the human.
 
-Greenfield: start from scope constraints. Ask only about choices that would
-be expensive to change later (runtime and language, where data lives, how
-parts talk to each other, hosting, auth). For each, give two options with
-one-line trade-offs and a recommendation. Everything cheap to change later is
-left to the work itself.
+Greenfield: for each choice, give two options with one-line trade-offs and a
+recommendation. Choices that are cheap to change later are left to the work.
+
+## Readiness checklist
+
+**core**
+- [ ] Language, runtime and main framework, each with the reason
+- [ ] Where data lives
+- [ ] The main parts and how they talk to each other
+- [ ] How code is verified: test, lint and CI commands
+- [ ] Constraints from scope that limit the architecture
+
+**thorough**
+- [ ] Every decision that passes the three tests below has a decision record
+- [ ] Which part owns which data and rules, and what may call what
+- [ ] Authentication and permissions
+- [ ] Every external service: what happens when it is slow or down
+- [ ] Security and privacy measures for the data the PRD handles
+- [ ] Performance and scale targets, with numbers
+- [ ] Environments and how code reaches production
+- [ ] Logging and monitoring: how you notice something broke
+- [ ] Existing project: what must stay compatible, and any migrations
+
+Write a decision record only when all three hold: **hard to reverse**,
+**surprising** to a future reader without context, and the result of a
+**real trade-off** between alternatives.
 
 ## Write
 
 - **Shape:** the main parts and how they connect. A short list or a small
-  Mermaid diagram. Name parts with glossary terms where they match.
-- **Decisions:** one line per decision, linking its record:
-  `- Postgres for all persistent data ([0002](decisions/0002-postgres.md))`.
-  Write a decision record only for choices someone might later question.
-- **Boundaries:** which part owns which data and rules; what may call what;
-  what must never happen across a boundary.
-- **Quality bars:** the testable non-functional needs that scope or PRD
-  implies (performance, security, privacy, offline, accessibility level),
-  plus how code is verified (test command, lint, CI gate).
-- **Commands** (optional): build, run, test, in one block. Agents use these.
+  Mermaid diagram, named with glossary terms.
+- **Decisions:** one line each, linking its record where one exists.
+- **Boundaries:** ownership, what may call what, what must never cross.
+- **Quality bars:** testable non-functional needs, plus how code is verified.
+- **Commands** (optional): build, run, test.
 
-Decision records are numbered `NNNN-short-title.md`, never renumbered, and
-never deleted: a reversed decision gets a new record that supersedes it.
+Decision records are numbered `NNNN-short-title.md`, never renumbered or
+deleted: a reversed decision gets a new record that supersedes it.
 
 ## Check in
 
-Validate with `--doc architecture`. Under **Needs you**, list each
+Validate (`--doc architecture`). Under **Needs you**, list each
 recommendation the human has not explicitly confirmed and every place where
 the code and the existing docs disagree.
 

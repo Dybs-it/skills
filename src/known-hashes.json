@@ -1,68 +1,109 @@
 {
   "dybs-architecture/SKILL.md": [
     "6d9977ee07f6ff06f915e25ce2812f473a2d16fb62216171cc377f15593de96f",
-    "3fa8908427bdf5b539ee9a618360da73ae36a56dd4ead18d3259b400282f2217"
+    "3fa8908427bdf5b539ee9a618360da73ae36a56dd4ead18d3259b400282f2217",
+    "8a3e0ffed66d902fda21cb1f29f9458eed7f3ec9c9ec7c229557c266e6725fb9"
   ],
   "dybs-architecture/decision-template.md": [
     "f5889f3fadda2a94736d97d51d303152ccaa05fa08f7bc9be0c4e1ea6b30629d"
   ],
+  "dybs-architecture/interview.md": [
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+  ],
   "dybs-architecture/template.md": [
-    "0cd7c6bb14ccf2b2256405c8c65d09e5b96e41b93fa59696d3c8713c4050283b"
+    "0cd7c6bb14ccf2b2256405c8c65d09e5b96e41b93fa59696d3c8713c4050283b",
+    "e87abf58b73c63b3c11b1729de56ebcbdbea8ca120d90e1836cf2bbe2e1db239"
   ],
   "dybs-check/SKILL.md": [
     "99f0f003aeacc89d70de25c2a1869e444f5ca54c2e736c4736ab7d45affb1871",
-    "17c5f6e0ac5f940cd449f9c19d2c053e4ed18ce503060dc65e9b6d5521321228"
+    "17c5f6e0ac5f940cd449f9c19d2c053e4ed18ce503060dc65e9b6d5521321228",
+    "13e3adbeccc0b54466a7e32d790a4bbfe1120e8ca41f154e16df6b0bd650d706"
+  ],
+  "dybs-check/interview.md": [
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
   ],
   "dybs-domain/SKILL.md": [
     "df85667809297f3e99c00e2100a6ca68ab5bc6e6b14175dbf3032029af7ef86f",
-    "c18a45ed9e42061e4408be5377af040774eb5d90f7fafa72889f0bf9e6fe1ea3"
+    "c18a45ed9e42061e4408be5377af040774eb5d90f7fafa72889f0bf9e6fe1ea3",
+    "2773256fb55abbd6833053bac06ae411e0195c26e6a3a963520b09a109b55d39"
+  ],
+  "dybs-domain/interview.md": [
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
   ],
   "dybs-domain/template.md": [
-    "42022a7d3260d73b5e9b4263e9775ad9204f1d515ed1cea97be5be9e676916e0"
+    "42022a7d3260d73b5e9b4263e9775ad9204f1d515ed1cea97be5be9e676916e0",
+    "5e29f2e649179d45b4c0f96b9edd57ee1b65a1015bc8cfee247c3705a58074f6"
   ],
   "dybs-prd/SKILL.md": [
     "32825d46a3094efd8c13e906cbf4baac96daa7873986b3b804af04a61523ceef",
-    "91e680c0dce046681b09c5bbae5d351d296b5dd9da01699180a74be8f56e8eef"
+    "91e680c0dce046681b09c5bbae5d351d296b5dd9da01699180a74be8f56e8eef",
+    "8741f56a618fcdd323b41f56fdf8b4bc6e816989819404edf623ee65d7ad558e"
+  ],
+  "dybs-prd/interview.md": [
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
   ],
   "dybs-prd/template.md": [
-    "c5a149d5ba9da9e7670c0e64fc9ac2f9a173d343937784e59e9e5bed461fb3b5"
+    "c5a149d5ba9da9e7670c0e64fc9ac2f9a173d343937784e59e9e5bed461fb3b5",
+    "4be709b6359f5756ef530e97e01d42b22595feabe000f5c10a32b5f010f1697f"
   ],
   "dybs-scope/SKILL.md": [
     "3c89407837fb813871664c62ef8b7e7f48d2911ac411855dbde59b52c2448c6b",
-    "f2365aab0cf871c406459778c62abd85d9723efd45108614d3b4ce9b75853ea9"
+    "f2365aab0cf871c406459778c62abd85d9723efd45108614d3b4ce9b75853ea9",
+    "c1a26a9c9e7bd23d9473825ed708db934ad1c749bde0f48cc7225a8316637a94"
+  ],
+  "dybs-scope/interview.md": [
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
   ],
   "dybs-scope/template.md": [
-    "661f22182937d0f39292e27fa90fa42418068f3c10ef3b113ee012ef77fcceeb"
+    "661f22182937d0f39292e27fa90fa42418068f3c10ef3b113ee012ef77fcceeb",
+    "94b94e00467373b4e8c81ba03eb7bfaf90071fe814404f58ab104d23f87d5f7d"
   ],
   "dybs-start/SKILL.md": [
     "ab03e04afc38a5ae567d5a827a0070a0467d3bd4b7bfda4cca8911b7efa9748b",
-    "52f2574a803d5dbf8d64abc67bcd880c34a912f9b6798b48556fbe7c64fe6261"
+    "52f2574a803d5dbf8d64abc67bcd880c34a912f9b6798b48556fbe7c64fe6261",
+    "33b42891bfdf3d728e3a3c060f31e1f685d026a63e2e85ca135da7e6e4258ce5"
   ],
   "dybs-start/assets/README.md": [
     "7e76692e3899935de2a596194d3715f4abe9c15b59b8409b0af07db039ddbeb9",
-    "c3c5c566a2501c235b86febcd965f128a9c03a4c9ea72e99f9a446e3ae4a6183"
+    "c3c5c566a2501c235b86febcd965f128a9c03a4c9ea72e99f9a446e3ae4a6183",
+    "2f5bc99eed39b10fd59134603618c7d1b9e15b5bc90db2faacb1d87793e956a2"
   ],
   "dybs-start/assets/project.md": [
-    "1816cff46184d830f91f2e6cfcc1489ff03b3ebf1d57243a832c45f2672f0bae"
+    "1816cff46184d830f91f2e6cfcc1489ff03b3ebf1d57243a832c45f2672f0bae",
+    "716676ba880a36fdb22056c3c1baa6f2d5ee7246bc733e37b46dc933399f1574"
   ],
   "dybs-start/assets/team.md": [
     "9fa7fa6795038c3d801816463795b80ee80553b05440cc2a5e5b2b0166667dd2"
   ],
+  "dybs-start/interview.md": [
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+  ],
   "dybs-start/scripts/dybs-validate.mjs": [
-    "3da8e7840d04cc809867f20bdadb9b94e60cd8871c90ed1e7825c6e767d81268"
+    "3da8e7840d04cc809867f20bdadb9b94e60cd8871c90ed1e7825c6e767d81268",
+    "945745ee5e0324e17a85e9839bd30e0bb1315a2b496134b123c492cbe6b887c8"
   ],
   "dybs-ui/SKILL.md": [
     "1cc955aae01763568d44bceaac038278b7234a20572901798c028248c524eee6",
-    "c2a5ac3b92a5354cd1c4ecae7a1d751b5844321be7bb1d88832c09c7b149d43f"
+    "c2a5ac3b92a5354cd1c4ecae7a1d751b5844321be7bb1d88832c09c7b149d43f",
+    "9d4b9af7d41ce994b5e74fbda74782f49da6d08991bc1830a3621fef83ba1058"
+  ],
+  "dybs-ui/interview.md": [
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
   ],
   "dybs-ui/template.md": [
-    "f613b3f86cb88006183f615ed2da1f22dcea7dccc2b29e1c945aa89f1a575405"
+    "f613b3f86cb88006183f615ed2da1f22dcea7dccc2b29e1c945aa89f1a575405",
+    "6f5f707fb5e9f3d16d018984d89ded57f7e4ad7778956806eff71b0485df4f9b"
   ],
   "dybs-ux/SKILL.md": [
     "b6d78de3e822156e6369be4955c5f5b75fd3f52dc7dcdd2b0c37815fa585c4fc",
-    "c67fa0d75fe5f4d9b62d6742939e4db6732a59aebb9bdaaf283c95b235bb0304"
+    "c67fa0d75fe5f4d9b62d6742939e4db6732a59aebb9bdaaf283c95b235bb0304",
+    "84e11eb6f533dc5e7fc51b0795e33cb41f64d95e3ece889bc5d102566333bd24"
+  ],
+  "dybs-ux/interview.md": [
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
   ],
   "dybs-ux/template.md": [
-    "23245b048f86af43ab623497371b1406040ddff33bf389b6e535dc7d6916ede6"
+    "23245b048f86af43ab623497371b1406040ddff33bf389b6e535dc7d6916ede6",
+    "5baf2b4f3a5c621a05c407da6367de8707609b8deefbf6357e5dd4f99ddc4b75"
   ]
 }

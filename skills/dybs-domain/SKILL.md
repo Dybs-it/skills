@@ -5,46 +5,57 @@ description: Write or revise dybs/context/domain.md, the project's shared langua
 
 # dybs-domain
 
-Lead persona: **Ezra** (domain keeper). Follow `dybs/README.md`. If `dybs/` is
-missing, run `dybs-start` first.
+Lead persona: **Ezra** (domain keeper). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`.
 
-**Reads:** `project.md`, `context/prd.md`, `context/scope.md`.
-**Writes:** `dybs/context/domain.md` from `template.md` (cap: 700 words).
+**Reads:** `project.md`, `context/prd.md`, `context/scope.md`, `log.md`.
+**Writes:** `dybs/context/domain.md` from `template.md` (cap: 700 words
+quick, 1500 thorough).
 
 This doc pays off more than any other for agents: a term defined here is a
 term every later task, spec and line of code can use without re-explaining.
 
-## Gather
+## Read first
 
-1. Collect candidate terms: the nouns and verbs in the PRD and scope that
-   carry business meaning. Existing project: also the names of core types,
-   tables, models and routes in the code.
-2. Find the conflicts: two words for one thing (`client` and `customer`),
-   one word for two things, or a code name that differs from the spoken name.
-   Each conflict is a question for the human, with your recommended winner.
-3. Ask for the rules the business runs on that the code must respect:
-   limits, states and the transitions between them, who may do what, what
-   must never happen. One question at a time, with a recommendation.
+Collect candidate terms: the nouns and verbs in the PRD and scope that carry
+business meaning. Existing project: also the names of core types, tables,
+models and routes in the code. Find the conflicts: two words for one thing,
+one word for two things, a code name that differs from the spoken name.
+
+## Readiness checklist
+
+**core**
+- [ ] Every business term in the PRD and scope defined, or rejected as a
+      synonym of another
+- [ ] Every naming conflict resolved, with one winning term
+- [ ] The rules the code must enforce: limits, permissions, what must never
+      happen
+
+**thorough**
+- [ ] For each main concept: its states and the allowed moves between them
+- [ ] Every rule tested against at least one edge-case scenario the human
+      answered
+- [ ] Code names mapped to glossary terms where they differ
+- [ ] Ambiguous words banned, each with the word to use instead
+- [ ] How the main concepts relate (one-to-many, owned by, belongs to)
+
+While interviewing, update the glossary the moment a term is settled; do
+not batch it up. The glossary holds meaning only: no implementation detail.
 
 ## Write
 
-- **Glossary:** a table of term, meaning, and *not to be confused with*.
-  Only terms someone could get wrong. 8 to 25 entries is typical.
-- **Rules:** numbered `D1`, `D2`... One line each, phrased so a test could
-  check it ("An order cannot be cancelled after it ships").
-- **Relationships** (optional): how the main concepts relate, as a short
-  list or a small Mermaid diagram if it is clearer.
-- **Avoid** (optional): words that are banned because they are ambiguous,
-  each with the word to use instead.
+- **Glossary:** term, meaning, *not to be confused with*. Add
+  "code: `Name`" when code differs.
+- **Rules:** numbered `D1`, `D2`... One line each, testable ("An order cannot
+  be cancelled after it ships").
+- **Relationships** and **Avoid** (optional, usually thorough).
 
-When code names differ from the glossary, record the mapping in the
-glossary row ("code: `Account`") rather than renaming code. Renames are work
-for later.
+Do not rename code to match the glossary. Renames are work for later.
 
 ## Check in
 
-Validate with `--doc domain`. Under **Needs you**, put every naming conflict
-you resolved and every rule you inferred rather than heard.
+Validate (`--doc domain`). Under **Needs you**, put every naming conflict you
+resolved and every rule you inferred rather than heard.
 
 ## If something is not installed
 

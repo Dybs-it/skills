@@ -35,10 +35,31 @@ every finding:
    which part it belongs to, which rules apply, how it should behave and
    look, and how to verify it? Name the first place it would get stuck.
 
+6. **Readiness.** Every core checklist item of each doc's skill is answered
+   or written as an *(assumption)* with an open question. At thorough depth,
+   every item is answered or parked with a reason.
+
 Report at most 10 findings, most serious first. A finding is a problem plus
 the smallest fix. If there are more, say how many and that they can wait.
 
-## 3. Check in
+## 3. Agent-ready test (thorough)
+
+Run this when any doc is at thorough depth; offer it at quick depth.
+
+Pick three must-have requirements from the PRD, the riskiest first. For each,
+give a fresh sub-agent only the `dybs/` folder and the requirement, and ask:
+
+1. Which part of the system does this touch?
+2. Which domain rules apply?
+3. How should it behave, including when it fails, and how should it look?
+4. How will you verify it is done?
+5. What did you have to guess?
+
+Every guess is a gap. Report the gaps as findings, each pointing at the doc
+and section that should have answered it. Without sub-agents, answer the
+questions yourself from `dybs/` alone, without reading code.
+
+## 4. Check in
 
 Give one brief in the `dybs/README.md` format. Under **Needs you**, ask for
 acceptance of each doc that is still `draft`, and put any contradiction
@@ -51,15 +72,15 @@ phase (ideas) is not built yet.
 
 ## Doc contract (for checking by hand)
 
-| Doc | File | Required `##` sections | Word cap |
+| Doc | File | Required `##` sections | Word cap (quick / thorough) |
 |---|---|---|---|
-| `project` | `dybs/project.md` | Why, Who, Now | 250 |
-| `prd` | `dybs/context/prd.md` | Problem, Users, Goals, Requirements, Success measures, Open questions | 900 |
-| `scope` | `dybs/context/scope.md` | In, Out, Later, Constraints | 450 |
-| `domain` | `dybs/context/domain.md` | Glossary, Rules | 700 |
-| `architecture` | `dybs/context/architecture.md` | Shape, Decisions, Boundaries, Quality bars | 900 |
-| `ux` | `dybs/context/ux.md` | Principles, Key flows, Behaviour rules, Accessibility | 700 |
-| `ui` | `dybs/context/ui.md` | Tone, Tokens, Components, Do and don't | 700 |
+| `project` | `dybs/project.md` | Why, Who, Now | 250 / 350 |
+| `prd` | `dybs/context/prd.md` | Problem, Users, Goals, Requirements, Success measures, Open questions | 900 / 1800 |
+| `scope` | `dybs/context/scope.md` | In, Out, Later, Constraints | 450 / 800 |
+| `domain` | `dybs/context/domain.md` | Glossary, Rules | 700 / 1500 |
+| `architecture` | `dybs/context/architecture.md` | Shape, Decisions, Boundaries, Quality bars | 900 / 1800 |
+| `ux` | `dybs/context/ux.md` | Principles, Key flows, Behaviour rules, Accessibility | 700 / 1400 |
+| `ui` | `dybs/context/ui.md` | Tone, Tokens, Components, Do and don't | 700 / 1400 |
 
 ## If something is not installed
 

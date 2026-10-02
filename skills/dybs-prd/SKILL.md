@@ -5,45 +5,58 @@ description: Write or revise dybs/context/prd.md, the project's short product re
 
 # dybs-prd
 
-Lead persona: **Noor** (see `dybs/team.md`). Follow the run loop and rules in
-`dybs/README.md`. If `dybs/` is missing, stop and run `dybs-start` first.
+Lead persona: **Noor** (see `dybs/team.md`). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`.
 
-**Reads:** `dybs/project.md`. **Writes:** `dybs/context/prd.md` from
-`template.md` (cap: 900 words).
+**Reads:** `dybs/project.md`, `dybs/log.md`. **Writes:** `dybs/context/prd.md`
+from `template.md` (cap: 900 words quick, 1800 thorough).
 
-## Gather
+## Read first
 
-Existing project: read the README, any PRD, brief or spec docs, and skim the
-main entry points and routes to see what the product actually does. Where
-docs and code disagree, the code describes the present and the docs describe
-an intent; note the gap as an open question.
+Existing project: the README, any PRD, brief or spec docs, and the main
+entry points and routes, to see what the product does today. Where docs and
+code disagree, the code is the present and the docs are an intent: ask which
+one the PRD should describe.
 
-Greenfield: interview. Cover these, one question at a time, each with your
-recommended answer. Stop as soon as you can draft.
+## Readiness checklist
 
-1. What does the user do today, and what is painful about it?
-2. Who exactly is the first user? One concrete person or role, not a market.
-3. What will they be able to do that they cannot now?
-4. How will we know it worked? Something you could observe or count.
-5. What must it never do? (Data, money, privacy, trust.)
+**core**
+- [ ] The problem in the user's words, and what they do today instead
+- [ ] The primary user: one concrete person or role, not a market
+- [ ] 3 to 5 goals, each one you could check afterwards
+- [ ] Every must-have requirement, each testable by observing behaviour
+- [ ] How each goal will be observed (a number, or who you will ask)
+- [ ] What it must never do (data, money, privacy, trust)
+
+**thorough**
+- [ ] Every user group, and what each is trying to get done
+- [ ] At least one journey told with a named person, start to finish,
+      including where it goes wrong
+- [ ] Should-haves, ranked
+- [ ] Counter-metrics: what must not get worse while the goals improve
+- [ ] Each concern from the concern scan has requirements, or is marked not
+      applicable with a reason
+- [ ] Platforms and form factor (web, mobile, desktop, API, hardware)
+- [ ] The riskiest assumptions, each with how it will be tested
+- [ ] Every open question has an owner
 
 ## Write
 
 - **Problem:** the pain in the user's terms. No solution words.
-- **Users:** primary user first. At most three groups.
+- **Users:** primary user first. Thorough adds the other groups.
+- **Journeys** (thorough): short numbered steps per journey, named person.
 - **Goals:** 3 to 5 outcomes, each checkable.
-- **Requirements:** numbered `R1`, `R2`... so later work can cite them. Each
-  is one line describing behaviour, not implementation. Mark must-haves
-  **(must)**; everything else is a should.
-- **Success measures:** how each goal is observed. Numbers where honest,
-  "we'll ask the first five users" where not.
-- **Open questions:** what you do not know, each with who can answer it.
+- **Requirements:** numbered `R1`, `R2`... so later work can cite them. One
+  line each, behaviour not implementation. Mark must-haves **(must)**.
+- **Success measures:** how each goal is observed. Thorough adds the
+  counter-metrics.
+- **Open questions:** each with who can answer it.
 
 Scope boundaries (what is out) belong in `scope.md`, not here.
 
 ## Check in
 
-Validate with `--doc prd`, then give the check-in brief. Under **Needs you**,
+Validate (`--doc prd`), then give the check-in brief. Under **Needs you**,
 list the goals and must-haves you are least sure the human agrees with.
 
 ## If something is not installed

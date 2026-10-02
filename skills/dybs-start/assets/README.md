@@ -1,6 +1,6 @@
 ---
 method: dybs
-method-version: 0.1.0
+method-version: 0.2.0
 ---
 
 # dybs/
@@ -17,7 +17,8 @@ Agents follow the rules below. Humans may edit them; the project's copy wins.
 dybs/
   README.md            these rules
   team.md              the personas agents speak as
-  project.md           name, why, who, now, check-in choices
+  project.md           name, why, who, now, depth and check-in choices
+  log.md               every decision from the interviews, append-only
   context/
     prd.md             the problem and what success means
     scope.md           in, out, later, constraints
@@ -54,14 +55,23 @@ written empty.
 6. **Plain words.** Write for a reader who was not in the conversation. Use
    the terms defined in `domain.md` once it exists.
 
+## Depth
+
+`project.md` sets how deep the interviews go: `depth: quick` (core
+questions, about 5 to 10 minutes per doc) or `depth: thorough` (every
+question until nothing is open, about 15 to 30 minutes per doc). The lists
+`quick:` and `thorough:` name docs that differ. Both depths write the same
+docs; a quick doc can be deepened later.
+
 ## How a Getting Started skill runs
 
-1. **Read** `project.md` and every accepted or draft doc earlier in the order.
-2. **Gather.** Existing code or docs: read them first and extract. Otherwise
-   interview the human: one question at a time, each with a recommended
-   answer they can accept with "yes". Stop asking as soon as there is enough
-   to draft; open points become open questions, not more questions.
-3. **Draft** from the skill's template, inside the cap.
+1. **Read** `project.md`, `log.md` and every doc earlier in the order.
+2. **Interview** as the skill's `interview.md` describes: collect what
+   exists, look up facts yourself, then ask in numbered rounds with a
+   recommended answer for each question, until the skill's readiness
+   checklist is covered for the chosen depth. Log every decision in
+   `log.md`.
+3. **Draft** from the skill's template, inside the cap for the depth.
 4. **Validate** the way the skill describes: with the Dybs validator when it
    is installed, otherwise by hand against the skill's template and word
    cap. Fix every error before the check-in.
