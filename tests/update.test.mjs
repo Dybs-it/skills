@@ -186,6 +186,6 @@ test('kickoff choices have a home in the project.md template', () => {
   const start = readFileSync(join(SKILLS_SRC, 'dybs-start', SKILL), 'utf8');
   for (const field of ['type', 'stage', 'horizon', 'depth', 'quick', 'thorough', 'checkins', 'skip']) {
     assert.match(tpl, new RegExp(`^${field}:`, 'm'), `template lacks ${field}`);
-    assert.ok(start.includes(`\`${field}\``), `dybs-start does not set ${field}`);
+    assert.match(start, new RegExp(`\`${field}:?\``), `dybs-start does not set ${field}`);
   }
 });
