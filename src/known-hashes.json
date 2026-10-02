@@ -8,7 +8,9 @@
     "f5889f3fadda2a94736d97d51d303152ccaa05fa08f7bc9be0c4e1ea6b30629d"
   ],
   "dybs-architecture/interview.md": [
-    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c",
+    "e70245dc5c738dfa36950357d5ffbe648a4d43a8d87d79fe147099f11fb87d18",
+    "609edd993ce4c37e831994a423ba238178cce049fc0c433aec51d4f3495f5ec5"
   ],
   "dybs-architecture/template.md": [
     "0cd7c6bb14ccf2b2256405c8c65d09e5b96e41b93fa59696d3c8713c4050283b",
@@ -20,7 +22,9 @@
     "13e3adbeccc0b54466a7e32d790a4bbfe1120e8ca41f154e16df6b0bd650d706"
   ],
   "dybs-check/interview.md": [
-    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c",
+    "e70245dc5c738dfa36950357d5ffbe648a4d43a8d87d79fe147099f11fb87d18",
+    "609edd993ce4c37e831994a423ba238178cce049fc0c433aec51d4f3495f5ec5"
   ],
   "dybs-domain/SKILL.md": [
     "df85667809297f3e99c00e2100a6ca68ab5bc6e6b14175dbf3032029af7ef86f",
@@ -28,7 +32,9 @@
     "2773256fb55abbd6833053bac06ae411e0195c26e6a3a963520b09a109b55d39"
   ],
   "dybs-domain/interview.md": [
-    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c",
+    "e70245dc5c738dfa36950357d5ffbe648a4d43a8d87d79fe147099f11fb87d18",
+    "609edd993ce4c37e831994a423ba238178cce049fc0c433aec51d4f3495f5ec5"
   ],
   "dybs-domain/template.md": [
     "42022a7d3260d73b5e9b4263e9775ad9204f1d515ed1cea97be5be9e676916e0",
@@ -40,7 +46,9 @@
     "8741f56a618fcdd323b41f56fdf8b4bc6e816989819404edf623ee65d7ad558e"
   ],
   "dybs-prd/interview.md": [
-    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c",
+    "e70245dc5c738dfa36950357d5ffbe648a4d43a8d87d79fe147099f11fb87d18",
+    "609edd993ce4c37e831994a423ba238178cce049fc0c433aec51d4f3495f5ec5"
   ],
   "dybs-prd/template.md": [
     "c5a149d5ba9da9e7670c0e64fc9ac2f9a173d343937784e59e9e5bed461fb3b5",
@@ -52,7 +60,9 @@
     "c1a26a9c9e7bd23d9473825ed708db934ad1c749bde0f48cc7225a8316637a94"
   ],
   "dybs-scope/interview.md": [
-    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c",
+    "e70245dc5c738dfa36950357d5ffbe648a4d43a8d87d79fe147099f11fb87d18",
+    "609edd993ce4c37e831994a423ba238178cce049fc0c433aec51d4f3495f5ec5"
   ],
   "dybs-scope/template.md": [
     "661f22182937d0f39292e27fa90fa42418068f3c10ef3b113ee012ef77fcceeb",
@@ -61,22 +71,28 @@
   "dybs-start/SKILL.md": [
     "ab03e04afc38a5ae567d5a827a0070a0467d3bd4b7bfda4cca8911b7efa9748b",
     "52f2574a803d5dbf8d64abc67bcd880c34a912f9b6798b48556fbe7c64fe6261",
-    "33b42891bfdf3d728e3a3c060f31e1f685d026a63e2e85ca135da7e6e4258ce5"
+    "33b42891bfdf3d728e3a3c060f31e1f685d026a63e2e85ca135da7e6e4258ce5",
+    "f524cf7014bfb39d11a2141962f99583740b87fcd0c5ca64ad0c142d558aa85b"
   ],
   "dybs-start/assets/README.md": [
     "7e76692e3899935de2a596194d3715f4abe9c15b59b8409b0af07db039ddbeb9",
     "c3c5c566a2501c235b86febcd965f128a9c03a4c9ea72e99f9a446e3ae4a6183",
-    "2f5bc99eed39b10fd59134603618c7d1b9e15b5bc90db2faacb1d87793e956a2"
+    "2f5bc99eed39b10fd59134603618c7d1b9e15b5bc90db2faacb1d87793e956a2",
+    "050b5e75e4e21df5223a84c4acbecbb7fef617ba5cd6bc5073e2cfea9a6779ad"
   ],
   "dybs-start/assets/project.md": [
     "1816cff46184d830f91f2e6cfcc1489ff03b3ebf1d57243a832c45f2672f0bae",
-    "716676ba880a36fdb22056c3c1baa6f2d5ee7246bc733e37b46dc933399f1574"
+    "716676ba880a36fdb22056c3c1baa6f2d5ee7246bc733e37b46dc933399f1574",
+    "e5692f0412413489135f952eee7f0b313cf3f7bd8e408f43679f20f839fa582f"
   ],
   "dybs-start/assets/team.md": [
-    "9fa7fa6795038c3d801816463795b80ee80553b05440cc2a5e5b2b0166667dd2"
+    "9fa7fa6795038c3d801816463795b80ee80553b05440cc2a5e5b2b0166667dd2",
+    "7d471a3602d9215c0665d4ecd5f5d23664ab0d0362381208730a7216e4970350"
   ],
   "dybs-start/interview.md": [
-    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c",
+    "e70245dc5c738dfa36950357d5ffbe648a4d43a8d87d79fe147099f11fb87d18",
+    "609edd993ce4c37e831994a423ba238178cce049fc0c433aec51d4f3495f5ec5"
   ],
   "dybs-start/scripts/dybs-validate.mjs": [
     "3da8e7840d04cc809867f20bdadb9b94e60cd8871c90ed1e7825c6e767d81268",
@@ -88,7 +104,9 @@
     "9d4b9af7d41ce994b5e74fbda74782f49da6d08991bc1830a3621fef83ba1058"
   ],
   "dybs-ui/interview.md": [
-    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c",
+    "e70245dc5c738dfa36950357d5ffbe648a4d43a8d87d79fe147099f11fb87d18",
+    "609edd993ce4c37e831994a423ba238178cce049fc0c433aec51d4f3495f5ec5"
   ],
   "dybs-ui/template.md": [
     "f613b3f86cb88006183f615ed2da1f22dcea7dccc2b29e1c945aa89f1a575405",
@@ -100,7 +118,9 @@
     "84e11eb6f533dc5e7fc51b0795e33cb41f64d95e3ece889bc5d102566333bd24"
   ],
   "dybs-ux/interview.md": [
-    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c"
+    "a4ecc6059efe0cf3d2c54e9f00ddfd9d9bbc32ea73e2a3f0e3f1bb3429ffe14c",
+    "e70245dc5c738dfa36950357d5ffbe648a4d43a8d87d79fe147099f11fb87d18",
+    "609edd993ce4c37e831994a423ba238178cce049fc0c433aec51d4f3495f5ec5"
   ],
   "dybs-ux/template.md": [
     "23245b048f86af43ab623497371b1406040ddff33bf389b6e535dc7d6916ede6",

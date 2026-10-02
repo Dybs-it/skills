@@ -18,7 +18,7 @@ The human chooses how deep to go. Read it from `dybs/project.md`:
 | | quick | thorough |
 |---|---|---|
 | For | side projects, experiments, a first try | long-term products you will build on for months |
-| Time | about 5 to 10 minutes per doc | about 15 to 30 minutes per doc |
+| Time | about 5 to 10 minutes per doc | about 10 to 20 minutes per doc |
 | Covers | checklist items marked **core** | every checklist item |
 | Rounds | at most two | until nothing is open |
 | Gaps | written as *(assumption)* plus an open question | each answered, or parked by the human with a reason |
@@ -29,8 +29,11 @@ longer doc, but the reasoning belongs in `dybs/log.md`, not in the doc.
 
 ## 1. Collect first
 
-Ask once: "What do you already have? Notes, docs, links, designs, code,
-anything else?" Read all of it. Use sub-agents for large sources and keep
+Read `dybs/project.md` and the `kickoff` lines in `dybs/log.md` first: the
+kickoff already collected the idea and the sources. Ask only for what is new
+for this doc: "Anything else I should read for this part?" Without a
+kickoff, ask once: "What do you already have? Notes, docs, links, designs,
+code, anything else?" Read all of it. Use sub-agents for large sources and keep
 only what they extract.
 
 **Facts are your job, decisions are the human's.** Never ask something you

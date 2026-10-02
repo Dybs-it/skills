@@ -59,7 +59,7 @@ written empty.
 
 `project.md` sets how deep the interviews go: `depth: quick` (core
 questions, about 5 to 10 minutes per doc) or `depth: thorough` (every
-question until nothing is open, about 15 to 30 minutes per doc). The lists
+question until nothing is open, about 10 to 20 minutes per doc). The lists
 `quick:` and `thorough:` name docs that differ. Both depths write the same
 docs; a quick doc can be deepened later.
 

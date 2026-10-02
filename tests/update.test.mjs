@@ -180,3 +180,12 @@ test('CLI: status, update, validate', () => {
   rmSync(root, { recursive: true });
   rmSync(empty, { recursive: true });
 });
+
+test('kickoff choices have a home in the project.md template', () => {
+  const tpl = readFileSync(join(SKILLS_SRC, 'dybs-start/assets/project.md'), 'utf8');
+  const start = readFileSync(join(SKILLS_SRC, 'dybs-start', SKILL), 'utf8');
+  for (const field of ['type', 'stage', 'horizon', 'depth', 'quick', 'thorough', 'checkins', 'skip']) {
+    assert.match(tpl, new RegExp(`^${field}:`, 'm'), `template lacks ${field}`);
+    assert.ok(start.includes(`\`${field}\``), `dybs-start does not set ${field}`);
+  }
+});

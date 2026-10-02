@@ -4,6 +4,9 @@ status: draft
 updated: {{YYYY-MM-DD}}
 name: {{Project name}}
 kind: {{greenfield | existing}}
+type: {{web app | mobile app | desktop app | api | library | cli | website | internal tool | agent | other}}
+stage: {{idea | prototype | in use}}
+horizon: {{experiment | side project | long-term}}
 depth: {{quick | thorough}}
 quick:
 thorough:

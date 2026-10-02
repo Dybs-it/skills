@@ -16,8 +16,10 @@ for a weekend idea.
 
 ## Decision
 
-- The human picks `depth: quick` or `depth: thorough` in `dybs-start`, with
-  a recommendation, and can set single docs to the other depth.
+- `dybs-start` runs a kickoff like an agency would: the idea in a few lines,
+  one round of at most six questions (type, audience, stage, horizon,
+  builders, hard limits), then advice with options: quick start, thorough
+  kickoff, custom, or park it. The human chooses; single docs can differ.
 - Every skill has a readiness checklist; items are **core** (both depths)
   or **thorough** (thorough only).
 - One interview method for all skills (`interview.md`, an identical copy per

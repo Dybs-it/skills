@@ -26,7 +26,11 @@ GitHub (they clone with your git credentials).
 
 ## Use
 
-In your agent, say **"dybs start"**.
+In your agent, say **"dybs start"**. It runs a kickoff like a good agency
+would: you describe your idea in a few lines, it asks a handful of sharp
+questions (type of project, who it is for, where it stands, how long it
+should live), then advises how to continue and lets you choose: a quick
+start, a thorough kickoff, a custom mix, or park it for later.
 
 ```
 project → prd → scope → domain → architecture → ux → ui → check
@@ -34,7 +38,7 @@ project → prd → scope → domain → architecture → ux → ui → check
 
 | Skill | Writes | Lead persona |
 |---|---|---|
-| `dybs-start` | `dybs/README.md`, `team.md`, `project.md`; routes to the next step | Noor |
+| `dybs-start` | the kickoff: `dybs/project.md`, `log.md`, `README.md`, `team.md`; routes to the next step | Noor |
 | `dybs-prd` | `context/prd.md` | Noor |
 | `dybs-scope` | `context/scope.md` | Noor, with Bas |
 | `dybs-domain` | `context/domain.md` | Ezra |
@@ -45,12 +49,12 @@ project → prd → scope → domain → architecture → ux → ui → check
 
 ### Quick or thorough
 
-`dybs-start` asks how deep to go, and recommends one:
+The kickoff recommends a depth and you choose:
 
 | | quick | thorough |
 |---|---|---|
 | For | side projects, experiments, a first try | long-term products |
-| Time | about 5 to 10 minutes per doc | about 15 to 30 minutes per doc (1 to 2 hours in total) |
+| Time | about 5 to 10 minutes per doc | about 10 to 20 minutes per doc (1 to 2 hours in total) |
 | Interview | core questions, at most two rounds | every question, until nothing is open |
 | Gaps | marked *(assumption)* with an open question | answered, or parked by you with a reason |
 | Check | consistency across docs | plus an agent-ready test by fresh sub-agents |
