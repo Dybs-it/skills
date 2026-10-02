@@ -1,0 +1,16 @@
+{
+  "name": "dybs-it",
+  "owner": {
+    "name": "Dybs.it"
+  },
+  "metadata": {
+    "description": "Dybs.it skills for human-led AI development."
+  },
+  "plugins": [
+    {
+      "name": "dybs",
+      "source": "./",
+      "description": "The Dybs method: Getting Started skills for a short, human-accepted project context."
+    }
+  ]
+}

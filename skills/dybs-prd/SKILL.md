@@ -45,3 +45,18 @@ Scope boundaries (what is out) belong in `scope.md`, not here.
 
 Validate with `--doc prd`, then give the check-in brief. Under **Needs you**,
 list the goals and must-haves you are least sure the human agrees with.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/` folder:** stop and suggest `dybs-start`. If that skill is not
+  installed, the human can add it with
+  `npx skills add Dybs-it/skills --skill dybs-start`.
+- **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
+  same skills folder as this skill and Node is available, run it from the
+  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  check by hand: frontmatter has `doc`, `status` and `updated`; every `##`
+  heading from the skill's `template.md` is present; the doc is under its
+  word cap. Say in the check-in which way you validated.

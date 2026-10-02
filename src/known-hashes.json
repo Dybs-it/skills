@@ -1,0 +1,68 @@
+{
+  "dybs-architecture/SKILL.md": [
+    "6d9977ee07f6ff06f915e25ce2812f473a2d16fb62216171cc377f15593de96f",
+    "3fa8908427bdf5b539ee9a618360da73ae36a56dd4ead18d3259b400282f2217"
+  ],
+  "dybs-architecture/decision-template.md": [
+    "f5889f3fadda2a94736d97d51d303152ccaa05fa08f7bc9be0c4e1ea6b30629d"
+  ],
+  "dybs-architecture/template.md": [
+    "0cd7c6bb14ccf2b2256405c8c65d09e5b96e41b93fa59696d3c8713c4050283b"
+  ],
+  "dybs-check/SKILL.md": [
+    "99f0f003aeacc89d70de25c2a1869e444f5ca54c2e736c4736ab7d45affb1871",
+    "17c5f6e0ac5f940cd449f9c19d2c053e4ed18ce503060dc65e9b6d5521321228"
+  ],
+  "dybs-domain/SKILL.md": [
+    "df85667809297f3e99c00e2100a6ca68ab5bc6e6b14175dbf3032029af7ef86f",
+    "c18a45ed9e42061e4408be5377af040774eb5d90f7fafa72889f0bf9e6fe1ea3"
+  ],
+  "dybs-domain/template.md": [
+    "42022a7d3260d73b5e9b4263e9775ad9204f1d515ed1cea97be5be9e676916e0"
+  ],
+  "dybs-prd/SKILL.md": [
+    "32825d46a3094efd8c13e906cbf4baac96daa7873986b3b804af04a61523ceef",
+    "91e680c0dce046681b09c5bbae5d351d296b5dd9da01699180a74be8f56e8eef"
+  ],
+  "dybs-prd/template.md": [
+    "c5a149d5ba9da9e7670c0e64fc9ac2f9a173d343937784e59e9e5bed461fb3b5"
+  ],
+  "dybs-scope/SKILL.md": [
+    "3c89407837fb813871664c62ef8b7e7f48d2911ac411855dbde59b52c2448c6b",
+    "f2365aab0cf871c406459778c62abd85d9723efd45108614d3b4ce9b75853ea9"
+  ],
+  "dybs-scope/template.md": [
+    "661f22182937d0f39292e27fa90fa42418068f3c10ef3b113ee012ef77fcceeb"
+  ],
+  "dybs-start/SKILL.md": [
+    "ab03e04afc38a5ae567d5a827a0070a0467d3bd4b7bfda4cca8911b7efa9748b",
+    "52f2574a803d5dbf8d64abc67bcd880c34a912f9b6798b48556fbe7c64fe6261"
+  ],
+  "dybs-start/assets/README.md": [
+    "7e76692e3899935de2a596194d3715f4abe9c15b59b8409b0af07db039ddbeb9",
+    "c3c5c566a2501c235b86febcd965f128a9c03a4c9ea72e99f9a446e3ae4a6183"
+  ],
+  "dybs-start/assets/project.md": [
+    "1816cff46184d830f91f2e6cfcc1489ff03b3ebf1d57243a832c45f2672f0bae"
+  ],
+  "dybs-start/assets/team.md": [
+    "9fa7fa6795038c3d801816463795b80ee80553b05440cc2a5e5b2b0166667dd2"
+  ],
+  "dybs-start/scripts/dybs-validate.mjs": [
+    "3da8e7840d04cc809867f20bdadb9b94e60cd8871c90ed1e7825c6e767d81268"
+  ],
+  "dybs-ui/SKILL.md": [
+    "1cc955aae01763568d44bceaac038278b7234a20572901798c028248c524eee6",
+    "c2a5ac3b92a5354cd1c4ecae7a1d751b5844321be7bb1d88832c09c7b149d43f"
+  ],
+  "dybs-ui/template.md": [
+    "f613b3f86cb88006183f615ed2da1f22dcea7dccc2b29e1c945aa89f1a575405"
+  ],
+  "dybs-ux/SKILL.md": [
+    "b6d78de3e822156e6369be4955c5f5b75fd3f52dc7dcdd2b0c37815fa585c4fc",
+    "c67fa0d75fe5f4d9b62d6742939e4db6732a59aebb9bdaaf283c95b235bb0304"
+  ],
+  "dybs-ux/template.md": [
+    "23245b048f86af43ab623497371b1406040ddff33bf389b6e535dc7d6916ede6"
+  ]
+}

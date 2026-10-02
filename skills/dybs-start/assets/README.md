@@ -62,9 +62,9 @@ written empty.
    answer they can accept with "yes". Stop asking as soon as there is enough
    to draft; open points become open questions, not more questions.
 3. **Draft** from the skill's template, inside the cap.
-4. **Validate:** `npx dybs-skills validate . --doc <name>`, or run
-   `dybs-start/scripts/dybs-validate.mjs` from the installed skills folder
-   with Node. Fix every error before the check-in.
+4. **Validate** the way the skill describes: with the Dybs validator when it
+   is installed, otherwise by hand against the skill's template and word
+   cap. Fix every error before the check-in.
 5. **Check in** (or carry on, see below) with a check-in brief.
 
 ## Check-ins

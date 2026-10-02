@@ -1,47 +1,30 @@
-# dybs-skills
+# Dybs.it skills
 
-The Dybs method as agent skills, installed with one command into the agents
-you already use.
-
-```
-npx dybs-skills install
-```
-
-Phase 1 ships **Getting Started**: a short, human-accepted project context
-that AI coding agents build from. Ideas, roadmap and the work loop follow
-(see [docs/ROADMAP.md](docs/ROADMAP.md)).
+The Dybs method as agent skills: a short, human-accepted project context
+that AI coding agents build from. Phase 1 ships **Getting Started**. Ideas,
+roadmap and the work loop follow (see [docs/ROADMAP.md](docs/ROADMAP.md)).
 
 ## Install
 
-Run in your project root:
+With the [skills](https://skills.sh) package manager (Claude Code, Codex,
+Cursor, Gemini CLI, Copilot and more):
 
 ```
-npx dybs-skills install                      # detect agents from the project
-npx dybs-skills install --tools claude,agents
-npx dybs-skills install --dry-run            # show what would change
-npx dybs-skills update                       # same as install, after an upgrade
-npx dybs-skills status
-npx dybs-skills uninstall                    # never touches dybs/
+npx skills add Dybs-it/skills                      # all skills
+npx skills add Dybs-it/skills --skill dybs-start   # one skill
 ```
 
-| Target | Folder | For |
-|---|---|---|
-| `claude` | `.claude/skills/` | Claude Code |
-| `agents` | `.agents/skills/` | Codex, Gemini CLI, Kimi and other agents that read `.agents/skills` |
-| `opencode` | `.opencode/commands/` | OpenCode (each command loads the skill from `.agents/skills/`) |
+In Claude Code, as a plugin:
 
-Without `--tools`, targets are detected from `.claude/`, `CLAUDE.md`,
-`.agents/`, `AGENTS.md`, `.codex/`, `.gemini/` and `.opencode/`. If nothing
-is found it installs `claude` and `agents`.
+```
+/plugin marketplace add Dybs-it/skills
+/plugin install dybs@dybs-it
+```
 
-**Your edits are safe.** Each target folder gets a `.dybs-skills.json`
-manifest with a hash of every installed file. Install, update and uninstall
-only change files that still match that hash. A file you edited, or one that
-was there before, is reported and left alone; `--force` replaces it and keeps
-a `.bak` copy. Other skills in the same folder (BMad, your own) are never
-touched.
+While this repo is private, both work for anyone with read access to it on
+GitHub (they clone with your git credentials).
 
-## Getting Started
+## Use
 
 In your agent, say **"dybs start"**.
 
@@ -60,12 +43,28 @@ project → prd → scope → domain → architecture → ux → ui → check
 | `dybs-ui` | `context/ui.md` | Jun |
 | `dybs-check` | nothing; one check-in brief across all docs | Bas |
 
-Validate the context any time:
+Every skill works on its own. Without `dybs-start` installed, a skill says
+which one to add; without the validator, it checks the doc by hand.
+
+## The dybs-skills CLI
+
+For what a package manager can't do. Until it is on npm, run it from GitHub:
 
 ```
-npx dybs-skills validate                 # whole dybs/ folder
-npx dybs-skills validate --doc prd --json
+npx github:Dybs-it/skills validate                # check the project's dybs/ context
+npx github:Dybs-it/skills validate --doc prd --json
+npx github:Dybs-it/skills update --dry-run        # what a safe update would change
+npx github:Dybs-it/skills update                  # update installed Dybs skills
+npx github:Dybs-it/skills status                  # where they are installed
 ```
+
+`update` finds Dybs skills in every `.<agent>/skills/` folder (and your home
+folder with `--global`), follows symlinks, and only touches skills that are
+already installed. **It never overwrites your edits:** a file is replaced
+only when it still matches a version this package shipped. Anything you
+changed is reported and left alone; `--force` replaces it and keeps a `.bak`.
+
+`npx skills update` also works, but replaces skill files whole.
 
 ## Principles
 
@@ -78,20 +77,23 @@ npx dybs-skills validate --doc prd --json
 ## Develop
 
 ```
-npm test                    # validator contract, installer safety, CLI
-npm pack                    # then: npx --package=./dybs-skills-<v>.tgz dybs-skills install
+npm test                 # validator contract, safe update, CLI, skill consistency
+npm run record-hashes    # after changing any file under skills/ (tests fail until you do)
+claude plugin validate . # plugin and marketplace manifests
 ```
 
 - `skills/dybs-start/scripts/dybs-validate.mjs` (`DOCS`) is the single home
   for required sections and word caps. Change a template and the contract
   together; the tests fail if they drift.
-- `src/install.mjs` holds the install targets and the edit-safety rule.
+- `src/update.mjs` owns the safe-update rule. `src/known-hashes.json` is
+  append-only: it is how an untouched install of any released version is
+  told apart from a user's edit.
 - How to field-test the skills on real work: [tests/PROTOCOL.md](tests/PROTOCOL.md).
 
 ## Credits
 
 Inspired by the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD)
-(MIT), especially its personas and installer, and by
+(MIT), especially its personas, and by
 [Matt Pocock's skills](https://github.com/mattpocock/skills), especially
 grilling with recommended answers and a shared domain language. No text is
 copied from either. See [NOTICE.md](NOTICE.md).

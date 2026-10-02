@@ -1,0 +1,7 @@
+{
+  "name": "dybs",
+  "version": "0.2.0",
+  "description": "The Dybs method: skills that build a short, human-accepted project context (project, PRD, scope, domain, architecture, UX, UI) for AI coding agents.",
+  "author": { "name": "Dybs.it" },
+  "repository": "https://github.com/Dybs-it/skills"
+}

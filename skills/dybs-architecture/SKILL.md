@@ -52,3 +52,18 @@ never deleted: a reversed decision gets a new record that supersedes it.
 Validate with `--doc architecture`. Under **Needs you**, list each
 recommendation the human has not explicitly confirmed and every place where
 the code and the existing docs disagree.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/` folder:** stop and suggest `dybs-start`. If that skill is not
+  installed, the human can add it with
+  `npx skills add Dybs-it/skills --skill dybs-start`.
+- **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
+  same skills folder as this skill and Node is available, run it from the
+  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  check by hand: frontmatter has `doc`, `status` and `updated`; every `##`
+  heading from the skill's `template.md` is present; the doc is under its
+  word cap. Say in the check-in which way you validated.

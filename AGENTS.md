@@ -1,12 +1,17 @@
-# Working on dybs-skills
+# Working on Dybs-it/skills
 
 - Skills live in `skills/<name>/SKILL.md`, with templates beside them.
   `dybs-start/assets/` holds the files copied into a project's `dybs/`.
 - `skills/dybs-start/scripts/dybs-validate.mjs` (`DOCS`, `ORDER`) is the
   single home for the doc contract. Change a template and `DOCS` together.
-- `bin/dybs-skills.mjs` is the npx CLI; `src/install.mjs` owns install
-  targets and the rule that a file the user edited is never overwritten or
-  deleted without `--force`. `npm test` must pass.
+- Installing is the package manager's job (`npx skills add Dybs-it/skills`,
+  Claude plugin marketplace). `bin/dybs-skills.mjs` only validates and
+  safely updates; `src/update.mjs` owns the rule that a file the user
+  changed is never overwritten or deleted without `--force`.
+- Every skill must work when installed alone. Skills other than
+  `dybs-start` carry the identical "If something is not installed" section.
+- After changing anything under `skills/`, run `npm run record-hashes`.
+  `src/known-hashes.json` is append-only. `npm test` must pass.
 - Practise what the skills preach: short, plain, no invented facts.
   No em dashes in any text.
 - A skill change is only done after a field run (`tests/PROTOCOL.md`) on

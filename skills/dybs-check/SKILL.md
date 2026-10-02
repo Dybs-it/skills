@@ -13,9 +13,8 @@ for fixes. Your output is the check-in brief.
 
 ## 1. Mechanical check
 
-From the project root, run `node <skills>/dybs-start/scripts/dybs-validate.mjs .`
-where `<skills>` is the folder that holds this skill (`npx dybs-skills
-validate` does the same). Every error is listed first in the brief. Missing docs
+Validate every doc (see *If something is not installed* below for how).
+Every error is listed first in the brief. Missing docs
 that are not under `skip:` are errors here, even though the validator treats
 them as a next step.
 
@@ -49,3 +48,30 @@ only those.
 
 When every doc is accepted, end with: Getting Started is complete; the next
 phase (ideas) is not built yet.
+
+## Doc contract (for checking by hand)
+
+| Doc | File | Required `##` sections | Word cap |
+|---|---|---|---|
+| `project` | `dybs/project.md` | Why, Who, Now | 250 |
+| `prd` | `dybs/context/prd.md` | Problem, Users, Goals, Requirements, Success measures, Open questions | 900 |
+| `scope` | `dybs/context/scope.md` | In, Out, Later, Constraints | 450 |
+| `domain` | `dybs/context/domain.md` | Glossary, Rules | 700 |
+| `architecture` | `dybs/context/architecture.md` | Shape, Decisions, Boundaries, Quality bars | 900 |
+| `ux` | `dybs/context/ux.md` | Principles, Key flows, Behaviour rules, Accessibility | 700 |
+| `ui` | `dybs/context/ui.md` | Tone, Tokens, Components, Do and don't | 700 |
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/` folder:** stop and suggest `dybs-start`. If that skill is not
+  installed, the human can add it with
+  `npx skills add Dybs-it/skills --skill dybs-start`.
+- **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
+  same skills folder as this skill and Node is available, run it from the
+  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  check by hand: frontmatter has `doc`, `status` and `updated`; every `##`
+  heading listed in the doc contract above is present; the doc is under
+  its word cap. Say in the check-in which way you validated.

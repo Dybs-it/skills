@@ -53,6 +53,8 @@ The next step is the first doc that is missing, failing, or still `draft`.
   `dybs/README.md`). The human accepts it or edits it.
 - Then hand off to the matching skill: `dybs-prd`, `dybs-scope`,
   `dybs-domain`, `dybs-architecture`, `dybs-ux`, `dybs-ui`, `dybs-check`.
+  Skills install one by one, so if the next one is not installed, say so and
+  give the command: `npx skills add Dybs-it/skills --skill <name>`.
 - With `checkins: end` or `none`, run the remaining skills one after another
   in draft mode without stopping, then finish with `dybs-check`. Safety stops
   still apply.
