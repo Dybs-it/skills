@@ -248,7 +248,7 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterLook: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null };
+export const testHooks = { afterLook: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -422,6 +422,9 @@ export function placeNoClobber(from, to, check) {
 // call can prove is its own, so it is removed here, by identity and after
 // `check`, before the error reaches the caller. Returns the copy's identity.
 function copyExclusive(from, to, check) {
+  // The folders are checked before anything is read or created, not only
+  // when a partial copy has to be cleaned up.
+  check?.();
   const data = fsOps.read(from);
   let id = null;
   try {
@@ -663,6 +666,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // Files the plan found already current are part of the result too: one
     // edited, removed or swapped for a link since would leave the skill
     // mixed, so it stops the update like any other change.
+    // A removed file's name must still be free: a file that appeared there
+    // since would keep acting as part of the skill while the update says
+    // it was removed.
+    for (const a of actions) {
+      if (a.op !== 'remove') continue;
+      if (idOf(join(dir, a.rel)) !== null) throw new Error(`${a.rel} appeared again while it was being removed; nothing was kept, run update again`);
+    }
     for (const a of actions) {
       if (a.op !== 'same') continue;
       recheck(a);
@@ -761,7 +771,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // something new appears at the old name in between.
         const trash = `${s.old}.${randomUUID()}.rm`;
         let moved = false;
-        try { renameSync(s.old, trash); moved = true; } catch { s.a.kept = s.old; }
+        // The folders are re-checked right before the move: a swap after the
+        // check above is never acted through.
+        testHooks.beforeTrash?.(s);
+        try {
+          if (chainOf(dir, s.a.rel) !== s.chain) throw new Error('a folder on the way changed');
+          renameSync(s.old, trash);
+          moved = true;
+        } catch { s.a.kept = s.old; }
         if (moved) {
           let ours = false;
           try { ours = idOf(trash) === s.oldId && sha(fsOps.read(trash)) === s.a.hash; } catch { ours = false; }
