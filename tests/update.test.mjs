@@ -726,3 +726,44 @@ test('--global from the home folder lists each install once', async () => {
   assert.deepEqual(rootsFor(homedir(), { global: true }), [homedir()]);
   assert.equal(rootsFor('/tmp', { global: true }).length, 2);
 });
+
+test('a staging file that is not where it was written stops the update; rollback removes only its own files', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  let tmpPath;
+  // Act like a write that went through a swapped folder: our file is not at
+  // its name, and someone else's file is.
+  const beforeStageCheck = (entry) => {
+    tmpPath = entry.tmp;
+    // Written beside it first, then renamed over: two files that coexist
+    // never share an inode, so this is a different file at the same name.
+    writeFileSync(`${entry.tmp}.other`, 'someone else');
+    renameSync(`${entry.tmp}.other`, entry.tmp);
+  };
+  assert.throws(() => applyPlan(plan, { beforeStageCheck }), /changed while the update was writing/);
+  assert.equal(readFileSync(tmpPath, 'utf8'), 'someone else');
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+// The updater refuses (blocks) a path that changes between file and folder:
+// a known old file `foo` in the way of a new `foo/bar`, or the reverse. No
+// release has done that. This fails the day one does, so the transition is
+// implemented (remove and add in one transaction) before it ships.
+test('no release turns a shipped file into a folder or back', () => {
+  const known = knownHashes();
+  for (const skill of skillNames()) {
+    const paths = new Set([
+      ...Object.keys(shippedFiles(skill)),
+      ...Object.keys(known).filter((k) => k.startsWith(`${skill}/`)).map((k) => k.slice(skill.length + 1)),
+    ]);
+    for (const p of paths) {
+      for (const q of paths) assert.ok(!q.startsWith(`${p}/`), `${skill}: ${p} is a file in one release and a folder (${q}) in another`);
+    }
+  }
+});
