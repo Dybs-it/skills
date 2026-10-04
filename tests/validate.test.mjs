@@ -741,3 +741,62 @@ test('tilde fences and indented code blocks are left out of the word count', asy
   assert.equal(wordCount('one two\n\n~~~\nthree four five\n~~~\n'), 2);
   assert.equal(wordCount('one two\n\n    three four five\n'), 2);
 });
+
+test('a literal <!-- inside code is text, not a comment that hides the rest', async () => {
+  const { wordCount, headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const fenced = '## A\n\n```html\n<!-- start\n```\n\n## B\n\nafter words here';
+  assert.deepEqual(headings(fenced), ['A', 'B']);
+  assert.equal(wordCount(fenced), 5);
+  const span = '## A\n\nUse `<!--` to open a comment.\n\n## B\n';
+  assert.deepEqual(headings(span), ['A', 'B']);
+  const real = '## A\n\n<!-- hidden\n## Hidden\n-->\n## B\n';
+  assert.deepEqual(headings(real), ['A', 'B']);
+});
+
+test('frontmatter dates must exist in the calendar', () => {
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t.replace(/^updated: .*$/m, 'updated: 2026-99-99'));
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(r.rules.includes('updated'));
+  edit(dir, 'context/prd.md', (t) => t.replace(/^updated: .*$/m, 'updated: 2026-10-01').replace(/^accepted: .*$/m, 'accepted: 2026-02-31'));
+  const r2 = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(r2.rules.includes('accepted-date'));
+  rmSync(dir, { recursive: true });
+});
+
+test('placeholders after a literal <!-- in code still count; placeholders in code count too', () => {
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t + '\n```html\n<!-- example\n```\n\nTODO decide this\n');
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(r.rules.includes('placeholder'));
+  const dir2 = copySample();
+  edit(dir2, 'context/prd.md', (t) => t + '\n```\nTODO in code\n```\n');
+  assert.ok(validateProject(dir2).results.find((x) => x.name === 'prd').rules.includes('placeholder'));
+  rmSync(dir, { recursive: true });
+  rmSync(dir2, { recursive: true });
+});
+
+test('--accept --json reports an operational failure as JSON', () => {
+  const dir = copySample();
+  const leftover = join(dir, 'dybs/context', `ui.md.dybs-${process.pid}.tmp`);
+  writeFileSync(leftover, 'left over');
+  const logs = [];
+  const l = console.log; const e = console.error;
+  console.log = (m) => logs.push(m); console.error = () => {};
+  let code;
+  try { code = main(['node', 'v', dir, '--accept', 'ui', '--json']); } finally { console.log = l; console.error = e; }
+  assert.equal(code, 1);
+  const out = JSON.parse(logs.join('\n'));
+  assert.equal(out.ok, false);
+  assert.equal(out.accept, 'ui');
+  assert.match(out.errors.join(' '), /EEXIST|exists/);
+  rmSync(dir, { recursive: true });
+});
+
+test('dybs-start carries the generated manual contract for checking without Node', async () => {
+  const { rulesBlock, checklistsBlock } = await import('../scripts/sync-rules.mjs');
+  const skill = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8');
+  assert.ok(skill.includes(rulesBlock()));
+  assert.ok(skill.includes(checklistsBlock()));
+  assert.match(skill, /without\s+Node, check every doc against \*\*Checking by hand\*\*/);
+});
