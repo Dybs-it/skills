@@ -842,3 +842,29 @@ test('no release turns a shipped file into a folder or back', () => {
     }
   }
 });
+
+test('a moved-aside original that changes before cleanup is kept, never deleted', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  const result = applyPlan(plan, { beforeCleanup: (s) => writeFileSync(s.old, 'an edit saved late') });
+  const a = result.actions.find((x) => x.rel === SKILL);
+  assert.ok(a.kept);
+  assert.equal(readFileSync(a.kept, 'utf8'), 'an edit saved late');
+  assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
+  rmSync(root, { recursive: true });
+});
+
+test('list refuses options and folders', async () => {
+  const { run } = await import('../bin/dybs-skills.mjs');
+  const e = console.error; const l = console.log;
+  console.error = () => {}; console.log = () => {};
+  try {
+    assert.equal(run(['list', '--jsoon']), 2);
+    assert.equal(run(['list', '.']), 2);
+    assert.equal(run(['list']), 0);
+  } finally { console.error = e; console.log = l; }
+});
