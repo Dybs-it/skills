@@ -82,9 +82,14 @@ export function markdownHazards(text) {
   let inComment = false;
   let fence = null;
   let inFront = false;
+  // Whether the previous line was (part of) a real HTML comment: only then
+  // is a line of = or - under it not an underline.
+  let lastComment = false;
   for (let n = 0; n < lines.length; n++) {
     const line = lines[n];
     const prev = n ? lines[n - 1] : '';
+    const prevComment = lastComment;
+    lastComment = false;
     // The frontmatter block (`---` ... `---`) is not Markdown.
     if (n === 0 && line.trim() === '---') { inFront = true; continue; }
     if (inFront) { if (line.trim() === '---') inFront = false; continue; }
@@ -97,6 +102,7 @@ export function markdownHazards(text) {
       if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; continue; }
     }
     if (inComment) {
+      lastComment = true;
       const end = line.indexOf('-->');
       if (end < 0) continue;
       inComment = false;
@@ -105,6 +111,7 @@ export function markdownHazards(text) {
     }
     const start = line.match(/^ {0,3}<!--/);
     if (start) {
+      lastComment = true;
       const rest = line.slice(start[0].length);
       const end = rest.indexOf('-->');
       if (end < 0) { inComment = true; continue; }
@@ -118,7 +125,7 @@ export function markdownHazards(text) {
     if (/^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}([ \t]|$)/.test(line)) problems.push('headings may not sit inside a list item or a quote');
     // An underlined (Setext) heading ends a section on screen, so it is
     // refused rather than modelled: gate.md uses "#" and "##" headings only.
-    if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(\||#|`{3,}|~{3,}|<!--)/.test(prev) && !prev.includes('-->')) {
+    if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(\||#|`{3,}|~{3,})/.test(prev) && !prevComment) {
       problems.push('use "##" headings, not underlined ones (a line of = or - under text)');
     }
     if (/^ {0,3}(?:>\s?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)+(`{3,}|~{3,})/.test(line)) problems.push('gate.md may not open a code fence inside a list item or a quote');
@@ -262,6 +269,10 @@ export function parseGate(text) {
   const loose = visible(text).split(/\r?\n/)
     .filter((l) => !/^( {4}|\t)/.test(l) && !/^ {0,3}\|/.test(l) && /(^|[^\\])(\\\\)*\|/.test(l));
   if (loose.length) problems.push(`every table row must start with "|" (found: ${loose[0].trim().slice(0, 40)})`);
+  // An indented row is not code everywhere: under a list item (`10. x`) it
+  // still renders as a table. Indented rows are refused rather than modelled.
+  const indentedRow = visible(text).split(/\r?\n/).find((l) => /^( {4,}|\t)[ \t]*\|/.test(l));
+  if (indentedRow !== undefined) problems.push(`table rows may not be indented (found: ${indentedRow.trim().slice(0, 40)})`);
   const itemTable = tableAt(text, 'Items');
   problems.push(...schemaProblems(text, itemTable, 'Items'));
   const itemRows = itemTable?.rows ?? null;

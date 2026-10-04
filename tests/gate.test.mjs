@@ -498,3 +498,15 @@ test('tables and headings inside the frontmatter are not evidence', () => {
   assert.equal(g.items.length, 0);
   assert.ok(g.problems.some((p) => p.includes('missing "## Items" table')));
 });
+
+test('a line of - under text ending in --> is still an underline when no comment is open', () => {
+  const text = gate({ items: [full('a', 'P0')] }).replace('## Risks', 'Archived --> note\n---\n\n## Risks');
+  assert.ok(parseGate(text).problems.some((p) => p.includes('underlined')));
+  const ok = gate({ items: [full('a', 'P0')] }).replace('## Risks', '<!--\nnote\n-->\n---\n\n## Risks');
+  assert.ok(!parseGate(ok).problems.some((p) => p.includes('underlined')));
+});
+
+test('indented table rows are refused: under a list item they still render', () => {
+  const text = gate({ items: [full('a', 'P0')] }).replace('## Risks', '10. archived\n\n    | Item | Priority | Coverage | Evidence | Security |\n    |---|---|---|---|---|\n    | b | P0 | NONE |  | no |\n\n## Risks');
+  assert.ok(parseGate(text).problems.some((p) => p.includes('may not be indented')));
+});
