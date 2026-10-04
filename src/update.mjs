@@ -207,7 +207,12 @@ function sameRoot(dir, root) {
 }
 
 // Device and inode of a path itself (no link followed), or null.
-const idOfStat = (st) => `${st.dev}:${st.ino}`;
+// Device, inode and birth time, from a bigint stat: a freed inode number is
+// reused at once (ext4 hands it to the very next file), so device and inode
+// alone can make a file created later look like one we created and removed.
+// Where the filesystem keeps no birth time this is device and inode only.
+const idOfStat = (st) => `${st.dev}:${st.ino}:${st.birthtimeNs ?? ''}`;
+const BIG = { bigint: true };
 // Reads a file without following a link at its own name (O_NOFOLLOW), and
 // only if what was opened is a regular file: a file swapped for a link after
 // it was inspected is never read through. null when it is not.
@@ -215,20 +220,26 @@ function readNoFollow(p) {
   return readNoFollowStat(p)?.data ?? null;
 }
 // The same, with the mode of the very file read (not of a later lookup).
-function readNoFollowStat(p) {
+// With `id`, only that very file (device and inode, checked on the open
+// descriptor) is read: a check of the name followed by a read of the name
+// could read whatever replaced it in between, a link included.
+function readNoFollowStat(p, id) {
   let fd;
-  try { fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+  try { fd = fsOps.open(p); } catch (e) {
     if (['ELOOP', 'EMLINK', 'ENOENT', 'ENOTDIR'].includes(e.code)) return null;
     throw e;
   }
   try {
-    const st = fstatSync(fd);
-    return st.isFile() ? { data: readFileSync(fd), mode: st.mode & 0o7777 } : null;
+    const st = fstatSync(fd, BIG);
+    if (!st.isFile() || (id != null && idOfStat(st) !== id)) return null;
+    return { data: readFileSync(fd), mode: Number(st.mode) & 0o7777 };
   } finally { closeSync(fd); }
 }
+// The bytes of exactly the file `id` at `p`, or null.
+const readById = (p, id) => readNoFollowStat(p, id)?.data ?? null;
 
 function idOf(p) {
-  try { return idOfStat(lstatSync(p)); } catch { return null; }
+  try { return idOfStat(lstatSync(p, BIG)); } catch { return null; }
 }
 // Only a regular file is what the plan saw: a link that replaced it keeps
 // its own identity through link() and rename(), while reads follow it.
@@ -243,7 +254,7 @@ function isRegular(p) {
 function writeOwnFile(p, data, mode, onCreate) {
   const fd = openSync(p, 'wx', mode ?? 0o666);
   try {
-    onCreate(idOfStat(fstatSync(fd)));
+    onCreate(idOfStat(fstatSync(fd, BIG)));
     fsOps.write(fd, data);
     if (mode !== undefined) fchmodSync(fd, mode);
   } finally { closeSync(fd); }
@@ -271,8 +282,19 @@ function rmIfOurs(p, id, check) {
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
     return;
   }
-  try { fsOps.link(aside, p); fsOps.rm(aside); } catch {
+  // Put back without overwriting anything: by link where the filesystem
+  // has them, else as an exclusive copy. A copy is a snapshot (an editor
+  // may still hold the file itself), so the file is then kept aside too.
+  const theirs = idOf(aside);
+  let how;
+  try { how = placeNoClobber(aside, p, check, theirs); } catch {
     throw Object.assign(new Error(`${p} is not the file the update wrote; it is kept at ${aside}`), { keptAt: aside });
+  }
+  if (how === 'copy') {
+    throw Object.assign(new Error(`${p} is not the file the update wrote; it was put back as a copy, the file itself is kept at ${aside}`), { keptAt: aside });
+  }
+  try { fsOps.rm(aside); } catch {
+    throw Object.assign(new Error(`${p} is not the file the update wrote; it is back, and also kept at ${aside}`), { keptAt: aside });
   }
   throw new Error(`${p} is not the file the update wrote; left in place`);
 }
@@ -286,9 +308,9 @@ export function chainOf(dir, rel) {
   for (const part of ['', ...rel.split('/').slice(0, -1)]) {
     p = part ? join(p, part) : p;
     let st;
-    try { st = lstatSync(p); } catch { return null; }
+    try { st = lstatSync(p, BIG); } catch { return null; }
     if (!st.isDirectory()) return null;
-    ids.push(`${st.dev}:${st.ino}`);
+    ids.push(idOfStat(st));
   }
   return ids.join('/');
 }
@@ -379,12 +401,12 @@ function mkdirNoFollow(root, relDir) {
   // caller's recheck, not prevented.)
   const pins = [[root, idOf(root)]];
   const still = () => pins.every(([q, id]) => {
-    try { const st = lstatSync(q); return !st.isSymbolicLink() && st.isDirectory() && idOfStat(st) === id; } catch { return false; }
+    try { const st = lstatSync(q, BIG); return !st.isSymbolicLink() && st.isDirectory() && idOfStat(st) === id; } catch { return false; }
   });
   for (const part of relDir.split(/[\\/]/)) {
     p = join(p, part);
     let st = null;
-    try { st = lstatSync(p); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+    try { st = lstatSync(p, BIG); } catch (err) { if (err.code !== 'ENOENT') throw err; }
     if (st) {
       if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`${posix(relative(root, p))} is not a real folder; nothing was changed, run update again`);
       pins.push([p, idOfStat(st)]);
@@ -401,7 +423,9 @@ function mkdirNoFollow(root, relDir) {
 
 // Filesystem calls applyPlan uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, read: readFileSync };
+// `open` is the one way a file is opened for reading: never through a link
+// at its own name.
+export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)) };
 
 // Puts a copy of `from` at `to` without overwriting anything there, and
 // leaves `from` for the caller to remove once it has recorded the placement:
@@ -446,9 +470,9 @@ function copyExclusive(from, to, check, fromId) {
   let data;
   let mode;
   try {
-    const st = fstatSync(fd);
+    const st = fstatSync(fd, BIG);
     if (!st.isFile() || (fromId && idOfStat(st) !== fromId)) throw new Error(`${from} changed before it was copied; nothing was copied`);
-    mode = st.mode & 0o7777;
+    mode = Number(st.mode) & 0o7777;
     data = readFileSync(fd);
   } finally { closeSync(fd); }
   let id = null;
@@ -638,7 +662,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           const aside = `${s.p}.${randomUUID()}.rm`;
           renameSync(s.p, aside);
           let same = false;
-          try { same = isRegular(aside) && idOf(aside) === origId && sha(fsOps.read(aside)) === sha(fsOps.read(old)); } catch { same = false; }
+          try { const x = readById(aside, origId); const y = readById(old, s.oldId); same = Boolean(x && y) && sha(x) === sha(y); } catch { same = false; }
           if (!same) {
             // Changed in the last instant: put it back at its own name while
             // that is still free, so the user's version is where they left it.
@@ -656,8 +680,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         pinned(s);
         // Checked against the identity recorded at creation, not re-read:
         // a replacement of the moved-aside file is never adopted as ours.
-        if (idOf(s.old) !== s.oldId) throw new Error(`${s.a.rel} is not where it was moved aside; run update again`);
-        if (sha(readFileSync(s.old)) !== s.a.hash) throw new Error(`${s.a.rel} changed since the update was planned; nothing was changed, run update again`);
+        const oldBytes = readById(s.old, s.oldId);
+        if (!oldBytes) throw new Error(`${s.a.rel} is not where it was moved aside; run update again`);
+        if (sha(oldBytes) !== s.a.hash) throw new Error(`${s.a.rel} changed since the update was planned; nothing was changed, run update again`);
       }
       if (s.tmp) {
         tick();
@@ -670,7 +695,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // replacement with the shipped content would otherwise be linked
         // into place under an identity the rollback does not know.
         let staged = null;
-        try { staged = idOf(s.tmp) === s.tmpId && isRegular(s.tmp) ? readFileSync(s.tmp) : null; } catch { staged = null; }
+        try { staged = readById(s.tmp, s.tmpId); } catch { staged = null; }
         if (!staged || sha(staged) !== sha(want[s.a.rel])) {
           throw new Error(`the staged copy of ${s.a.rel} changed before it was installed; nothing was kept, run update again`);
         }
@@ -730,7 +755,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // folder swapped for a link could show an outside file with the
         // same shipped bytes.
         pinned(s);
-        if (idOf(s.p) !== s.placedId || sha(fsOps.read(s.p)) !== sha(want[s.a.rel])) {
+        let placedBytes = null;
+        try { placedBytes = readById(s.p, s.placedId); } catch { placedBytes = null; }
+        if (!placedBytes || sha(placedBytes) !== sha(want[s.a.rel])) {
           throw new Error(`${s.a.rel} changed while it was being placed; nothing was kept, run update again`);
         }
       }
@@ -753,12 +780,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       if (a.op !== 'same') continue;
       recheck(a);
       let current = false;
-      try { current = isRegular(join(dir, a.rel)) && sha(fsOps.read(join(dir, a.rel))) === sha(want[a.rel]); } catch { current = false; }
+      try { const x = readById(join(dir, a.rel), null); current = Boolean(x) && sha(x) === sha(want[a.rel]); } catch { current = false; }
       if (!current) throw new Error(`${a.rel} changed since the update was planned; nothing was kept, run update again`);
     }
     for (const b of backups) {
       let same = false;
-      try { same = idOf(b.path) === b.id && sha(fsOps.read(b.path)) === b.hash; } catch { same = false; }
+      try { const x = readById(b.path, b.id); same = Boolean(x) && sha(x) === b.hash; } catch { same = false; }
       if (!same) throw new Error(`the backup ${basename(b.path)} changed during the update; nothing was kept, run update again`);
     }
   } catch (err) {
@@ -775,7 +802,8 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // shipped content, and that file must never be deleted.
         let ours = false;
         try {
-          ours = chainOf(dir, s.a.rel) === s.chain && idOf(s.p) === s.placedId && sha(readFileSync(s.p)) === sha(want[s.a.rel]);
+          const x = chainOf(dir, s.a.rel) === s.chain ? readById(s.p, s.placedId) : null;
+          ours = Boolean(x) && sha(x) === sha(want[s.a.rel]);
         } catch { ours = false; }
         if (!ours) {
           stuck.push(`${s.a.rel} changed after the update wrote it; kept as is${s.old ? `, the original is at ${s.old}` : ''}`);
@@ -802,7 +830,23 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // A link puts the very file back, so the moved-aside name can go.
           // A copy is a snapshot: an editor still holding the original could
           // write to it after the copy, so the original itself is kept.
-          if (placeNoClobber(s.old, s.p, chainCheck(s), s.oldId) === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s));
+          // Re-pinned right before, and checked again right after: a folder
+          // swapped in between put the new name outside the install, so it
+          // is removed again when provably ours (a link to the very original,
+          // or the copy just made), never anything else.
+          const copied = {};
+          const check = chainCheck(s);
+          check();
+          const how = placeNoClobber(s.old, s.p, check, s.oldId, copied);
+          if (chainOf(dir, s.a.rel) !== s.chain) {
+            const now = idOf(s.p);
+            let note = `${s.p} is not provably this update's file and was left in place`;
+            if (now !== null && now === (how === 'copy' ? copied.id : s.oldId)) {
+              try { rmIfOurs(s.p, now); note = 'the name placed there was removed again'; } catch (e) { note = e.message; }
+            }
+            throw new Error(`a folder on the way changed while the original was put back (${note}); the original is at ${s.old}`);
+          }
+          if (how === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s));
           else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
         });
       }
@@ -857,7 +901,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         } catch { s.a.kept = s.old; }
         if (moved) {
           let ours = false;
-          try { ours = idOf(trash) === s.oldId && sha(fsOps.read(trash)) === s.a.hash; } catch { ours = false; }
+          try { const x = readById(trash, s.oldId); ours = Boolean(x) && sha(x) === s.a.hash; } catch { ours = false; }
           if (ours) {
             // Deleted by identity under yet another private name: a file
             // that replaced `trash` since the check is kept, never deleted.
