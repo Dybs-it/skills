@@ -630,10 +630,17 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           if (err.code === 'EEXIST') throw new Error(`${s.a.rel} appeared since the update was planned; nothing was changed, run update again`);
           throw err;
         }
+        // The identity actually placed, read at once: a link places whatever
+        // the staging name held at that instant. A replacement linked in is
+        // not ours, so the name we just created for it is removed (by that
+        // identity) and the update stops; the original is then put back.
+        const placedNow = idOf(s.p);
+        if (how === 'link' && placedNow !== s.tmpId) {
+          try { rmIfOurs(s.p, placedNow, chainCheck(s)); } catch { /* reported by the rollback */ }
+          throw new Error(`the staged copy of ${s.a.rel} changed while it was being installed; nothing was kept, run update again`);
+        }
         s.placed = true;
-        // A link places the staged file itself, whose identity we know; a
-        // copy is a new file, read back at once.
-        s.placedId = how === 'link' ? s.tmpId : idOf(s.p);
+        s.placedId = placedNow;
         if (s.a.op === 'add') done.push(s);
         pinned(s);
         // The staging name is removed only while it still leads, through

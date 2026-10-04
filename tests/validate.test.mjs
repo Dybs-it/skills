@@ -657,3 +657,20 @@ test('--doc without a doc name is refused, never a whole-project pass', async ()
     }
   } finally { console.error = err; console.log = log; }
 });
+
+test('compact comments <!--> and <!---> close at once', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // commonmark.js: a complete comment, then an ordinary paragraph.
+  assert.match(visibleText('<!-->\nTODO after\n', { keepCode: true }), /TODO after/);
+  assert.match(visibleText('<!--->\nTODO after\n', { keepCode: true }), /TODO after/);
+});
+
+test('--doc on a doc under skip: is not reported as passing', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: ui'));
+  rmSync(join(dir, 'dybs/context/ui.md'));
+  const r = validateProject(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.match(r.results.find((x) => x.name === 'ui').errors.join(' '), /under skip/);
+  rmSync(dir, { recursive: true });
+});
