@@ -347,6 +347,23 @@ export function localDate(d = new Date()) {
 
 // Marks a doc accepted on the human's word: status, date and a fingerprint of
 // its content. Refuses a doc that would not validate as accepted.
+// Filesystem calls acceptDoc uses for no-clobber placement; a test swaps
+// `link` to act like a filesystem without hard links.
+export const fsOps = { link: linkSync };
+
+// Puts `from` at `to` without overwriting anything there: link() where the
+// filesystem has hard links, a check followed by rename() where it does not.
+function placeNoClobber(from, to) {
+  try {
+    fsOps.link(from, to);
+    rmSync(from);
+  } catch (err) {
+    if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
+    if (existsSync(to)) throw Object.assign(new Error(`${to} exists`), { code: 'EEXIST' });
+    renameSync(from, to);
+  }
+}
+
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
 export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {}) {
@@ -387,13 +404,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
     beforeReplace?.();
     renameSync(path, old);
     if (readFileSync(old, 'utf8') !== text) {
-      linkSync(old, path);
-      rmSync(old);
+      placeNoClobber(old, path);
       rmSync(tmp, { force: true });
       return { ok: false, errors: ['the doc changed while it was being accepted; nothing was written, run --accept again'] };
     }
-    linkSync(tmp, path);
-    rmSync(tmp);
+    placeNoClobber(tmp, path);
     rmSync(old);
   } catch (err) { rmSync(tmp, { force: true }); throw err; }
   return { ok: true };
