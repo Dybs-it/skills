@@ -264,7 +264,14 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     // block quote or list item ends the container, and the fence with it
     // (no lazy continuation for code), so the line is read afresh: a bare
     // ``` after `> ```` opens a new fence rather than closing the quoted one.
-    if (fence && !blank && (quoteDepth(line) < fence.quote || inner.match(/^ */)[0].length < fence.col)) fence = null;
+    // When the list item holds the quote (`- > ````), the item's column is
+    // measured before the `>` markers and the quote depth after it.
+    if (fence && !blank) {
+      const rawLead = line.match(/^ */)[0].length;
+      const depth = fence.listFirst ? quoteDepth(line.slice(Math.min(rawLead, fence.col))) : quoteDepth(line);
+      const lead = fence.listFirst ? rawLead : inner.match(/^ */)[0].length;
+      if (depth < fence.quote || lead < fence.col) fence = null;
+    }
     if (fence) {
       // Inside a list item the closing fence sits at the item's content
       // indent (four spaces under `10. `), so it may be indented up to three
@@ -272,7 +279,9 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
       // Each quote marker may be followed by up to three spaces before the
       // next one, as for the opener (`>  > ````).
       const c = line.match(/^( *)((?:>[ \t]?(?: {0,3}(?=>))?)*) {0,3}(`{3,}|~{3,})[ \t]*$/);
-      if (c && c[1].length <= fence.indent + 3 && quoteDepth(line) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) { fence = null; afterBlock = true; }
+      // A closer may be indented at most three spaces past its container's
+      // content column, not past the opener's own indentation.
+      if (c && c[1].length <= (fence.listFirst ? fence.col : 0) + 3 && (fence.listFirst ? quoteDepth(line.slice(Math.min(c[1].length, fence.col))) : quoteDepth(line)) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) { fence = null; afterBlock = true; }
       if (keepCode) out.push(line);
       continue;
     }
@@ -284,7 +293,8 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
       const pre = line.slice(0, at).replace(/^(?: {0,3}>[ \t]?)+/, '');
       const marks = [...pre.matchAll(/(?:[-*+]|\d{1,9}[.)])[ \t]+/g)];
       const col = marks.length ? marks.at(-1).index + marks.at(-1)[0].length : inList ? (items.filter((c) => c <= at).at(-1) ?? 0) : 0;
-      fence = { ch: m[1][0], len: m[1].length, indent: at, quote: quoteDepth(line), col };
+      const prefix = line.slice(0, at);
+      fence = { ch: m[1][0], len: m[1].length, quote: (prefix.match(/>/g) || []).length, col, listFirst: /^\s*(?:[-*+]|\d{1,9}[.)])[ \t]/.test(prefix) || (inList && !/^ {0,3}>/.test(line) && col > 0) };
       prevBlank = false;
       if (keepCode) out.push(line);
       continue;
@@ -322,7 +332,9 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     const qline = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
     const nowBlank = qline.trim() === '';
     // A heading or a thematic break interrupts a list, blank line or not.
-    const breaksList = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline);
+    // So does a block quote that starts left of the item's content.
+    const breaksList = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
+      || (inList && /^ {0,3}>/.test(line) && line.match(/^ */)[0].length < (items.at(-1) ?? listIndent));
     if (!nowBlank && !/^( {4}|\t)/.test(qline)) {
       const item = breaksList ? null : qline.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
       if (item) listIndent = item[0].length;
