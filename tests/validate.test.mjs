@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { unprivileged, UNPRIVILEGED_SKIP } from './unprivileged.mjs';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync, renameSync } from 'node:fs';
+import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync, renameSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -2357,5 +2357,78 @@ test('acceptance reports the doc\'s warnings, such as nearing its cap', () => {
   const r = acceptDoc(dir, 'prd', '2026-10-04');
   assert.equal(r.ok, true);
   assert.deepEqual(r.warnings, mid.warnings);
+  rmSync(dir, { recursive: true });
+});
+
+test('headings are read as rendered: inside a list or quote, and with escapes', () => {
+  // `- ## Problem` and `> ## Users` render as H2s.
+  const contained = VALID_PRD.replace('## Problem', '- ## Problem').replace('## Users', '> ## Users');
+  assert.ok(!validateDoc('prd', contained).rules.includes('sections'));
+  // A list cannot start at 2 inside a paragraph: there it is text.
+  const lazy = VALID_PRD.replace('## Problem', 'text\n2. ## Problem');
+  assert.ok(validateDoc('prd', lazy).rules.includes('sections'));
+  // Five spaces after the marker make indented code.
+  const code = VALID_PRD.replace('## Problem', '-     ## Problem');
+  assert.ok(validateDoc('prd', code).rules.includes('sections'));
+  // `\'` renders as `'`; an escaped marker stays literal.
+  const VALID_UI = readFileSync(join(SAMPLE, 'dybs/context/ui.md'), 'utf8');
+  assert.ok(!validateDoc('ui', VALID_UI).rules.includes('sections'));
+  const escaped = VALID_UI.replace("## Do and don't", "## Do and don\\'t");
+  assert.notEqual(escaped, VALID_UI);
+  assert.ok(!validateDoc('ui', escaped).rules.includes('sections'));
+  const literal = VALID_PRD.replace('## Goals', '## Go\\*als');
+  assert.ok(validateDoc('prd', literal).rules.includes('sections'));
+  // An escaped `&` starts no character reference.
+  assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', '## Go\\&#97;ls')).rules.includes('sections'));
+});
+
+test('a context folder that cannot be searched fails validation, not "missing"', (t) => {
+  const dir = copySample();
+  chmodSync(dir, 0o755);
+  chmodSync(join(dir, 'dybs/context'), 0o000);
+  const cmd = unprivileged([join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs'), dir, '--json']);
+  if (!cmd) { chmodSync(join(dir, 'dybs/context'), 0o755); rmSync(dir, { recursive: true }); return t.skip(UNPRIVILEGED_SKIP); }
+  let out; let code = 0;
+  try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { out = e.stdout; code = e.status; }
+  chmodSync(join(dir, 'dybs/context'), 0o755);
+  assert.notEqual(code, 0, out);
+  assert.match(out, /EACCES/);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept removes a temporary copy written through a swapped folder', () => {
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  // As if dybs/context had been swapped before the open: the temporary copy
+  // now sits in a folder outside the project, under its only name.
+  const beforeReplace = () => {
+    renameSync(join(dir, 'dybs/context'), join(outside, 'context'));
+    symlinkSync(join(outside, 'context'), join(dir, 'dybs/context'));
+  };
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', { beforeReplace }), /changed while it was being accepted/);
+  assert.deepEqual(readdirSync(join(outside, 'context')).filter((n) => n.includes('.dybs-')), [], 'no temporary copy left outside');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('--accept never strands a folder that replaced a file in the last instant before its removal', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  let hit = null;
+  // The cleanup of the moved-aside original meets a user's folder at its name.
+  mod.testHooks.beforeMove = (p) => {
+    if (hit || !/\.old$/.test(p)) return;
+    hit = p;
+    rmSync(p);
+    mkdirSync(p);
+    writeFileSync(join(p, 'notes.md'), 'the user\'s folder');
+  };
+  let r;
+  try { r = acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.beforeMove = null; }
+  assert.ok(hit);
+  assert.equal(r.ok, true);
+  assert.equal(readFileSync(join(hit, 'notes.md'), 'utf8'), 'the user\'s folder');
+  assert.deepEqual(readdirSync(ctx).filter((n) => n.endsWith('.rm')), [], 'nothing stranded aside');
   rmSync(dir, { recursive: true });
 });

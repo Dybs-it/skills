@@ -620,9 +620,26 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
 
 // Headings a reader sees: none inside HTML comments or fenced examples.
 // An optional closing run of `#` (`## Goals ##`) is not part of the text.
+// An H2, also inside block quotes and list items (`> ## X`, `- ## X`). After
+// a list marker the heading starts within four spaces (five make indented
+// code), and an ordered item other than `1.` cannot interrupt a paragraph,
+// so it needs a blank line (or a block quote line) before it.
+const ATX_H2 = /^(?: {0,3}>[ \t]?)*((?: {0,3}(?:[-*+]|(\d{1,9})[.)]) {1,4})*)( {0,3})##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
 export function headings(body) {
   // A heading counts only if no reading of an unclosed comment hides it.
-  return [...visibleText(body, { hideUnclosed: true }).matchAll(/^ {0,3}##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/gm)].map((h) => h.at(1));
+  const lines = visibleText(body, { hideUnclosed: true }).split('\n');
+  const found = [];
+  lines.forEach((l, i) => {
+    const m = ATX_H2.exec(l);
+    if (!m) return;
+    const [, markers, , indent, text] = m;
+    if (markers && indent) return;
+    const ordered = [...markers.matchAll(/(\d{1,9})[.)]/g)];
+    const afterBlank = i === 0 || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]) || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(lines[i - 1]);
+    if (ordered.some((o) => Number(o[1]) !== 1) && !afterBlank) return;
+    found.push(text);
+  });
+  return found;
 }
 
 export function wordCount(body) {
@@ -849,11 +866,15 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // destination, or a reference whose label is defined.
   const labels = new Set([...definitions(visibleText(body).split('\n')).values()].filter(Boolean));
   // `## Wh&#121;` renders as Why: references are decoded last, as text.
-  const plain = (h) => decodeReferences(h
+  // `don\'t` renders as don't, and an escaped marker (`\*`) stays literal:
+  // escapes are set aside first and put back as the bare character.
+  const ESC = 0xe000;
+  const plain = (h) => decodeReferences(h.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
     .replace(new RegExp(INLINE_LINK, 'g'), '$1')
     .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, t, l) => (labels.has(label(l || t)) ? t : m))
     .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, t) => (labels.has(label(t)) ? t : m))
-    .replace(/[*_~`]/g, '')).trim();
+    .replace(/[*_~`]/g, ''))
+    .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - ESC)).trim();
   const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || plain(h).toLowerCase() === s.toLowerCase()));
   for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
@@ -914,6 +935,15 @@ function readDoc(p) {
   return t;
 }
 
+// Whether a path is there: only ENOENT and ENOTDIR mean "missing". Any
+// other failure (a folder that cannot be searched, an I/O error) is
+// returned as its code, so an unreadable tree is never a passing "missing".
+function lookup(p) {
+  try { statSync(p); return 'present'; } catch (e) {
+    return e.code === 'ENOENT' || e.code === 'ENOTDIR' ? 'missing' : (e.code || e.message);
+  }
+}
+
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
   const results = [];
@@ -924,7 +954,7 @@ export function validateProject(root, only) {
   if (readme) results.push({ name: 'readme', file: 'README.md', status: null, words: 0, errors: [readme], warnings: [] });
 
   const projectPath = join(dir, DOCS.project.file);
-  const projectText = existsSync(projectPath) ? readRegular(projectPath) : null;
+  const projectText = lookup(projectPath) === 'present' ? readRegular(projectPath) : null;
   const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
   const skip = skipped(projectData);
 
@@ -944,7 +974,12 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'skipped', words: 0, errors, warnings: [] });
       continue;
     }
-    if (!existsSync(path)) {
+    const where = lookup(path);
+    if (where !== 'present' && where !== 'missing') {
+      results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} cannot be reached (${where}): fix the permissions of dybs/ and its folders`], warnings: [] });
+      continue;
+    }
+    if (where === 'missing') {
       // A doc asked for by name must exist: `--doc` passing is the check
       // before a check-in, and "it is not there" is not a pass.
       const errors = only && (only === name || name === 'project') ? [`${spec.file} does not exist yet`]
@@ -1082,22 +1117,42 @@ function stillAtName(p, st) {
 // Moved first to a name only this run knows, then checked there: what is
 // verified is exactly what gets deleted, even if something replaces `p` in
 // between. One that is not ours goes back, never over anything.
-export const testHooks = { afterLook: null };
-function rmIfOurs(p, id, check) {
+// With `sole`, the file must also have no other name: one this run created
+// but someone has since linked elsewhere is not removed.
+export const testHooks = { afterLook: null, beforeMove: null };
+function rmIfOurs(p, id, check, { sole = false } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
   if (!id || pathId(p) !== id) return;
   testHooks.afterLook?.(p);
   check?.();
+  testHooks.beforeMove?.(p);
   const aside = `${p}.${randomUUID()}.rm`;
   // Only a name that is already gone counts as removed; any other failure
   // (permissions, a lock) is the caller's to report or roll back.
   try { fsOps.rename(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
-  if (pathId(aside) === id) {
+  let st = null;
+  try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
+  if (st && idOf(st) === id && (!sole || st.nlink === 1n)) {
     // A failed unlink leaves the file under its private name: say where.
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
     return;
+  }
+  // A folder that replaced the file in the last instant cannot be linked
+  // or copied back: it is renamed back, only while its name is still free
+  // and the folders on the way are still the pinned ones.
+  if (st?.isDirectory()) {
+    let free = false;
+    try { fsOps.lstat(p); } catch (e) { free = e.code === 'ENOENT'; }
+    try {
+      if (!free) throw new Error('taken');
+      check?.();
+      fsOps.rename(aside, p);
+    } catch {
+      throw Object.assign(new Error(`${p} changed while it was being removed; it is kept at ${aside}`), { keptAt: aside });
+    }
+    throw new Error(`${p} changed while it was being removed; left in place`);
   }
   // Put back without overwriting anything: by link where the filesystem
   // has them, else as an exclusive copy (a snapshot, so the file itself is
@@ -1337,8 +1392,17 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       fchmodSync(fd, mode);
     } finally { closeSync(fd); }
     beforeReplace?.();
-    pinned();
-    if (pathId(tmp) !== tmpId) throw new Error(`the temporary copy of ${rel} is not where it was written; run --accept again`);
+    // Written through a folder swapped in before the open, the temporary
+    // copy is outside the project, where the cleanup (which needs the
+    // pinned folders) cannot reach it. This run created it, so it is
+    // removed by that identity at once, while it has no other name.
+    let swap = null;
+    try { pinned(); } catch (e) { swap = e; }
+    if (swap || pathId(tmp) !== tmpId) {
+      const err = swap || new Error(`the temporary copy of ${rel} is not where it was written; run --accept again`);
+      try { rmIfOurs(tmp, tmpId, null, { sole: true }); } catch (e) { err.message += `; ${e.message}`; }
+      throw err;
+    }
     // The doc's identity is taken before it moves (a rename keeps it), so
     // a rollback can tell our original from a same-named file reached
     // through a folder swapped right after the rename.

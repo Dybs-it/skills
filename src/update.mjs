@@ -296,23 +296,48 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterLook: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterLook: null, beforeMove: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
 // folder that changed after an earlier check.
-function rmIfOurs(p, id, check) {
+// With `sole`, the file must also have no other name: a file this run
+// created but someone has since linked elsewhere is not removed.
+function rmIfOurs(p, id, check, { sole = false } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
   testHooks.afterLook?.(p);
   check?.();
+  // Only the very file is moved: whatever replaced it since (a folder too,
+  // which no link or copy could put back) stays at its name.
+  let now;
+  try { now = idOfStat(fsOps.lstat(p, BIG)); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
+  if (now !== id) throw new Error(`${p} is not the file the update wrote; left in place`);
+  testHooks.beforeMove?.(p);
   const aside = `${p}.${randomUUID()}.rm`;
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
-  if (idOf(aside) === id) {
+  let st = null;
+  try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
+  if (st && idOfStat(st) === id && (!sole || st.nlink === 1n)) {
     // A failed unlink leaves the file under its private name: say where.
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
     return;
+  }
+  // A folder that replaced the file in the last instant cannot be linked
+  // or copied back: it is renamed back, only while its name is still free
+  // and the folders on the way are still the pinned ones.
+  if (st?.isDirectory()) {
+    let free = false;
+    try { fsOps.lstat(p); } catch (e) { free = e.code === 'ENOENT'; }
+    try {
+      if (!free) throw new Error('taken');
+      check?.();
+      renameSync(aside, p);
+    } catch {
+      throw Object.assign(new Error(`${p} is not the file the update wrote; it is kept at ${aside}`), { keptAt: aside });
+    }
+    throw new Error(`${p} is not the file the update wrote; left in place`);
   }
   // Put back without overwriting anything: by link where the filesystem
   // has them, else as an exclusive copy. A copy is a snapshot (an editor
@@ -589,6 +614,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
   };
   try {
     for (const a of actions) if (['add', 'update', 'replace', 'remove'].includes(a.op)) recheck(a);
+    // A file the plan found current is pinned too: its identity and the
+    // folders on its way, checked again around its last read.
+    const sameAt = new Map();
+    for (const a of actions) {
+      if (a.op !== 'same') continue;
+      recheck(a);
+      sameAt.set(a.rel, { id: idOf(join(dir, a.rel)), chain: chainOf(dir, a.rel) });
+    }
     for (const a of actions) {
       if (!['add', 'update', 'replace', 'remove'].includes(a.op)) continue;
       const p = join(dir, a.rel);
@@ -614,7 +647,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       writeOwnFile(tmp, want[a.rel], mode, (id) => { entry.tmpId = id; staged.push(entry); });
       beforeStageCheck?.(entry);
       if (!chain || chainOf(dir, a.rel) !== chain || idOf(tmp) !== entry.tmpId) {
-        throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again (a stray ${basename(tmp)} may have been written through it)`);
+        // Written through a folder swapped in before the open, the staging
+        // file is outside the install, where the rollback (which needs the
+        // pinned folders) cannot reach it. This run created it, so it is
+        // removed by that identity at once, while it has no other name.
+        const err = new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again`);
+        try { rmIfOurs(tmp, entry.tmpId, null, { sole: true }); } catch (e) { err.message += ` (a stray ${basename(tmp)} may have been written through it: ${e.message})`; }
+        throw err;
       }
       if (a.op === 'replace') {
         // The backup is written the same way: created exclusively, tracked
@@ -842,8 +881,17 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     for (const a of actions) {
       if (a.op !== 'same') continue;
       recheck(a);
+      // Read only the very file pinned, and only while the folders on its
+      // way are the pinned ones before and after the read: O_NOFOLLOW
+      // guards the name itself, not a folder swapped for a link around it.
+      const pin = sameAt.get(a.rel);
       let current = false;
-      try { const x = readById(join(dir, a.rel), null); current = Boolean(x) && sha(x) === sha(want[a.rel]); } catch { current = false; }
+      try {
+        if (pin.chain && chainOf(dir, a.rel) === pin.chain) {
+          const x = readById(join(dir, a.rel), pin.id);
+          current = Boolean(x) && sha(x) === sha(want[a.rel]) && chainOf(dir, a.rel) === pin.chain;
+        }
+      } catch { current = false; }
       if (!current) throw new Error(`${a.rel} changed since the update was planned; nothing was kept, run update again`);
     }
     for (const b of backups) {
