@@ -190,6 +190,7 @@ const BREAK = {
   'depth': (t) => t.replace('status: accepted', 'status: accepted\ndepth: deep'),
   'cap': (t) => t + '\n' + 'word '.repeat(DOCS.prd.maxWords.quick),
   'accepted-hash': (t) => t.replace('status: accepted', 'status: accepted\naccepted-hash: 000000000000'),
+  'html': (t) => t + '\n<div>\nhidden\n</div>\n',
   'placeholder': (t) => t + '\nTODO\n',
   ...BREAK_PROJECT,
 };
@@ -897,4 +898,16 @@ test('a backtick never closed in its paragraph is literal, so a later comment st
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   assert.equal(wordCount('one ` two\n\n<!-- three four -->\nfive `'), 3);
   assert.equal(wordCount('one ` two <!-- hidden -->\n\nthree `'), 3);
+});
+
+test('raw HTML blocks are refused; comments, code and autolinks are fine', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t + '\n<pre>\n## Why\n</pre>\n');
+  const r = validateProject(dir).results.find((x) => x.name === 'project');
+  assert.ok(r.rules.includes('html'));
+  const ok = copySample();
+  edit(ok, 'project.md', (t) => t + '\n<!-- note -->\n\n```html\n<div>x</div>\n```\n\nSee <https://dybs.it>.\n');
+  assert.ok(!validateProject(ok).results.find((x) => x.name === 'project').rules.includes('html'));
+  rmSync(dir, { recursive: true });
+  rmSync(ok, { recursive: true });
 });

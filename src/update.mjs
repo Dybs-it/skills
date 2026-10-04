@@ -317,7 +317,7 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeCleanup } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   const tag = `dybs-${process.pid}-${Date.now()}`;
@@ -447,9 +447,17 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     if (stuck.length) err.message += `; could not undo everything, check by hand: ${stuck.join('; ')}`;
     throw err;
   }
-  // Committed: the moved-aside originals are no longer needed.
+  // Committed: the moved-aside originals are no longer needed, unless one
+  // changed after its check (an editor still writing through an open file):
+  // then it holds someone's edit, so it is kept and reported, never deleted.
   for (const s of staged) {
-    if (s.old) rmSync(s.old, { force: true });
+    if (s.old) {
+      beforeCleanup?.(s);
+      let bytes = null;
+      try { bytes = readFileSync(s.old); } catch { bytes = null; }
+      if (bytes && sha(bytes) !== s.a.hash) s.a.kept = s.old;
+      else rmSync(s.old, { force: true });
+    }
     if (s.a.op === 'remove') removeEmptyDirs(dirname(s.p), dir);
   }
   return { ...plan, applied: true };
