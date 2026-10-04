@@ -131,6 +131,23 @@ Record the depth the interview really reached in the doc's frontmatter
 (`depth: quick` or `depth: thorough`). Write `thorough` only when every
 checklist item is answered or parked by the human.
 
+## 5. Check in
+
+What a skill's **Check in** section asks for depends on `checkins` in
+`dybs/project.md`:
+
+- **`each-doc`:** validate, then give the check-in brief with its
+  **Needs you** items, and wait for the human.
+- **`end`:** validate, then write each **Needs you** item to `dybs/log.md` as
+  a `needs-you` line and go on without asking. `dybs-check` brings them to
+  the human in the one final review.
+- **`none`:** validate, write the same `needs-you` lines, and do not ask
+  anything. The final report lists them with what awaits acceptance.
+
+```
+- 2026-10-02 prd needs-you: Is "household admin" really the first user? (inferred)
+```
+
 ## Decision log
 
 `dybs/log.md` is the interview's memory, so nothing is lost and a later run
