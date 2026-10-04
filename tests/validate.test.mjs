@@ -339,3 +339,10 @@ test('an indented code block inside a block quote is code', async () => {
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   assert.equal(wordCount('> quoted words\n>\n>     code one two three\n\nafter'), 3);
 });
+
+test('a fence indented inside a block quote is code', async () => {
+  const { wordCount, headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const text = '## A\n\n>  ```\n>  ## Hidden\n>  code words\n>  ```\n\n## B\n';
+  assert.deepEqual(headings(text), ['A', 'B']);
+  assert.equal(wordCount(text), 2);
+});

@@ -193,12 +193,14 @@ export function visibleText(body, { keepCode = false } = {}) {
     // spaces under `10. `), then the usual up-to-three.
     const lead0 = line.match(/^ */)[0].length;
     const body0 = inList ? line.slice(Math.min(lead0, listIndent)) : line;
-    const m = body0.match(/^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(`{3,}|~{3,})(.*)$/);
+    // After each quote or list marker the fence may again be indented up
+    // to three spaces (`>  ```` is a fence inside a quote).
+    const m = body0.match(/^ {0,3}(?:(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+) {0,3})*(`{3,}|~{3,})(.*)$/);
     if (fence) {
       // Inside a list item the closing fence sits at the item's content
       // indent (four spaces under `10. `), so it may be indented up to three
       // spaces past where the opening fence started.
-      const c = line.match(/^( *)((?:>[ \t]?)*)(`{3,}|~{3,})[ \t]*$/);
+      const c = line.match(/^( *)((?:>[ \t]?)*) {0,3}(`{3,}|~{3,})[ \t]*$/);
       if (c && c[1].length <= fence.indent + 3 && c[3][0] === fence.ch && c[3].length >= fence.len) fence = null;
       if (keepCode) out.push(line);
       continue;

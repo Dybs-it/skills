@@ -818,3 +818,23 @@ test('rollback keeps a --force backup that was edited in place', async () => {
   assert.equal(readFileSync(backup, 'utf8'), 'edited the backup');
   rmSync(root, { recursive: true });
 });
+
+test('a cleanup failure after a finished update is reported, not thrown', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = mod.planInstall(install, { known });
+  let calls = 0;
+  // The first removal is the staging file; fail the cleanup of the original.
+  mod.fsOps.rm = (p, o) => { if (String(p).endsWith('.old')) { calls++; throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); } return real.rm(p, o); };
+  let result;
+  try { result = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(calls, 1);
+  assert.equal(result.applied, true);
+  assert.ok(result.actions.find((a) => a.rel === SKILL).kept);
+  assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
+  rmSync(root, { recursive: true });
+});
