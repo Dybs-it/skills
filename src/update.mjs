@@ -673,7 +673,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // pinned folders) cannot reach it. This run created it, so it is
         // removed by that identity at once, while it has no other name.
         const err = new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again`);
-        try { rmIfOurs(tmp, entry.tmpId, null, { sole: true }); } catch (e) { err.message += ` (a stray ${basename(tmp)} may have been written through it: ${e.message})`; }
+        // Node has no openat(): a folder swapped and already restored leaves
+        // the file where it went, out of reach by name. It is then named, so
+        // the human can remove it.
+        try {
+          rmIfOurs(tmp, entry.tmpId, null, { sole: true });
+          if (idOf(tmp) === null && chainOf(dir, a.rel) === chain) err.message += ` (a stray ${basename(tmp)} may have been written outside the install through a folder swapped meanwhile)`;
+        } catch (e) { err.message += ` (a stray ${basename(tmp)} may have been written through it: ${e.message})`; }
         throw err;
       }
       if (a.op === 'replace') {
