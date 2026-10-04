@@ -637,11 +637,16 @@ export function main(argv) {
   const only = docIdx >= 0 ? args[docIdx + 1] : undefined;
   // `--doc` always names a known doc: without one (or with an empty
   // value) it must not fall back to a whole-project check that can pass.
-  if (docIdx >= 0 && (!only || only.startsWith('--') || !DOCS[only])) {
+  if (docIdx >= 0 && (!only || only.startsWith('--') || !ORDER.includes(only))) {
     console.error(`${only && !only.startsWith('--') ? `unknown doc "${only}"` : '--doc needs a doc name'}. Known: ${ORDER.join(', ')}`);
     return 2;
   }
   const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--doc');
+  // Anything else is a mistake, never ignored: a misspelled option or a
+  // second folder must not let a check of some other tree pass.
+  const unknown = args.filter((a) => a.startsWith('-') && a !== '--doc' && a !== '--json');
+  if (unknown.length) { console.error(`unknown option ${unknown[0]}. Options: --doc <name>, --json`); return 2; }
+  if (positional.length > 1) { console.error(`one project folder at most, got: ${positional.join(' ')}`); return 2; }
   const root = resolve(positional[0] || '.');
   let report;
   try {

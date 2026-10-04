@@ -674,3 +674,14 @@ test('--doc on a doc under skip: is not reported as passing', () => {
   assert.match(r.results.find((x) => x.name === 'ui').errors.join(' '), /under skip/);
   rmSync(dir, { recursive: true });
 });
+
+test('--doc accepts only real doc names, and stray arguments are refused', async () => {
+  const { main } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const err = console.error; const log = console.log;
+  console.error = () => {}; console.log = () => {};
+  try {
+    for (const args of [['--doc', 'toString'], ['--doc', 'constructor'], ['/not/the/project'], ['--bogus']]) {
+      assert.equal(main(['node', 'dybs-validate.mjs', SAMPLE, ...args]), 2, args.join(' '));
+    }
+  } finally { console.error = err; console.log = log; }
+});
