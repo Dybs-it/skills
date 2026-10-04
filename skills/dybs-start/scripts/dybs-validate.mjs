@@ -7,7 +7,7 @@
 // length caps). Templates and skills must agree with DOCS below.
 
 import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, constants as fsConstants } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -200,7 +200,11 @@ export function visibleText(body, { keepCode = false } = {}) {
     }
     // A fence may sit in a block quote or start a list item (`> ```` or
     // `- ```js`); the container prefix does not hide it.
-    const m = line.match(/^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(`{3,}|~{3,})(.*)$/);
+    // Inside a list item, the item's content indent comes first (four
+    // spaces under `10. `), then the usual up-to-three.
+    const lead0 = line.match(/^ */)[0].length;
+    const body0 = inList ? line.slice(Math.min(lead0, listIndent)) : line;
+    const m = body0.match(/^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(`{3,}|~{3,})(.*)$/);
     if (fence) {
       // Inside a list item the closing fence sits at the item's content
       // indent (four spaces under `10. `), so it may be indented up to three
@@ -367,7 +371,7 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
   // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
   // A block quote or list item does not hide one (`> <div>`, `- <pre>`), and
   // neither does the indentation of a list item's content.
-  const html = visibleText(body).split('\n').find((l) => /^\s*(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
+  const html = visibleText(body).split('\n').find((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
@@ -514,7 +518,7 @@ function pathId(p) {
 
 // Removes `p` only while it is still the file we created.
 function rmIfOurs(p, id) {
-  if (id && pathId(p) === id) rmSync(p);
+  if (id && pathId(p) === id) fsOps.rm(p);
 }
 
 // Today as the person running the command sees it (local time, not UTC), so
@@ -528,21 +532,23 @@ export function localDate(d = new Date()) {
 // its content. Refuses a doc that would not validate as accepted.
 // Filesystem calls acceptDoc uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync, copyFile: copyFileSync };
+export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync };
 
 // Puts `from` at `to` without overwriting anything there: link() where the
 // filesystem has hard links, an exclusive copy (COPYFILE_EXCL, O_EXCL) where
 // it does not. Either refuses a file or link that appears at `to` at any
 // moment; a check followed by rename() would replace one that appeared in
 // between.
+// `from` is left in place: the caller records the placement first and only
+// then removes it, so a failure in that removal is still undone.
 export function placeNoClobber(from, to) {
   try {
     fsOps.link(from, to);
-    rmSync(from);
+    return 'link';
   } catch (err) {
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
     fsOps.copyFile(from, to, fsConstants.COPYFILE_EXCL);
-    rmSync(from);
+    return 'copy';
   }
 }
 
@@ -597,12 +603,16 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
   const pinned = () => {
     if (!dirs || folderChain(root, rel) !== dirs) throw new Error(`a folder on the way to ${rel} changed while it was being accepted; run --accept again`);
   };
-  const tmp = `${path}.dybs-${process.pid}.tmp`;
-  const old = `${path}.dybs-${process.pid}.old`;
+  // Names unique to this run: a kept `.old` from an earlier run (or a
+  // reused process id) is never overwritten.
+  const run = `${process.pid}-${randomUUID()}`;
+  const tmp = `${path}.dybs-${run}.tmp`;
+  const old = `${path}.dybs-${run}.old`;
   const mode = lstatSync(path).mode & 0o7777;
   let tmpId = null;
   let moved = false;
   let placed = false;
+  let placedId = null;
   try {
     const fd = openSync(tmp, 'wx', mode);
     try {
@@ -619,12 +629,15 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
     if (readFileSync(old, 'utf8') !== text) {
       placeNoClobber(old, path);
       moved = false;
+      rmSync(old);
       rmIfOurs(tmp, tmpId);
       return { ok: false, errors: ['the doc changed while it was being accepted; nothing was written, run --accept again'] };
     }
-    placeNoClobber(tmp, path);
+    const how = placeNoClobber(tmp, path);
     placed = true;
+    placedId = how === 'link' ? tmpId : pathId(path);
     pinned();
+    rmIfOurs(tmp, tmpId);
     // The original is deleted only while it still holds what was validated.
     if (readFileSync(old, 'utf8') === text) rmSync(old);
     else return { ok: true, warnings: [`the previous version changed during acceptance; kept at ${old}`] };
@@ -633,7 +646,9 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
     // comes back the same way. Only what is provably ours is removed.
     if (placed) {
       let ours = false;
-      try { ours = readFileSync(path, 'utf8') === next; } catch { ours = false; }
+      try {
+        ours = folderChain(root, rel) === dirs && pathId(path) === placedId && readFileSync(path, 'utf8') === next;
+      } catch { ours = false; }
       if (ours) { try { rmSync(path); } catch { /* reported below */ } }
     }
     try { rmIfOurs(tmp, tmpId); } catch { /* reported below */ }

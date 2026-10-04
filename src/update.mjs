@@ -320,10 +320,12 @@ export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write
 export function placeNoClobber(from, to) {
   try {
     fsOps.link(from, to);
+    return 'link';
   } catch (err) {
     if (err.code === 'EEXIST') throw err;
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
     fsOps.copyFile(from, to, fsConstants.COPYFILE_EXCL);
+    return 'copy';
   }
 }
 
@@ -432,13 +434,17 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         if (!staged || sha(staged) !== sha(want[s.a.rel])) {
           throw new Error(`the staged copy of ${s.a.rel} changed before it was installed; nothing was kept, run update again`);
         }
+        let how;
         try {
-          placeNoClobber(s.tmp, s.p);
+          how = placeNoClobber(s.tmp, s.p);
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`${s.a.rel} appeared since the update was planned; nothing was changed, run update again`);
           throw err;
         }
         s.placed = true;
+        // A link places the staged file itself, whose identity we know; a
+        // copy is a new file, read back at once.
+        s.placedId = how === 'link' ? s.tmpId : idOf(s.p);
         if (s.a.op === 'add') done.push(s);
         pinned(s);
         fsOps.rm(s.tmp);
@@ -452,8 +458,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // wrote: if someone changed it since, it is theirs now. It stays, and
       // so does the original we moved aside, for a human to sort out.
       if (s.placed) {
+        // Ours means: reached through the pinned folders, the very file we
+        // placed, still holding our bytes. Bytes alone are not enough: a
+        // folder swapped for a link could show an outside file with the same
+        // shipped content, and that file must never be deleted.
         let ours = false;
-        try { ours = sha(readFileSync(s.p)) === sha(want[s.a.rel]); } catch { ours = false; }
+        try {
+          ours = chainOf(dir, s.a.rel) === s.chain && idOf(s.p) === s.placedId && sha(readFileSync(s.p)) === sha(want[s.a.rel]);
+        } catch { ours = false; }
         if (!ours) {
           stuck.push(`${s.a.rel} changed after the update wrote it; kept as is${s.old ? `, the original is at ${s.old}` : ''}`);
           continue;

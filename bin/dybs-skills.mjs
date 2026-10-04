@@ -62,9 +62,10 @@ function parse(argv) {
   return opts;
 }
 
-// `deps.update` lets a test stand in for the updater.
+// `deps.update` and `deps.discover` let a test stand in for the updater.
 export function run(argv, deps = {}) {
   const runUpdate = deps.update || update;
+  const runDiscover = deps.discover || discover;
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { console.log(HELP); return 0; }
   if (cmd === 'validate') return validateMain(['node', 'dybs-validate', ...rest]);
@@ -80,7 +81,18 @@ export function run(argv, deps = {}) {
   const roots = rootsFor(resolve(opts.positional[0] || '.'), opts);
 
   if (cmd === 'status') {
-    const { installs, skipped } = discover(roots);
+    let found;
+    try {
+      found = runDiscover(roots);
+    } catch (err) {
+      // A discovery failure (an unreadable folder) is still JSON when asked.
+      if (opts.json) {
+        console.log(JSON.stringify({ schema: JSON_SCHEMA, error: err.message }, null, 2));
+        return 1;
+      }
+      throw err;
+    }
+    const { installs, skipped } = found;
     if (opts.json) {
       console.log(JSON.stringify({ schema: JSON_SCHEMA, installs, skipped }, null, 2));
       return 0;
