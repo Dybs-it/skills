@@ -1399,3 +1399,31 @@ test('a folder is never made through a parent swapped for a link after its look'
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('without hard links, the verified original is deleted by identity, never a replacement', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let replaced = null;
+  // After the moved-aside original is verified, a watcher replaces it.
+  mod.testHooks.afterLook = (p) => {
+    if (replaced || !/SKILL\.md\.[0-9a-f-]{36}\.rm$/.test(p)) return;
+    replaced = p;
+    writeFileSync(`${p}.x`, 'someone else');
+    renameSync(`${p}.x`, p);
+  };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); mod.testHooks.afterLook = null; }
+  assert.ok(replaced, 'the hook ran on the moved-aside name');
+  // Never deleted: back at its name, or (with no hard links to put it back)
+  // kept where the error says.
+  const kept = existsSync(replaced) ? replaced : err?.message.match(/kept at (\S+?)(;|$)/)?.[1];
+  assert.ok(kept, err?.message);
+  assert.equal(readFileSync(kept, 'utf8'), 'someone else');
+  rmSync(root, { recursive: true });
+});

@@ -546,7 +546,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           let same = false;
           try { same = isRegular(aside) && idOf(aside) === origId && sha(fsOps.read(aside)) === sha(fsOps.read(old)); } catch { same = false; }
           if (!same) throw new Error(`${s.a.rel} changed while it was being moved aside; your version is kept at ${aside}`);
-          rmSync(aside);
+          // Deleted by identity under yet another private name, never by a
+          // plain unlink after the check: a file that replaced `aside` since
+          // is put back, not deleted.
+          rmIfOurs(aside, origId);
         }
         pinned(s);
         s.oldId = idOf(s.old);
