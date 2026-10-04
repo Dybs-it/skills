@@ -488,3 +488,10 @@ test('only an ordered list starting at 1 interrupts a paragraph', async () => {
   assert.equal(visibleText('ordinary `open\n2. still <!-- TODO -->\nclose`\n', { keepCode: true }), 'ordinary `open\n2. still <!-- TODO -->\nclose`\n');
   assert.equal(visibleText('ordinary `open\n1. item <!-- TODO -->\nclose`\n', { keepCode: true }), 'ordinary `open\n1. item \nclose`\n');
 });
+
+test('a block quote that opens with indented code interrupts the paragraph before it', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('paragraph\n>     alpha beta\n'), 1);
+  // Inside the same quote, an indented line still continues the paragraph.
+  assert.equal(wordCount('> paragraph\n>     still prose\n'), 3);
+});

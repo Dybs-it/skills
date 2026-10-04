@@ -1024,3 +1024,45 @@ test('an update that stops partway names the installs it already committed', asy
   assert.equal(err.completed[0].skill, first);
   rmSync(root, { recursive: true });
 });
+
+test('without hard links, the .old name is reserved and never replaced if someone writes to it', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = mod.planInstall(install, { known });
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let reserved;
+  try {
+    assert.throws(() => mod.applyPlan(plan, { beforeReserved: (p) => { reserved = p; writeFileSync(p, 'someone else'); } }), /something changed/);
+  } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(reserved, 'utf8'), 'someone else');
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+test('two runs in the same millisecond never share a run name', async () => {
+  const mod = await import('../src/update.mjs');
+  const { readdirSync: ls } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const now = Date.now;
+  Date.now = () => 1700000000000;
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  try {
+    const plan = mod.planInstall(findInstalls([root])[0], { known });
+    const steps = plan.actions.filter((a) => ['update', 'replace', 'remove'].includes(a.op)).length;
+    // The first run fails and keeps its original under its own run name.
+    assert.throws(() => mod.applyPlan(plan, { failAt: steps }), /kept at/);
+    const kept = ls(dir).find((n) => n.endsWith('.old'));
+    // The second run, same pid and millisecond, must not collide with it.
+    mod.applyPlan(mod.planInstall(findInstalls([root])[0], { known }));
+    assert.equal(readFileSync(join(dir, kept), 'utf8'), 'old shipped version');
+  } finally { Date.now = now; Object.assign(mod.fsOps, real); }
+  rmSync(root, { recursive: true });
+});

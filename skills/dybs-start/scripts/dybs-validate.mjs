@@ -176,7 +176,8 @@ export function visibleText(body, { keepCode = false } = {}) {
   const items = [];
   let prevBlank = true;
   // A heading, a thematic break or a closed fence is not a paragraph, so an
-  // indented code block may follow it with no blank line in between.
+  // indented code block may follow it with no blank line in between. So may
+  // the first line of a new block quote, which interrupts a paragraph.
   let afterBlock = false;
   let inComment = false;
   const st = { span: null };
@@ -266,7 +267,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     // Measured after the `>` markers, where a quoted list item's content is.
     const lead = inner.match(/^ */)[0].length;
     const codeAt = inList ? listIndent + 4 : 4;
-    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock)) {
+    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock || quoteDepth(line) > (n ? quoteDepth(lines[n - 1]) : 0))) {
       indented = true;
       prevBlank = false;
       if (keepCode) out.push(line);
