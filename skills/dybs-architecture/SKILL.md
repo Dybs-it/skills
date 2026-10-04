@@ -6,7 +6,8 @@ description: Write or revise dybs/context/architecture.md, the shape of the syst
 # dybs-architecture
 
 Lead persona: **Tess** (architect). Run the interview in `interview.md` (in this skill's folder) at the depth
-`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`.
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`architecture` under `skip:`, say so and stop.
 
 The three tests for a decision record are adapted from Matt Pocock's
 `domain-modeling` skill (https://github.com/mattpocock/skills), MIT License,

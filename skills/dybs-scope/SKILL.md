@@ -7,7 +7,8 @@ description: Write or revise dybs/context/scope.md, the hard edges of the projec
 
 Lead persona: **Noor**, with **Bas** (the skeptic) pushing on every "In"
 item. Run the interview in `interview.md` (in this skill's folder) at the depth
-`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`.
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`scope` under `skip:`, say so and stop.
 
 **Reads:** `project.md`, `context/prd.md`, `log.md`. **Writes:**
 `dybs/context/scope.md` from `template.md` (cap: 450 words quick, 800

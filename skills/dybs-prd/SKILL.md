@@ -6,7 +6,8 @@ description: Write or revise dybs/context/prd.md, the project's short product re
 # dybs-prd
 
 Lead persona: **Noor** (see `dybs/team.md`). Run the interview in `interview.md` (in this skill's folder) at the depth
-`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`.
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`prd` under `skip:`, say so and stop.
 
 The thorough items on journeys with a named person and counter-metrics are
 adapted from the BMad Method (https://github.com/bmad-code-org/BMAD-METHOD),

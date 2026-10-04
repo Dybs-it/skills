@@ -6,7 +6,8 @@ description: Write or revise dybs/context/domain.md, the project's shared langua
 # dybs-domain
 
 Lead persona: **Ezra** (domain keeper). Run the interview in `interview.md` (in this skill's folder) at the depth
-`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`.
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`domain` under `skip:`, say so and stop.
 
 Partly adapted from Matt Pocock's `domain-modeling` skill
 (https://github.com/mattpocock/skills), MIT License, Copyright (c) 2026
