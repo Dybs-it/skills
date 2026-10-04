@@ -7,7 +7,9 @@ identical copy sits in every skill folder so each skill works on its own.
 The rounds-and-frontier method is adapted from Matt Pocock's `grilling`
 skill (https://github.com/mattpocock/skills), MIT License,
 Copyright (c) 2026 Matt Pocock. The brain dump, concern scan and decision
-log are ideas from the BMad Method (MIT).
+log are adapted from the BMad Method
+(https://github.com/bmad-code-org/BMAD-METHOD), MIT License,
+Copyright (c) 2025 BMad Code, LLC.
 
 ## Depth
 

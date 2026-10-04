@@ -22,8 +22,10 @@ If `dybs/` already exists, the kickoff is done: go to **5. Status and route**.
 ## 1. Listen
 
 Before anything else, look around quietly: is there source code, a package
-manifest, docs, a README? If so, this is an **existing** project; skim enough
-to know what it is. Otherwise it is **greenfield**.
+manifest, or docs that describe a product? If so, this is an **existing**
+project; skim enough to know what it is. A README that only holds a title or
+a template stub, a licence, or config files alone do not count: that is still
+**greenfield**. When in doubt, ask.
 
 Then open the kickoff with one message:
 
@@ -118,10 +120,15 @@ deepening (the validator reports `needs thorough`); offer it, and say that
 deepening makes an accepted doc a draft again.
 
 The order is fixed: project, prd, scope, domain, architecture, ux, ui, check.
-The next step is the first doc that is missing, failing, or still `draft`.
+The next step is the first doc that is missing, failing, or still `draft`,
+except that with `checkins: end` or `none` a `draft` status does not stop
+the route: those docs wait for the review point the human chose, and the
+next step is the first doc that is missing or failing.
 
-- If `project.md` is a draft, check in on it first (brief format from
-  `dybs/README.md`). The human accepts it or edits it.
+- With `checkins: each-doc`, if `project.md` is a draft, check in on it
+  first (brief format from `dybs/README.md`). The human accepts it or edits
+  it. With `end`, project.md is reviewed with the rest in `dybs-check`; with
+  `none`, it stays a draft in the final report.
 - Then hand off to the matching skill: `dybs-prd`, `dybs-scope`,
   `dybs-domain`, `dybs-architecture`, `dybs-ux`, `dybs-ui`, `dybs-check`.
   Skills install one by one, so if the next one is not installed, say so and

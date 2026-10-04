@@ -50,7 +50,8 @@ the smallest fix. If there are more, say how many and that they can wait.
 
 Run this when any doc is at thorough depth; offer it at quick depth.
 
-Pick three must-have requirements from the PRD, the riskiest first. For each,
+Pick up to three must-have requirements from the PRD, the riskiest first
+(all of them when the PRD has fewer than three). For each,
 give a fresh sub-agent only the `dybs/` folder and the requirement, and ask:
 
 1. Which part of the system does this touch?
@@ -244,7 +245,8 @@ so do not assume the others are present.
 5. An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human's word.
 6. Every required `##` section is present (see the template or the doc contract).
 7. Frontmatter `depth`, when present, is `quick` or `thorough`.
-8. The doc is under the word cap for its depth (quick or thorough), not counting HTML comments and code blocks.
-9. An accepted doc is not changed. Any real change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change.)
-10. No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.
+8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.
+9. An accepted doc is not changed, neither its content nor its `depth`. Any real change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change.)
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), and no doc is both `quick` and `thorough`.
+11. No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.
 <!-- rules:end -->
