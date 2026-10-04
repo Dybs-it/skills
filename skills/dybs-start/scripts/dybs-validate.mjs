@@ -891,6 +891,21 @@ function isRegularFile(p) {
 function pathId(p) {
   try { return idOf(lstatSync(p, BIG)); } catch { return null; }
 }
+// The text of exactly the file `id` at `p`, or null: opened without
+// following a link at the name, type and identity checked on the open
+// descriptor, and that descriptor read. A check of the name followed by a
+// read of the name could read whatever replaced it in between.
+function readById(p, id) {
+  let fd;
+  try { fd = fsOps.open(p); } catch (e) {
+    if (['ELOOP', 'EMLINK', 'ENOENT', 'ENOTDIR'].includes(e.code)) return null;
+    throw e;
+  }
+  try {
+    const st = fstatSync(fd, BIG);
+    return st.isFile() && idOf(st) === id ? readFileSync(fd, 'utf8') : null;
+  } finally { closeSync(fd); }
+}
 
 // Removes `p` only while it is still the file we created.
 // Moved first to a name only this run knows, then checked there: what is
@@ -898,6 +913,9 @@ function pathId(p) {
 // between. One that is not ours goes back, never over anything.
 export const testHooks = { afterLook: null };
 function rmIfOurs(p, id, check) {
+  // Gone is gone; a lookup that fails for another reason (a folder that
+  // became unsearchable, I/O) is an error, never "already removed".
+  try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
   if (!id || pathId(p) !== id) return;
   testHooks.afterLook?.(p);
   check?.();
@@ -910,8 +928,17 @@ function rmIfOurs(p, id, check) {
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
     return;
   }
-  try { fsOps.link(aside, p); fsOps.rm(aside); } catch {
+  // Put back without overwriting anything: by link where the filesystem
+  // has them, else as an exclusive copy (a snapshot, so the file itself is
+  // then kept aside too, and named).
+  const theirs = pathId(aside);
+  let how;
+  try { how = placeNoClobber(aside, p, check, theirs); } catch {
     throw Object.assign(new Error(`${p} changed while it was being removed; it is kept at ${aside}`), { keptAt: aside });
+  }
+  if (how === 'copy') throw Object.assign(new Error(`${p} changed while it was being removed; it was put back as a copy, the file itself is kept at ${aside}`), { keptAt: aside });
+  try { fsOps.rm(aside); } catch {
+    throw Object.assign(new Error(`${p} changed while it was being removed; it is back, and also kept at ${aside}`), { keptAt: aside });
   }
 }
 
@@ -926,7 +953,7 @@ export function localDate(d = new Date()) {
 // its content. Refuses a doc that would not validate as accepted.
 // Filesystem calls acceptDoc uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync, write: writeFileSync };
+export const fsOps = { lstat: lstatSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)), link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync, write: writeFileSync };
 
 // Puts `from` at `to` without overwriting anything there: link() where the
 // filesystem has hard links, an exclusive copy (COPYFILE_EXCL, O_EXCL) where
@@ -935,13 +962,16 @@ export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, renam
 // between.
 // `from` is left in place: the caller records the placement first and only
 // then removes it, so a failure in that removal is still undone.
-export function placeNoClobber(from, to, check, fromId) {
+// `out.id`, when `out` is given, is set to a copy's identity: the only
+// proof afterwards that a file at `to` is the one this call created.
+export function placeNoClobber(from, to, check, fromId, out) {
   try {
     fsOps.link(from, to);
     return 'link';
   } catch (err) {
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    copyExclusive(from, to, check, fromId);
+    const id = copyExclusive(from, to, check, fromId);
+    if (out) out.id = id;
     return 'copy';
   }
 }
@@ -1079,6 +1109,23 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const pinned = () => {
     if (!dirs || folderChain(root, rel) !== dirs) throw new Error(`a folder on the way to ${rel} changed while it was being accepted; run --accept again`);
   };
+  // Every placement: pinned right before, and checked right after for both
+  // the folders and the identity actually placed. A name that went wrong is
+  // removed only when provably this run's (a link to the very source, or
+  // the copy just made); anything else is left in place and named.
+  const placeChecked = (from, to, fromId, copyOnly = false) => {
+    pinned();
+    const copied = {};
+    const how = copyOnly ? (copied.id = copyExclusive(from, to, pinned, fromId), 'copy') : placeNoClobber(from, to, pinned, fromId, copied);
+    const now = pathId(to);
+    if (folderChain(root, rel) !== dirs || now !== (how === 'copy' ? copied.id : fromId)) {
+      const ours = now !== null && now === (how === 'copy' ? copied.id : pathId(from));
+      let note = ours ? '' : `; ${to} is not provably this run's file and was left in place`;
+      if (ours) { try { rmIfOurs(to, now); } catch (e) { note = `; ${e.message}`; } }
+      throw Object.assign(new Error(`${rel} or a folder on the way changed while it was being placed; run --accept again${note}`), { placeFailed: true });
+    }
+    return { how, id: now };
+  };
   // Names unique to this run: a kept `.old` from an earlier run (or a
   // reused process id) is never overwritten.
   const run = `${process.pid}-${randomUUID()}`;
@@ -1128,13 +1175,20 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // outside the project: the name just created there is removed again
       // (only a second name, the file itself is untouched) and acceptance
       // stops with nothing changed.
+      // Our name only while it is the very file it was linked from (one file
+      // under both names); a file that replaced it since is left, and named.
+      const dropLinked = (check) => {
+        const linked = pathId(old);
+        if (linked === null || linked !== pathId(path)) return linked === null ? '' : `; ${old} is not provably this run's and was left in place`;
+        try { rmIfOurs(old, linked, check); return ''; } catch (e2) { return `; ${e2.message}`; }
+      };
       if (folderChain(root, rel) !== dirs) {
-        try { rmIfOurs(old, pathId(old)); } catch { /* reported below */ }
-        throw new Error(`a folder on the way to ${rel} changed while it was being accepted; nothing was changed, run --accept again`);
+        const note = dropLinked();
+        throw new Error(`a folder on the way to ${rel} changed while it was being accepted; nothing was changed, run --accept again${note}`);
       }
       if (!isRegularFile(old)) {
-        try { rmIfOurs(old, pathId(old), pinned); } catch { /* reported below */ }
-        throw notRegular();
+        const note = dropLinked(pinned);
+        throw Object.assign(notRegular(), { message: notRegular().message + note });
       }
       moved = true;
       rmIfOurs(path, oldId, pinned);
@@ -1169,7 +1223,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       const aside = `${path}.${randomUUID()}.rm`;
       renameSync(path, aside);
       let same = false;
-      try { same = isRegularFile(aside) && pathId(aside) === origId && readFileSync(aside, 'utf8') === readFileSync(old, 'utf8'); } catch { same = false; }
+      try { const a = readById(aside, origId); const o = readById(old, oldId); same = a !== null && o !== null && a === o; } catch { same = false; }
       if (!same) {
         // Changed in the last instant: put it back at its own name while
         // that is still free, so the user's version is where they left it.
@@ -1184,11 +1238,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       rmIfOurs(aside, origId, pinned);
     }
     pinned();
-    if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
-    if (readFileSync(old, 'utf8') !== text) {
+    const oldText = readById(old, oldId);
+    if (oldText === null) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
+    if (oldText !== text) {
       // A link puts the very file back; a copy is only a snapshot, so the
       // original itself (which an editor may still be writing) is kept.
-      const how = placeNoClobber(old, path, pinned, oldId);
+      const { how } = placeChecked(old, path, oldId);
       moved = false;
       if (how === 'link') rmIfOurs(old, oldId, pinned);
       rmIfOurs(tmp, tmpId, pinned);
@@ -1198,21 +1253,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // Identity cannot show an edit made in place, so the bytes are checked
     // too, right before the copy is placed.
     beforePlace?.(tmp);
-    if (pathId(tmp) !== tmpId || readFileSync(tmp, 'utf8') !== next) {
+    if (readById(tmp, tmpId) !== next) {
       throw new Error(`the temporary copy of ${rel} changed before it was placed; nothing was kept, run --accept again`);
     }
     inputsUnchanged();
-    const how = placeNoClobber(tmp, path, pinned, tmpId);
-    // What was actually placed, read at once. A folder swapped during the
-    // placement put the name outside the project: it was just created by
-    // this run, so it is removed by that identity (without the changed
-    // folders) and acceptance stops. A link that placed anything but the
-    // temporary copy is undone the same way.
-    const placedNow = pathId(path);
-    if (folderChain(root, rel) !== dirs || (how === 'link' && placedNow !== tmpId)) {
-      try { rmIfOurs(path, placedNow); } catch { /* reported below */ }
-      throw new Error(`${rel} or a folder on the way changed while it was being placed; run --accept again`);
-    }
+    // What was actually placed, checked at once (see placeChecked).
+    const placedNow = placeChecked(tmp, path, tmpId).id;
     placed = true;
     placedId = placedNow;
     pinned();
@@ -1222,7 +1268,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // read once more now that it is the only name.
     beforePlacedCheck?.(path);
     pinned();
-    if (pathId(path) !== placedId || readFileSync(path, 'utf8') !== next) {
+    if (readById(path, placedId) !== next) {
       throw new Error(`${rel} changed while it was being accepted; run --accept again`);
     }
     inputsUnchanged();
@@ -1232,7 +1278,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     beforeCleanup?.(old);
     let ours = false;
     let keptAt = old;
-    try { ours = folderChain(root, rel) === dirs && pathId(old) === oldId && readFileSync(old, 'utf8') === text; } catch { ours = false; }
+    try { ours = folderChain(root, rel) === dirs && readById(old, oldId) === text; } catch { ours = false; }
     if (ours) {
       // Re-pinned inside the removal, right before its move: a folder
       // swapped for a link since the check above is never acted through.
@@ -1245,7 +1291,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (placed) {
       let ours = false;
       try {
-        ours = folderChain(root, rel) === dirs && pathId(path) === placedId && readFileSync(path, 'utf8') === next;
+        ours = folderChain(root, rel) === dirs && readById(path, placedId) === next;
       } catch { ours = false; }
       // Removed by identity through a private name, never by a separate
       // look followed by an unlink: a save that replaces the doc in between
@@ -1254,7 +1300,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
         try { rmIfOurs(path, placedId, pinned); } catch (e) { err.message += `; ${e.message}`; }
       }
     }
-    try { rmIfOurs(tmp, tmpId, pinned); } catch { /* reported below */ }
+    try { rmIfOurs(tmp, tmpId, pinned); } catch (e) { err.message += `; ${e.message}`; }
     // Never leave the doc stranded under its temporary name.
     // lstat, not exists: a dangling link that appeared at the doc's path is
     // someone's entry too, and is never replaced. Then the original stays
@@ -1271,12 +1317,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       let restored = false;
       let how = null;
       try {
-        try { how = placeNoClobber(old, path, pinned, oldId); } catch (e) {
+        try { how = placeChecked(old, path, oldId).how; } catch (e) {
           // The failure that brought us here may be the link itself: fall
-          // back to an exclusive copy, still never over an existing entry.
-          if (e.code === 'EEXIST') throw e;
-          copyExclusive(old, path, pinned, oldId);
-          how = 'copy';
+          // back to an exclusive copy, still never over an existing entry,
+          // and checked the same way.
+          if (e.code === 'EEXIST' || e.placeFailed) throw e;
+          how = placeChecked(old, path, oldId, true).how;
         }
         restored = true;
       } catch { restored = false; }

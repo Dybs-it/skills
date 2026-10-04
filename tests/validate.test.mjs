@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { unprivileged, UNPRIVILEGED_SKIP } from './unprivileged.mjs';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync } from 'node:fs';
+import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -2069,4 +2069,106 @@ test('every list marker on one line counts: `- - item` content sits at column 4'
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   // commonmark.js: "more words here" is a paragraph in the inner item.
   assert.equal(wordCount('- - item\n\n      more words here\n'), 4);
+});
+
+test('--accept rollback never restores the doc outside the project through a swapped folder', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync, linkSync, symlinkSync, mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let failing = false;
+  let swapped = false;
+  mod.fsOps.link = (from, to) => {
+    if (failing && !swapped && String(from).endsWith('.old') && to === join(ctx, 'prd.md')) {
+      swapped = true;
+      // The replacement folder shows the original under its moved-aside name.
+      linkSync(from, join(outside, String(from).split('/').at(-1)));
+      renameSync(ctx, `${ctx}.moved`);
+      symlinkSync(outside, ctx);
+    }
+    return real.link(from, to);
+  };
+  let r;
+  try {
+    r = mod.acceptDoc(dir, 'prd', '2026-10-04', { beforePlace: () => { failing = true; throw new Error('injected failure'); } });
+  } catch (e) { r = { ok: false, errors: [e.message] }; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.equal(r.ok, false);
+  assert.ok(!existsSync(join(outside, 'prd.md')), 'no doc restored outside the project');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('--accept never removes a file that replaced the placed doc right after the link', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const doc = join(dir, 'dybs/context/prd.md');
+  let replaced = false;
+  mod.fsOps.link = (from, to) => {
+    const r = real.link(from, to);
+    if (!replaced && String(from).endsWith('.tmp') && to === doc) {
+      replaced = true;
+      writeFileSync(`${doc}.x`, 'theirs');
+      renameSync(`${doc}.x`, doc);
+    }
+    return r;
+  };
+  let r;
+  try { r = mod.acceptDoc(dir, 'prd', '2026-10-04'); } catch (e) { r = { ok: false, errors: [e.message] }; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(replaced);
+  assert.equal(r.ok, false);
+  assert.equal(readFileSync(doc, 'utf8'), 'theirs', 'their file is kept');
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept reports a lookup that fails during rollback instead of taking it for "already removed"', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  let failing = false;
+  mod.fsOps.lstat = (p, o) => {
+    if (failing && String(p).endsWith('.tmp')) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+    return real.lstat(p, o);
+  };
+  let message = '';
+  try {
+    const r = mod.acceptDoc(dir, 'prd', '2026-10-04', { beforePlace: () => { failing = true; throw new Error('injected failure'); } });
+    message = (r.errors || []).join(' ');
+  } catch (e) { message = e.message; } finally { Object.assign(mod.fsOps, real); }
+  assert.match(message, /EIO/);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept never removes a file at the moved-aside name that it did not link there', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { linkSync, mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let theirs = null;
+  mod.fsOps.link = (from, to) => {
+    const r = real.link(from, to);
+    if (!theirs && String(to).endsWith('.old')) {
+      // Right after the move-aside link, the folder is swapped for one
+      // holding someone's own file under that same name.
+      theirs = join(outside, String(to).split('/').at(-1));
+      writeFileSync(theirs, 'theirs');
+      renameSync(ctx, `${ctx}.moved`);
+      symlinkSync(outside, ctx);
+    }
+    return r;
+  };
+  let r;
+  try { r = mod.acceptDoc(dir, 'prd', '2026-10-04'); } catch (e) { r = { ok: false, errors: [e.message] }; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(theirs);
+  assert.equal(r.ok, false);
+  assert.equal(readFileSync(theirs, 'utf8'), 'theirs', 'their file is kept');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
 });

@@ -789,6 +789,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // exactly that before the originals are let go. Edited in place (same
     // identity), it is someone's work now, so nothing is committed.
     beforeCommit?.();
+    // The commit point: the skill folder and every folder chain must still be
+    // the pinned ones. When every file was added or replaced there is no
+    // unchanged file below whose recheck would notice a swapped folder.
+    for (const s of staged) pinned(s);
     // Files the plan found already current are part of the result too: one
     // edited, removed or swapped for a link since would leave the skill
     // mixed, so it stops the update like any other change.
@@ -934,9 +938,17 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             // it back without overwriting anything, else report where it is.
             // The trash name goes only by identity: a file that replaced it
             // after the link is never ours to delete.
+            // Pinned right before and checked right after the link: through
+            // a swapped folder it would land outside the install, and that
+            // name is removed again when it is provably the same file.
             const trashId = idOf(trash);
             try {
+              chainCheck(s)();
               fsOps.link(trash, s.old);
+              if (chainOf(dir, s.a.rel) !== s.chain) {
+                if (idOf(s.old) === trashId) { try { rmIfOurs(s.old, trashId); } catch { /* reported below */ } }
+                throw new Error('a folder on the way changed');
+              }
               s.a.kept = s.old;
               try { rmIfOurs(trash, trashId, chainCheck(s)); } catch (e) { s.a.kept = `${s.old} (and ${e.keptAt ?? trash})`; }
             } catch { s.a.kept = trash; }
