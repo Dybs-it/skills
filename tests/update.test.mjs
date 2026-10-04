@@ -2306,3 +2306,86 @@ test('without hard links, a file that replaced one being removed is put back at 
   assert.equal(readFileSync(replaced, 'utf8'), 'theirs', 'their file is back at its own name');
   rmSync(root, { recursive: true });
 });
+
+test('pruning never removes an empty folder that replaced the one the update emptied', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  mkdirSync(join(dir, 'old/deep'), { recursive: true });
+  writeFileSync(join(dir, 'old/deep/retired.md'), 'as shipped');
+  const known = { ...knownHashes(), 'dybs-prd/old/deep/retired.md': [sha('as shipped')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let swapped = false;
+  mod.testHooks.beforeRmdir = (d) => {
+    if (swapped || d !== join(dir, 'old/deep')) return;
+    swapped = true;
+    // Someone removes the emptied folder and makes their own in its place.
+    rmSync(d, { recursive: true });
+    mkdirSync(d);
+  };
+  try { mod.applyPlan(plan); } finally { mod.testHooks.beforeRmdir = null; }
+  assert.ok(swapped);
+  assert.ok(existsSync(join(dir, 'old/deep')), 'their folder survives');
+  rmSync(root, { recursive: true });
+});
+
+test('a --force backup is checked at rollback without opening what replaced it', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const { spawn } = await import('node:child_process');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own version');
+  const plan = mod.planInstall(findInstalls([root])[0], { force: true });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const fifo = join(outside, 'fifo');
+  execFileSync('mkfifo', [fifo]);
+  // A writer that finishes only if someone opens the FIFO for reading.
+  const writer = spawn('sh', ['-c', `printf 'my own version' > '${fifo}'`]);
+  const beforeCommit = () => {
+    const bak = `${prd(root)}.bak`;
+    symlinkSync(fifo, `${bak}.lnk`);
+    renameSync(`${bak}.lnk`, bak);
+    throw new Error('injected failure');
+  };
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /injected failure/);
+  await new Promise((r) => setTimeout(r, 300));
+  const opened = writer.exitCode !== null;
+  writer.kill();
+  assert.equal(opened, false, 'the FIFO behind the link was never opened');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a skill folder deleted and recreated since the plan is refused, even with the same inode', async () => {
+  const mod = await import('../src/update.mjs');
+  const { lstatSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const before = lstatSync(dir).ino;
+  rmSync(dir, { recursive: true });
+  mkdirSync(dir);
+  assert.throws(() => mod.applyPlan(plan), /changed since the update was planned|not a real folder|changed/);
+  assert.deepEqual(readdirSync(dir), [], `nothing was written into the new folder (inode reused: ${lstatSync(dir).ino === before})`);
+  rmSync(root, { recursive: true });
+});
+
+test('a lookup that fails during rollback is reported, never taken for "already removed"', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let rollingBack = false;
+  mod.fsOps.lstat = (p, o) => {
+    if (rollingBack && String(p).endsWith('.new')) throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+    return real.lstat(p, o);
+  };
+  let err;
+  try { mod.applyPlan(plan, { beforeCommit: () => { rollingBack = true; throw new Error('injected failure'); } }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.match(String(err?.message), /could not undo everything.*EIO/);
+  rmSync(root, { recursive: true });
+});
