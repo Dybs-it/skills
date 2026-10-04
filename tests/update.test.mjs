@@ -1089,10 +1089,11 @@ test('cleanup deletes only the file it verified, never one that appears at the n
   const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
   const plan = mod.planInstall(findInstalls([root])[0], { known });
   let oldName;
-  // While the original is being read for verification, a new file takes its name.
+  // While the original is being read for verification at cleanup (under its
+  // trash name), a new file takes its moved-aside name.
   mod.fsOps.open = (p) => {
     const fd = real.open(p);
-    const m = String(p).match(/^(.*\.old)(\.[^.]+\.rm)?$/);
+    const m = String(p).match(/^(.*\.old)(\.[^.]+\.rm)$/);
     if (m && !oldName) { oldName = m[1]; writeFileSync(`${oldName}.x`, 'someone else'); renameSync(`${oldName}.x`, oldName); }
     return fd;
   };
@@ -2324,6 +2325,61 @@ test('a file that replaces the moved-aside name right after the link is never re
   try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(theirs);
   assert.equal(readFileSync(theirs, 'utf8'), 'theirs too', 'their file is kept');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('update and status refuse a project folder that does not exist', () => {
+  const cli = join(PKG_ROOT, 'bin/dybs-skills.mjs');
+  for (const cmd of ['update', 'status']) {
+    let code = 0;
+    try { execFileSync('node', [cli, cmd, '/definitely/not/here', '--json'], { stdio: 'pipe' }); } catch (e) { code = e.status; }
+    assert.equal(code, 2, cmd);
+  }
+});
+
+test('a filesystem that answers link() with EISDIR (Windows exFAT) falls back to copies', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  mod.fsOps.link = () => { throw Object.assign(new Error('EISDIR: illegal operation on a directory, link'), { code: 'EISDIR' }); };
+  let r;
+  try { r = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(r.applied, true);
+  assert.equal(readFileSync(prd(root), 'utf8'), String(plan.want[SKILL]));
+  rmSync(root, { recursive: true });
+});
+
+test('where open() follows links (no O_NOFOLLOW), a file swapped for a link is still never read as itself', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, openSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { ...knownHashes(), 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const same = plan.actions.find((a) => a.op === 'same');
+  assert.ok(same, 'an unchanged file to recheck at the commit point');
+  const target = join(root, '.agents/skills/dybs-prd', same.rel);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'copy'), readFileSync(target));
+  // Windows: open() has no O_NOFOLLOW. After the commit point's recheck of
+  // the unchanged file, and just as it is opened, a link takes its name.
+  let committing = false;
+  let swapped = false;
+  mod.fsOps.open = (p) => {
+    if (committing && !swapped && p === target) {
+      swapped = true;
+      symlinkSync(join(outside, 'copy'), `${target}.lnk`);
+      renameSync(`${target}.lnk`, target);
+    }
+    return openSync(p, 'r');
+  };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeCommit: () => { committing = true; } }), /changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
