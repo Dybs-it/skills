@@ -6,9 +6,9 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export const DOCS = {
   project: {
@@ -84,20 +84,36 @@ export function isDate(v) {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
 
+// A closing backtick run of exactly `run`'s length.
+const closer = (run) => new RegExp(`(?<!\`)${run}(?!\`)`);
+
 // One line with HTML comments removed, except inside inline code spans,
-// where `<!--` is literal text. `open` is true when a comment starts here and
-// does not close on this line.
-function stripComments(line) {
+// where `<!--` is literal text. A code span may continue onto later lines of
+// the same paragraph: `st.span` carries its open run from line to line, and
+// `closesLater(run)` says whether a later line of the paragraph closes it
+// (an opener that is never closed is a literal backtick, not a span). `open`
+// is true when a comment starts here and does not close on this line.
+function stripComments(line, st, closesLater) {
   let out = '';
   let i = 0;
+  if (st.span) {
+    const close = line.search(closer(st.span));
+    if (close < 0) return { text: line, open: false };
+    i = close + st.span.length;
+    out = line.slice(0, i);
+    st.span = null;
+  }
   while (i < line.length) {
     if (line[i] === '`') {
       const run = line.slice(i).match(/^`+/)[0];
-      const close = line.slice(i + run.length).search(new RegExp(`(?<!\`)${run}(?!\`)`));
+      const close = line.slice(i + run.length).search(closer(run));
       if (close >= 0) {
         const endAt = i + run.length + close + run.length;
         out += line.slice(i, endAt);
         i = endAt;
+      } else if (closesLater(run)) {
+        st.span = run;
+        return { text: out + line.slice(i), open: false };
       } else {
         out += run;
         i += run.length;
@@ -138,8 +154,19 @@ export function visibleText(body, { keepCode = false } = {}) {
   let inList = false;
   let prevBlank = true;
   let inComment = false;
-  for (const raw of body.split(/\r?\n/)) {
-    let line = raw;
+  const st = { span: null };
+  const lines = body.split(/\r?\n/);
+  for (let n = 0; n < lines.length; n++) {
+    let line = lines[n];
+    // A code span stays inside its paragraph: a blank line, a fence or a
+    // heading ends the paragraph, and with it any chance to close.
+    const closesLater = (run) => {
+      for (let k = n + 1; k < lines.length; k++) {
+        if (lines[k].trim() === '' || /^ {0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$))/.test(lines[k])) return false;
+        if (closer(run).test(lines[k])) return true;
+      }
+      return false;
+    };
     if (inComment) {
       const end = line.indexOf('-->');
       if (end < 0) continue;
@@ -147,6 +174,7 @@ export function visibleText(body, { keepCode = false } = {}) {
       line = line.slice(end + 3);
     }
     const blank = line.trim() === '';
+    if (blank) st.span = null;
     const isIndented = /^( {4}|\t)/.test(line);
     if (indented) {
       if (blank || isIndented) { prevBlank = blank; if (keepCode) out.push(line); continue; }
@@ -162,7 +190,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     }
     if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; if (keepCode) out.push(line); continue; }
     if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; if (keepCode) out.push(line); continue; }
-    const stripped = stripComments(line);
+    const stripped = stripComments(line, st, closesLater);
     inComment = stripped.open;
     line = stripped.text;
     const nowBlank = line.trim() === '';
@@ -316,6 +344,13 @@ export function main(argv) {
   return report.ok ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Run when called directly, also through a linked skill folder: Node gives
+// import.meta.url as the real path, argv[1] as the path that was typed.
+function calledDirectly() {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+if (calledDirectly()) {
   process.exit(main(process.argv));
 }
