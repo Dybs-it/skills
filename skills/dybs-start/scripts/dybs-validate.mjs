@@ -163,6 +163,9 @@ export function visibleText(body, { keepCode = false } = {}) {
   // indented code block inside it sits four columns past that.
   let listIndent = 0;
   let prevBlank = true;
+  // A heading, a thematic break or a closed fence is not a paragraph, so an
+  // indented code block may follow it with no blank line in between.
+  let afterBlock = false;
   let inComment = false;
   const st = { span: null };
   const lines = body.split(/\r?\n/);
@@ -177,7 +180,7 @@ export function visibleText(body, { keepCode = false } = {}) {
       for (let k = n + 1; k < lines.length; k++) {
         const rest = lines[k].replace(/^(?: {0,3}>[ \t]?)+/, '');
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
-        if (/^ {0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S)/.test(rest)) return false;
+        if (/^ {0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
         if (closer(run).test(lines[k])) return true;
       }
       return false;
@@ -217,7 +220,7 @@ export function visibleText(body, { keepCode = false } = {}) {
       // indent (four spaces under `10. `), so it may be indented up to three
       // spaces past where the opening fence started.
       const c = line.match(/^( *)((?:>[ \t]?)*) {0,3}(`{3,}|~{3,})[ \t]*$/);
-      if (c && c[1].length <= fence.indent + 3 && quoteDepth(line) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) fence = null;
+      if (c && c[1].length <= fence.indent + 3 && quoteDepth(line) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) { fence = null; afterBlock = true; }
       if (keepCode) out.push(line);
       continue;
     }
@@ -236,7 +239,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     }
     const lead = line.match(/^ */)[0].length;
     const codeAt = inList ? listIndent + 4 : 4;
-    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && prevBlank) {
+    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock)) {
       indented = true;
       prevBlank = false;
       if (keepCode) out.push(line);
@@ -252,6 +255,7 @@ export function visibleText(body, { keepCode = false } = {}) {
       inList = Boolean(item) || (inList && !prevBlank);
     }
     prevBlank = nowBlank;
+    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(line);
     out.push(line);
   }
   return out.join('\n');

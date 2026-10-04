@@ -906,3 +906,24 @@ test('rollback never moves an outside file reached through a swapped folder', as
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a rollback that restores by copy keeps the original file itself', async () => {
+  const mod = await import('../src/update.mjs');
+  const { readdirSync: ls } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = mod.planInstall(install, { known });
+  const steps = plan.actions.filter((a) => ['update', 'replace', 'remove'].includes(a.op)).length;
+  try {
+    assert.throws(() => mod.applyPlan(plan, { failAt: steps }), /put back as a copy; the file itself is kept at/);
+  } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  const old = ls(dir).find((n) => n.endsWith('.old'));
+  assert.equal(readFileSync(join(dir, old), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
