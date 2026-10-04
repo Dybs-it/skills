@@ -538,3 +538,34 @@ test('CLI help shows --accept', () => {
   const out = execFileSync('node', [join(PKG_ROOT, 'bin/dybs-skills.mjs'), '--help'], { encoding: 'utf8' });
   assert.match(out, /--accept <doc>/);
 });
+
+test('an untouched install checked out with CRLF line endings is still recognised', () => {
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version\r\nline two\r\n');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version\nline two\n')] };
+  const [install] = findInstalls([root]);
+  assert.equal(ops(updateInstall(install, { known }))[SKILL], 'update');
+  assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
+  rmSync(root, { recursive: true });
+});
+
+test('without hard links, update and rollback still work', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = mod.fsOps.link;
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  try {
+    const root = project(['dybs-prd']);
+    writeFileSync(prd(root), 'old shipped version');
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const [install] = findInstalls([root]);
+    const plan = mod.planInstall(install, { known });
+    assert.throws(() => mod.applyPlan(plan, { failAt: 1 }), /injected failure/);
+    assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+    const [again] = findInstalls([root]);
+    mod.applyPlan(mod.planInstall(again, { known }));
+    assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
+    rmSync(root, { recursive: true });
+  } finally {
+    mod.fsOps.link = real;
+  }
+});
