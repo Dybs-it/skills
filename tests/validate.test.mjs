@@ -381,3 +381,14 @@ test('a code span does not carry into a block quote or list item that interrupts
   assert.equal(visibleText('a `\n- item <!-- TODO -->\nclose `\n', { keepCode: true }), 'a `\n- item \nclose `\n');
   assert.equal(visibleText('a `code\nstill <!-- x --> code` end\n', { keepCode: true }), 'a `code\nstill <!-- x --> code` end\n');
 });
+
+test('a dybs/README.md that is not a file is an error', async () => {
+  const { mkdirSync } = await import('node:fs');
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/README.md'));
+  mkdirSync(join(dir, 'dybs/README.md'));
+  const r = validateProject(dir);
+  assert.equal(r.ok, false);
+  assert.ok(r.results.find((x) => x.name === 'readme').errors[0].includes('not a file'));
+  rmSync(dir, { recursive: true });
+});
