@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'n
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { parseGate, decide, tableUnder, headingCount, visible } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
+import { parseGate, decide, tableUnder, headingCount, visible, waiverIssue } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
 const headingCountFor = (text) => headingCount(text, 'Waivers');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -617,4 +617,18 @@ test('an indented heading under a list item is refused', () => {
   const table = real.match(/## Items\n\n([\s\S]*?)\n\n## Risks/)[1];
   const moved = real.replace(`## Items\n\n${table}`, `## Items\n\n10. list item\n    ## Archived\n\n${table}`);
   assert.match(parseGate(moved).problems.join(' '), /headings may not be indented/);
+});
+
+test('an indented underline under a list item is refused', () => {
+  const real = gate({ items: [full('a', 'P0')] });
+  const table = real.match(/## Items\n\n([\s\S]*?)\n\n## Risks/)[1];
+  const moved = real.replace(`## Items\n\n${table}`, `## Items\n\n10. item\n\n    Archived\n    --------\n\n${table}`);
+  assert.match(parseGate(moved).problems.join(' '), /not underlined ones/);
+});
+
+test('an emphasized TODO or TBD is no waiver reason or approver', () => {
+  for (const v of ['_TODO_', '__TBD__']) {
+    assert.match(waiverIssue({ reason: v, by: 'Alice', approved: '2026-10-01', expires: '2026-12-01' }, '2026-10-04') ?? '', /real reason/, v);
+    assert.match(waiverIssue({ reason: 'ok', by: v, approved: '2026-10-01', expires: '2026-12-01' }, '2026-10-04') ?? '', /real reason/, v);
+  }
 });

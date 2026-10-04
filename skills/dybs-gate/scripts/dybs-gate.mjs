@@ -143,7 +143,9 @@ export function markdownHazards(text) {
     // Only a real ATX heading or a fence line above is exempt: `#Archived`
     // (no space) is paragraph text and becomes a heading, and so does a
     // pipe line that is not a table header for a bare `---`.
-    if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(#{1,6}([ \t]|$)|`{3,}|~{3,})/.test(prev) && !prevComment) {
+    // At any indentation: under `10. item`, an indented underline still
+    // makes the indented line above it a heading inside the item.
+    if (/^[ \t]*(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^(#{1,6}([ \t]|$)|`{3,}|~{3,})/.test(prev.trimStart()) && !prevComment) {
       problems.push('use "##" headings, not underlined ones (a line of = or - under text)');
     }
     // The same inside a quote or list item (`> Archived` / `> ---`): it ends
@@ -410,7 +412,9 @@ export function waiverIssue(w, today) {
   if (!w) return 'no waiver';
   // An unfilled template value (`{{reason}}`, TODO, TBD) is no reason and no
   // name: the waiver is incomplete, so the FAIL stands.
-  const unfilled = (v) => /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/i.test(v);
+  // Bounded by letters and digits, not \b: `_TODO_` renders as TODO, and
+  // `_` is a word character to \b.
+  const unfilled = (v) => /\{\{[^}]*\}\}|(?<![\p{L}\p{N}])(?:TODO|TBD)(?![\p{L}\p{N}])/iu.test(v);
   // Something a reader can see: an entity such as `&nbsp;` or `&#32;` is a
   // non-empty source string that renders as nothing.
   // Plain text only: Markdown or HTML can render as nothing (`[](alice)`,
