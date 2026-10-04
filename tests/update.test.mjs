@@ -2389,3 +2389,23 @@ test('where open() follows links (no O_NOFOLLOW), a file swapped for a link is s
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a lookup failure on the moved-aside original at cleanup is reported as kept, never as gone', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let cleaning = false;
+  mod.fsOps.lstat = (p, o) => {
+    if (cleaning && /\.old$/.test(String(p))) throw Object.assign(new Error('ESTALE: stale file handle'), { code: 'ESTALE' });
+    return real.lstat(p, o);
+  };
+  let r;
+  try { r = mod.applyPlan(plan, { beforeCleanup: () => { cleaning = true; } }); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(r.applied, true);
+  const kept = r.actions.find((a) => a.rel === SKILL).kept;
+  assert.ok(kept && existsSync(kept), 'the original is reported where it is kept');
+  rmSync(root, { recursive: true });
+});

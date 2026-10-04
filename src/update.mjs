@@ -938,7 +938,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // the very file we moved aside, and still holding the planned bytes.
       // Anything less is kept and reported.
       const chainOk = chainOf(dir, s.a.rel) === s.chain;
-      const id = idOf(s.old);
+      // Absent only when the lookup says so (ENOENT/ENOTDIR): any other
+      // failure leaves the original in place, and it is reported as kept.
+      let id = null;
+      let gone = false;
+      try { id = idOfStat(fsOps.lstat(s.old, BIG)); } catch (e) { gone = e.code === 'ENOENT' || e.code === 'ENOTDIR'; }
       // The update is committed by now: a cleanup that fails (a locked
       // file, a permission change, a file that cannot be read) leaves the
       // original in place and is reported, it never turns a finished update
@@ -985,7 +989,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             } catch { s.a.kept = trash; }
           }
         }
-      } else if (chainOk && id === null) { /* already gone */ } else s.a.kept = s.old;
+      } else if (chainOk && gone) { /* already gone */ } else s.a.kept = s.old;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {
       try { removeEmptyDirs(dirname(s.p), dir); } catch { /* an empty folder left behind is harmless */ }

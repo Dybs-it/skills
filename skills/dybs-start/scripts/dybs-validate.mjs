@@ -665,7 +665,9 @@ export function validateDoc(name, text) {
   // Anywhere in a line, not only at its start: inline HTML stays raw, and
   // `intro <details>` ... `</details>` collapses the sections between.
   // A link destination (`[x](<details>)`) is never raw HTML: it is left out.
-  const html = visibleText(body).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(dropLinkTargets(textOutsideCodeSpans(l))));
+  // A reference definition's destination (`[x]: <details>`) is no HTML either.
+  const refDest = (l) => l.replace(/^((?: {0,3}>[ \t]?)*(?: {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+)*\s{0,3}\[[^\]\n]+\]:[ \t]*)<[^>\n]*>/, '$1');
+  const html = visibleText(body).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(dropLinkTargets(refDest(textOutsideCodeSpans(l)))));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
