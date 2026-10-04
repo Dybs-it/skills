@@ -1928,3 +1928,29 @@ test('committed cleanup deletes the old version by identity, never a file that r
   assert.equal(readFileSync(where, 'utf8'), 'someone else');
   rmSync(root, { recursive: true });
 });
+
+test('a staging file swapped in the instant before its link is removed by the identity actually placed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let swapped = null;
+  // Right at the placing link(), a watcher has replaced the staging file
+  // with its own copy of the shipped bytes.
+  mod.fsOps.link = (from, to) => {
+    if (!swapped && from.endsWith('.new')) {
+      swapped = from;
+      writeFileSync(`${from}.x`, readFileSync(from));
+      renameSync(`${from}.x`, from);
+    }
+    return real.link(from, to);
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /changed while it was being installed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  // The original is back; the watcher's file was never ours to keep in place.
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
