@@ -212,13 +212,25 @@ export function applyPlan(plan, { failAt, beforeFail } = {}) {
   const tick = () => {
     if (failAt !== undefined && step++ === failAt) { beforeFail?.(); throw new Error('injected failure'); }
   };
+  // The plan was made earlier; a folder inside the skill may have been
+  // swapped for a link since. Check every path again, right before touching
+  // it, so nothing is written through a link out of the skill folder.
+  const recheck = (a) => {
+    const at = inspectPath(dir, a.rel);
+    const expected = a.op === 'add' ? ['missing'] : ['file'];
+    if (at.state === 'unsafe' || !expected.includes(at.state)) {
+      throw new Error(`${a.rel} changed since the update was planned (${at.why || at.state}); nothing was changed, run update again`);
+    }
+  };
   try {
+    for (const a of actions) if (['add', 'update', 'replace', 'remove'].includes(a.op)) recheck(a);
     for (const a of actions) {
       if (!['add', 'update', 'replace', 'remove'].includes(a.op)) continue;
       const p = join(dir, a.rel);
       if (a.op === 'remove') { staged.push({ a, p }); continue; }
       const made = mkdirSync(dirname(p), { recursive: true });
       if (made) createdDirs.push({ deepest: dirname(p), stop: dirname(made) });
+      recheck(a);
       const tmp = `${p}.${tag}.new`;
       // A replaced file keeps its permissions: a 0600 file stays 0600.
       const mode = a.op === 'add' ? undefined : lstatSync(p).mode & 0o7777;
