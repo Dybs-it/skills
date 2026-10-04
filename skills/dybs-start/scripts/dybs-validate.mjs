@@ -842,7 +842,7 @@ export function validateDoc(name, text) {
   // and link markup removed. That can only find more, never fewer.
   const shown = decodeReferences(visibleText(body, { keepCode: true }));
   // Backslash escapes of punctuation (`\{\{x\}\}`) render as the bare character.
-  // An escaped marker (`T\\*O\\*DO`) is text, not formatting: escapes are set
+  // An escaped marker (`T\*O\*DO`) is text, not formatting: escapes are set
   // aside before the markup is removed and come back as the bare character.
   const flat = dropLinkTargets(shown)
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
