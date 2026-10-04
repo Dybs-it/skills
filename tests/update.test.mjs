@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, cpSync, symlinkSync,
-  readdirSync, lstatSync,
+  readdirSync, lstatSync, chmodSync, statSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -344,4 +344,58 @@ test('a linked .claude folder cannot pull an outside install into a project upda
   assert.equal(update([shared], { known }).results.length, 1);
   rmSync(root, { recursive: true });
   rmSync(shared, { recursive: true });
+});
+
+// --- Codex review on #2, fixed in #1's code ---
+
+test('an edit made after the plan is never lost: the update aborts and restores it', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  writeFileSync(prd(root), 'edited while the update ran');
+  assert.throws(() => applyPlan(plan), /changed since the update was planned/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'edited while the update ran');
+  assert.ok(readdirSync(join(root, '.agents/skills/dybs-prd')).every((n) => !n.includes('.dybs-')));
+  rmSync(root, { recursive: true });
+});
+
+test('a file that appears after the plan is never overwritten', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const tpl = join(root, '.agents/skills/dybs-prd/template.md');
+  rmSync(tpl);
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install);
+  assert.equal(plan.actions.find((a) => a.rel === 'template.md').op, 'add');
+  writeFileSync(tpl, 'mine, written meanwhile');
+  assert.throws(() => applyPlan(plan), /appeared since the update was planned/);
+  assert.equal(readFileSync(tpl, 'utf8'), 'mine, written meanwhile');
+  rmSync(root, { recursive: true });
+});
+
+test('an updated file keeps its permissions', () => {
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  chmodSync(prd(root), 0o600);
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  updateInstall(install, { known });
+  assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
+  assert.equal(statSync(prd(root)).mode & 0o777, 0o600);
+  rmSync(root, { recursive: true });
+});
+
+test('CLI: an unknown option or a second folder is refused, nothing is written', () => {
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const cli = join(PKG_ROOT, 'bin/dybs-skills.mjs');
+  const code = (args) => { try { execFileSync('node', [cli, ...args], { stdio: 'pipe', cwd: root }); return 0; } catch (e) { return e.status; } };
+  assert.equal(code(['update', '--dry-rnu']), 2);
+  assert.equal(code(['update', root, '--dry-rnu']), 2);
+  assert.equal(code(['update', root, root]), 2);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
 });

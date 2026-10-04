@@ -14,7 +14,7 @@
 import { createHash } from 'node:crypto';
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync,
-  rmSync, rmdirSync, copyFileSync, realpathSync, lstatSync, renameSync,
+  rmSync, rmdirSync, copyFileSync, realpathSync, lstatSync, renameSync, linkSync, chmodSync,
   constants as fsConstants,
 } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -167,8 +167,8 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     if (at.state === 'missing') { actions.push({ op: 'add', rel }); continue; }
     const curHash = sha(readFileSync(join(dir, rel)));
     if (curHash === sha(buf)) { actions.push({ op: 'same', rel }); continue; }
-    if (isKnown(rel, curHash)) { actions.push({ op: 'update', rel }); continue; }
-    actions.push({ op: force ? 'replace' : 'conflict', rel, why: 'changed after install' });
+    if (isKnown(rel, curHash)) { actions.push({ op: 'update', rel, hash: curHash }); continue; }
+    actions.push(force ? { op: 'replace', rel, hash: curHash, why: 'changed after install' } : { op: 'conflict', rel, why: 'changed after install' });
   }
 
   // Files earlier versions shipped that this version no longer does.
@@ -179,8 +179,9 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     const at = inspectPath(dir, rel);
     if (at.state === 'missing') continue;
     if (at.state === 'unsafe') { actions.push({ op: 'unsafe', rel, why: at.why }); continue; }
-    actions.push(isKnown(rel, sha(readFileSync(join(dir, rel))))
-      ? { op: 'remove', rel }
+    const curHash = sha(readFileSync(join(dir, rel)));
+    actions.push(isKnown(rel, curHash)
+      ? { op: 'remove', rel, hash: curHash }
       : { op: 'keep', rel, why: 'changed after install, no longer shipped' });
   }
 
@@ -213,7 +214,10 @@ export function applyPlan(plan, { failAt } = {}) {
       const made = mkdirSync(dirname(p), { recursive: true });
       if (made) createdDirs.push({ deepest: dirname(p), stop: dirname(made) });
       const tmp = `${p}.${tag}.new`;
-      writeFileSync(tmp, want[a.rel], { flag: 'wx' });
+      // A replaced file keeps its permissions: a 0600 file stays 0600.
+      const mode = a.op === 'add' ? undefined : lstatSync(p).mode & 0o7777;
+      writeFileSync(tmp, want[a.rel], { flag: 'wx', mode });
+      if (mode !== undefined) chmodSync(tmp, mode);
       staged.push({ a, p, tmp });
       if (a.op === 'replace') {
         const b = backupPath(p);
@@ -222,17 +226,27 @@ export function applyPlan(plan, { failAt } = {}) {
         a.backup = b;
       }
     }
+    // Nothing written since the plan may be lost. A file is moved aside and
+    // only then compared with the bytes the plan saw; a new file is put in
+    // place with link(), which refuses to overwrite one that appeared since.
     for (const s of staged) {
       if (s.a.op !== 'add') {
         tick();
         s.old = `${s.p}.${tag}.old`;
         renameSync(s.p, s.old);
         done.push(s);
+        if (sha(readFileSync(s.old)) !== s.a.hash) throw new Error(`${s.a.rel} changed since the update was planned; nothing was changed, run update again`);
       }
       if (s.tmp) {
         tick();
-        renameSync(s.tmp, s.p);
+        try {
+          linkSync(s.tmp, s.p);
+        } catch (err) {
+          if (err.code === 'EEXIST') throw new Error(`${s.a.rel} appeared since the update was planned; nothing was changed, run update again`);
+          throw err;
+        }
         s.placed = true;
+        rmSync(s.tmp, { force: true });
         if (s.a.op === 'add') done.push(s);
       }
     }
@@ -241,7 +255,8 @@ export function applyPlan(plan, { failAt } = {}) {
     const undo = (what, fn) => { try { fn(); } catch (e) { stuck.push(`${what}: ${e.message}`); } };
     for (const s of done.reverse()) {
       if (s.placed) undo(s.a.rel, () => rmSync(s.p, { force: true }));
-      if (s.old) undo(s.a.rel, () => renameSync(s.old, s.p));
+      // Put the original back without overwriting anything that appeared.
+      if (s.old) undo(s.a.rel, () => { linkSync(s.old, s.p); rmSync(s.old); });
     }
     for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmSync(s.tmp, { force: true }));
     for (const b of backups) undo(b, () => rmSync(b, { force: true }));
