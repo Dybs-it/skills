@@ -901,13 +901,20 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           const check = chainCheck(s);
           check();
           const how = placeNoClobber(s.old, s.p, check, s.oldId, copied);
-          if (chainOf(dir, s.a.rel) !== s.chain) {
-            const now = idOf(s.p);
+          // What was placed, checked at once: a link places whatever the
+          // moved-aside name held at that instant, which must be the very
+          // original. A name placed wrongly is removed only when provably
+          // ours (the same file as its source, or the copy just made).
+          const now = idOf(s.p);
+          const swapped = chainOf(dir, s.a.rel) !== s.chain;
+          if (swapped || (how === 'link' && now !== s.oldId)) {
             let note = `${s.p} is not provably this update's file and was left in place`;
-            if (now !== null && now === (how === 'copy' ? copied.id : s.oldId)) {
+            if (now !== null && now === (how === 'copy' ? copied.id : idOf(s.old))) {
               try { rmIfOurs(s.p, now); note = 'the name placed there was removed again'; } catch (e) { note = e.message; }
             }
-            throw new Error(`a folder on the way changed while the original was put back (${note}); the original is at ${s.old}`);
+            throw new Error(swapped
+              ? `a folder on the way changed while the original was put back (${note}); the original is at ${s.old}`
+              : `the moved-aside original was replaced before it was put back (${note}); it is not at ${s.old} any more`);
           }
           if (how === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s));
           else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
