@@ -428,7 +428,10 @@ export function waiverIssue(w, today) {
   // name: the waiver is incomplete, so the FAIL stands.
   // Bounded by letters and digits, not \b: `_TODO_` renders as TODO, and
   // `_` is a word character to \b.
-  const unfilled = (v) => /\{\{[^}]*\}\}|(?<![\p{L}\p{N}])(?:TODO|TBD)(?![\p{L}\p{N}])/iu.test(v);
+  // Checked as written and as rendered: emphasis (`T**O**DO`) and escapes
+  // (`\{\{x\}\}`) split a placeholder that still reads whole.
+  const placeholder = (v) => /\{\{[^}]*\}\}|(?<![\p{L}\p{N}])(?:TODO|TBD)(?![\p{L}\p{N}])/iu.test(v);
+  const unfilled = (v) => placeholder(v) || placeholder(v.replace(/\\([!-/:-@[-`{-~])/g, '$1').replace(/[*_~]/g, ''));
   // Something a reader can see: an entity such as `&nbsp;` or `&#32;` is a
   // non-empty source string that renders as nothing.
   // Plain text only: Markdown or HTML can render as nothing (`[](alice)`,
@@ -532,7 +535,8 @@ export function freshness(gatePath, text) {
     top = execFileSync('git', ['-C', dirname(abs), 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   } catch (e) {
     const said = String(e.stderr || '').trim().split('\n')[0];
-    if (e.code !== 'ENOENT' && /not a git repository/i.test(said)) return { status: 'unchecked', reason: 'not inside a git repository' };
+    // "Not a repository" with a .git above the gate is a damaged repository.
+    if (e.code !== 'ENOENT' && /not a git repository/i.test(said) && !insideGitFolder(dirname(abs))) return { status: 'unchecked', reason: 'not inside a git repository' };
     if (e.code === 'ENOENT' && !insideGitFolder(dirname(abs))) return { status: 'unchecked', reason: 'git is not installed and no .git folder is above the gate' };
     return { status: 'stale', reason: e.code === 'ENOENT'
       ? 'git is not available, so the committed evidence cannot be checked. Install git and run the gate again'
@@ -579,7 +583,10 @@ export function freshness(gatePath, text) {
   if (!head) return { status: 'stale', reason: 'no commit holds the evidence yet. Commit the work, set commit: to that commit, and run the gate again' };
   // `commit:` counts only in the opening frontmatter, never in the body.
   const fm = (text.match(/^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/) || [])[1] ?? '';
-  const field = (fm.match(/^commit:[ \t]*(.*?)[ \t]*$/m) || [])[1] || '';
+  // Exactly one: with two, readers disagree on which evidence is named.
+  const commits = [...fm.matchAll(/^commit:[ \t]*(.*?)[ \t]*$/gm)];
+  if (commits.length > 1) return { status: 'stale', reason: 'gate.md names commit: more than once. Keep one, set to the evidence commit, and run the gate again' };
+  const field = (commits[0] || [])[1] || '';
   let named = '';
   if (/^[0-9a-f]{4,40}$/i.test(field)) {
     try { named = git(top, ['rev-parse', '--verify', '--quiet', `${field}^{commit}`]); } catch { named = ''; }

@@ -787,3 +787,31 @@ test('a repository git cannot read the status of is STALE, never a crash read as
   assert.match(r.out, /STALE: git could not read the working tree/);
   rmSync(repo, { recursive: true });
 });
+
+test('waiver placeholders split by formatting, a second commit:, and a damaged .git are all refused', () => {
+  // `T**O**DO` reads TODO; `\{\{x\}\}` reads {{x}}.
+  for (const v of ['T**O**DO', 'T**B**D', 'T_O_DO', '\\{\\{name\\}\\}']) {
+    assert.match(waiverIssue({ reason: v, by: 'Alice', approved: '2026-10-01', expires: '2026-12-01' }, '2026-10-04') ?? '', /real reason/, v);
+    assert.match(waiverIssue({ reason: 'ok', by: v, approved: '2026-10-01', expires: '2026-12-01' }, '2026-10-04') ?? '', /real reason/, v);
+  }
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const head = g('rev-parse', '--short=7', 'HEAD');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  const run = () => { try { return { code: 0, out: execFileSync('node', [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  // Two commit: fields, the current one first.
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${head}\ncommit: uncommitted\n`));
+  let r = run();
+  assert.equal(r.code, 3, r.out); assert.match(r.out, /more than once/);
+  // A damaged .git: git says "not a git repository", but one is there.
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${head}\n`));
+  rmSync(join(repo, '.git'), { recursive: true });
+  mkdirSync(join(repo, '.git'));
+  r = run();
+  assert.equal(r.code, 3, r.out); assert.match(r.out, /STALE: git refused the repository/);
+  rmSync(repo, { recursive: true });
+});

@@ -2569,3 +2569,13 @@ test('where open() follows links (no O_NOFOLLOW), a file swapped for a link is s
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('quality.md describes the test-plan layout every quality skill reads, matching the template', () => {
+  const q = readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'quality.md'), 'utf8');
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'template.md'), 'utf8');
+  const layout = q.match(/^## Test plan layout\n([\s\S]*?)(?=^## )/m)?.[1] ?? '';
+  assert.ok(layout, 'a Test plan layout section');
+  for (const [, h] of t.matchAll(/^## (.+)$/gm)) assert.match(layout, new RegExp(`\\*\\*${h}:\\*\\*`), h);
+  for (const table of t.matchAll(/^\| (.+) \|\n\|---/gm)) assert.ok(layout.replace(/\s+/g, ' ').includes(table[1]), table[1]);
+  for (const s of ['green', 'proven', 'stuck']) assert.match(layout, new RegExp(`\`${s}\``), s);
+});

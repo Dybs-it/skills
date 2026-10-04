@@ -28,6 +28,26 @@ dybs/work/<task>/
 kebab-case name for the feature or code area (`invite-links`, `rotation-job`).
 Edit these files in place; never rewrite one from memory.
 
+## Test plan layout
+
+`test-plan.md` has frontmatter (`task`, `status: draft|accepted`, `updated`)
+and these sections, in this order, so any quality skill can write or read it
+without `dybs-test-plan` installed:
+
+- **Scope:** in scope (files, routes, modules) and out of scope.
+- **Acceptance criteria:** `AC1`, `AC2`, ... each given/when/then, with a
+  priority and the `R#`/`D#` it comes from; `(proposed)` until confirmed.
+- **Risks:** a table `Risk | Category | P | I | Score | Mitigation | Owner |
+  Status` (see Risk below).
+- **Edge cases:** unhandled paths only: location, trigger, smallest guard,
+  consequence.
+- **Seams:** the seams the human confirmed, each with its date.
+- **Scenarios:** a table `Id | Priority | Level | Seam | Given / when / then |
+  Covers | Test | Status`. `Id` is `<task>-<LEVEL>-NN`, `Covers` names the
+  `AC#`/`R#`, `Test` is the `path:line` that proves it, and `Status` is
+  `planned`, then `green` (written first, now passing), `proven` (seen
+  failing with the behaviour broken) or `stuck` (see dybs-tests).
+
 ## Risk
 
 A risk is something that can go wrong, not a feature. Give each one a
