@@ -1440,3 +1440,17 @@ test('without hard links, --accept never loses an edit made while moving the doc
   assert.equal(readFileSync(kept, 'utf8'), 'edited after the copy');
   rmSync(dir, { recursive: true });
 });
+
+test('--accept refuses a project.md that is a link to a file elsewhere', async () => {
+  const { renameSync } = await import('node:fs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  renameSync(join(dir, 'dybs/project.md'), join(outside, 'project.md'));
+  symlinkSync(join(outside, 'project.md'), join(dir, 'dybs/project.md'));
+  const r = acceptDoc(dir, 'ui', '2026-10-04');
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(' '), /refusing to accept/);
+  assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

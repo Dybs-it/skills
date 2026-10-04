@@ -713,6 +713,9 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   if (name !== 'project') {
     const projectPath = join(root, 'dybs', DOCS.project.file);
     if (!existsSync(projectPath)) return { ok: false, errors: ['dybs/project.md is missing: its depth and settings decide how this doc is accepted. Run dybs-start first.'] };
+    // The settings come from the project's own file, never through a link.
+    const projectUnsafe = unsafePath(root, 'dybs/project.md');
+    if (projectUnsafe) return { ok: false, errors: [`refusing to accept: ${projectUnsafe}`] };
     {
       const projectText = readFileSync(projectPath, 'utf8');
       const project = validateDoc('project', projectText, depthFor('project', parseFrontmatter(projectText).data));
