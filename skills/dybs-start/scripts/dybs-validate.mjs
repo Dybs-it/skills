@@ -629,14 +629,10 @@ export function wordCount(body) {
   // Count prose only: what a reader sees, without HTML comments (template
   // guidance) or fenced code (``` or ~~~), by the same rules as headings.
   // Link destinations and titles, and reference definitions (`[x]: url`),
-  // are never shown either. A definition cannot interrupt a paragraph, so
-  // only one after a blank line (or another definition) is left out.
-  let prev = '';
-  const prose = visibleText(body).split('\n').map((l) => {
-    const def = /^(?: {0,3}>[ \t]?)* {0,3}\[[^\]\n]+\]:[ \t]*(?:<[^<>\n]*>|[^\s<]\S*)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*$/.test(l) && (prev.trim() === '' || prev === '\u0002');
-    prev = def ? '\u0002' : l;
-    return def ? '' : dropValidLinkTargets(l);
-  }).join('\n');
+  // are never shown either (see definitions()).
+  const lines = visibleText(body).split('\n');
+  const defs = definitions(lines);
+  const prose = lines.map((l, i) => (defs.has(i) ? '' : dropValidLinkTargets(l))).join('\n');
   return (prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 }
 
@@ -683,8 +679,41 @@ export function acceptedHash(data, body) {
 // For counting, only a well-formed inline destination is left out
 // (`](url)`, `](<a b>)`, `](url "title")`): `[b](c d e)` is no link and its
 // words are shown. Leaving a malformed one in can only count more.
+const LINK_DEST = String.raw`(?:<[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*)`;
+const LINK_TITLE = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\))`;
+const INLINE_TARGET = String.raw`\([ \t]*${LINK_DEST}(?:[ \t]+${LINK_TITLE})?[ \t]*\)`;
 function dropValidLinkTargets(text) {
-  return text.replace(/\]\([ \t]*(?:<[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*)(?:[ \t]+(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\)))?[ \t]*\)/g, ']');
+  return text.replace(new RegExp(String.raw`\]${INLINE_TARGET}`, 'g'), ']');
+}
+
+// A reference definition (`[x]: url "title"`) is never shown. Only a whole
+// well-formed line counts (`[x]: <details> garbage` is a paragraph), it
+// cannot interrupt a paragraph (so only after a blank line or another
+// definition), and its title may sit alone on the next line. Returns line
+// index -> normalized label (null for a title line). Missing a definition
+// only counts more words and refuses more HTML.
+const DEF_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*(?:(?: {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})+| {0,3})\[((?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]+)\]:[ \t]*(?:<[^<>\n]*>|(?:[^\s()\\<]|\\.|\((?:[^\s()\\]|\\.)*\))(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*)([ \t]+${LINK_TITLE})?[ \t]*$`);
+const DEF_TITLE_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*[ \t]*${LINK_TITLE}[ \t]*$`);
+const label = (l) => l.trim().replace(/\s+/g, ' ').toLowerCase();
+function definitions(lines) {
+  const defs = new Map();
+  let titleMayFollow = false;
+  lines.forEach((l, i) => {
+    if (titleMayFollow && DEF_TITLE_LINE.test(l)) {
+      defs.set(i, null);
+      titleMayFollow = false;
+      return;
+    }
+    const m = DEF_LINE.exec(l);
+    const blockStart = i === 0 || defs.has(i - 1) || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
+    if (m && blockStart) {
+      defs.set(i, label(m[1]));
+      titleMayFollow = !m[2];
+    } else {
+      titleMayFollow = false;
+    }
+  });
+  return defs;
 }
 
 // Removes every `](destination)` and `][label]`, with the destination's
@@ -803,15 +832,23 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // Anywhere in a line, not only at its start: inline HTML stays raw, and
   // `intro <details>` ... `</details>` collapses the sections between.
   // A link destination (`[x](<details>)`) is never raw HTML: it is left out.
-  // A reference definition's destination (`[x]: <details>`) is no HTML either.
-  const refDest = (l) => l.replace(/^((?: {0,3}>[ \t]?)*(?: {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+)*\s{0,3}\[[^\]\n]+\]:[ \t]*)<[^>\n]*>/, '$1');
-  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(dropValidLinkTargets(refDest(textOutsideCodeSpans(l)))));
+  // A well-formed reference definition (`[x]: <details>`) is no HTML either.
+  const htmlLines = visibleText(body, { hideSpanLines: true }).split('\n');
+  const htmlDefs = definitions(htmlLines);
+  const html = htmlLines.find((l, i) => !htmlDefs.has(i) && /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(dropValidLinkTargets(textOutsideCodeSpans(l))));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
   // `## **Goals**` and `## `Goals`` render as Goals: inline markup is
   // read through when matching a required section.
-  const plain = (h) => dropLinkTargets(h).replace(/[*_~`[\]]/g, '').trim();
+  // A link shows its text only when it is one: a well-formed inline
+  // destination, or a reference whose label is defined.
+  const labels = new Set([...definitions(visibleText(body).split('\n')).values()].filter(Boolean));
+  const plain = (h) => h
+    .replace(new RegExp(String.raw`\[([^\[\]\n]*)\]${INLINE_TARGET}`, 'g'), '$1')
+    .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, t, l) => (labels.has(label(l || t)) ? t : m))
+    .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, t) => (labels.has(label(t)) ? t : m))
+    .replace(/[*_~`]/g, '').trim();
   const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || plain(h).toLowerCase() === s.toLowerCase()));
   for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
