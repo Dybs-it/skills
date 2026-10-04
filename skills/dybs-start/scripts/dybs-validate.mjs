@@ -210,6 +210,14 @@ function quoteDepth(line) {
 // continues a paragraph or a list item instead.
 // With `keepCode`, code stays in (only comments are dropped): placeholders in
 // code still count, as the rule exempts HTML comments alone.
+// The quote and list markers that open a line, with each list marker
+// replaced by spaces of its width, so a list item's first line and its
+// continuation lines compare equal.
+function containerPrefix(line) {
+  const m = line.match(/^(?:[ \t]|>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))*/)[0];
+  return m.replace(/[-*+]|\d{1,9}[.)]/g, (x) => ' '.repeat(x.length));
+}
+
 function expandTabs(line) {
   if (!line.includes('\t')) return line;
   let out = '';
@@ -238,6 +246,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
   // setext underline, and only then can `2. ` fail to interrupt it. In
   // doubt this is false, which can only count more words, never fewer.
   let para = false;
+  let paraPrefix = '';
   // A heading, a thematic break or a closed fence is not a paragraph, so an
   // indented code block may follow it with no blank line in between. So may
   // the first line of a new block quote, which interrupts a paragraph.
@@ -371,7 +380,8 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     // A paragraph inside a quote is not continued by a line outside it.
     const interrupts = !(lateOrdered && Number(lateOrdered[1]) !== 1 && para && !inList && quoteDepth(line) >= paraQuote);
     const blockComment = !st.span && interrupts && /^ *<!--/.test(afterMarkers) && (afterMarkers !== line.replace(/^(?: {0,3}>[ \t]?)+/, '') || markerLead < (inList ? codeAt : 4));
-    const commentLead = line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length;
+    // Where the comment itself starts: after `- > ` it is inside the item.
+    const commentLead = Math.max(0, line.replace(/^(?: {0,3}>[ \t]?)+/, '').indexOf('<!--'));
     if (blockComment) htmlTail = true;
     const stripped = stripComments(line, st, closesLater, blockComment, commentClosesLater, hideUnclosed);
     // Remember the container the comment opened in (see above).
@@ -379,15 +389,23 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
       const q = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
       const mk = q.match(/^ *(?:[-*+]|\d{1,9}[.)])[ \t]+/);
       const itemCol = inList ? (items.filter((c) => c <= q.match(/^ */)[0].length).at(-1) ?? 0) : 0;
-      inComment = { quote: quoteDepth(line), col: mk ? mk[0].length : itemCol };
+      // Quotes after a list marker count too (`- > <!--`): the comment
+      // ends where a line leaves that quote, as in CommonMark.
+      const pre = line.slice(0, Math.max(0, line.indexOf('<!--')));
+      const quote = /^[ \t>*+\-\d.)]*$/.test(pre) ? (pre.match(/>/g) || []).length : quoteDepth(line);
+      inComment = { quote, col: mk ? mk[0].length : itemCol };
     } else inComment = false;
     line = stripped.text;
     // Marked so it is still counted as text but never read as a heading,
     // a list item or a fence. U+0001 is not a word character.
-    if (htmlTail && line.replace(/^(?: {0,3}>[ \t]?)+/, '').trim() !== '') line = line.replace(/^((?: {0,3}>[ \t]?)*)/, '$1\u0001');
+    // Placed after any list markers too, so `- <!--` still opens its item.
+    if (htmlTail && line.replace(/^(?: {0,3}>[ \t]?)+/, '').trim() !== '') line = line.replace(/^((?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+)*)/, '$1\u0001');
     // List markers are read after the `>` markers too (`> 10. item`).
     const qline = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
     const nowBlank = qline.trim() === '';
+    // The list item the previous line belonged to, before this line can end it.
+    const itemColBefore = inList ? (items.at(-1) ?? listIndent) : 0;
+    let newItem = false;
     // A heading or a thematic break interrupts a list, blank line or not.
     // So does a block quote that starts left of the item's content.
     const breaksList = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
@@ -396,7 +414,14 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
       // `2. x` after paragraph text continues the paragraph: no list starts.
       const item = breaksList || !interrupts ? null : qline.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
       if (item) listIndent = item[0].length;
-      inList = Boolean(item) || (inList && !prevBlank && !breaksList);
+      // A line left of the item's content stays in it only as a lazy
+      // continuation of a paragraph: after a comment block or code it is
+      // outside the list.
+      // After a blank line, only a line at the item's content column
+      // continues it.
+      const at = Math.max(line.match(/^ */)[0].length, qline.match(/^ */)[0].length);
+      inList = Boolean(item) || (inList && !breaksList && (prevBlank ? at >= itemColBefore : (para || at >= itemColBefore)));
+      newItem = Boolean(item);
     }
     if (!nowBlank) {
       const at = qline.match(/^ */)[0].length;
@@ -415,6 +440,9 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     if (!inList) items.length = 0;
     const wasBlank = prevBlank;
     prevBlank = nowBlank;
+    // The quote depth of the paragraph this line may underline, before
+    // this line updates it: a deeper quote starts a new paragraph.
+    const prevParaQuote = paraQuote;
     paraQuote = nowBlank ? 0 : Math.max(wasBlank ? 0 : paraQuote, quoteDepth(lines[n]));
     // Judged after the `>` markers, like blankness and indentation.
     // A setext underline (`===` or `---` under paragraph text) completes a
@@ -426,9 +454,21 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
       || (!wasBlank && para && /^ {0,3}(=+|-+)[ \t]*$/.test(qline)
         // A setext underline is never a lazy line: outside the quote or the
         // list item that holds the paragraph, it is paragraph text.
-        && quoteDepth(lines[n]) >= paraQuote
+        && quoteDepth(lines[n]) === prevParaQuote
+        // And under exactly the containers of the line above (list markers
+        // read as their width): `  > more` / `> ===` are not one paragraph.
+        // In doubt this is no underline, which can only count more words.
+        && containerPrefix(lines[n]) === paraPrefix
         && !(inList && qline.match(/^ */)[0].length < (items.at(-1) ?? listIndent)));
+    // The containers a paragraph opened in, from its first line: a lazy
+    // line after it does not move the paragraph.
+    const wasPara = para;
     para = !nowBlank && !afterBlock && !htmlTail;
+    // A new list item starts a new paragraph too, in its own containers.
+    if (para && (!wasPara || newItem)) {
+      paraPrefix = containerPrefix(lines[n]);
+      paraQuote = quoteDepth(lines[n]);
+    }
     out.push(line);
   }
   return out.join('\n');
