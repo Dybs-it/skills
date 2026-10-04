@@ -228,3 +228,26 @@ test('an escaped <!-- is visible text, so its words count', async () => {
   assert.equal(wordCount('one <!-- two three --> four'), 2);
   assert.equal(wordCount('one \\\\<!-- two three --> four'), 2);
 });
+
+test('a closing run of # is not part of a heading', async () => {
+  const { headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.deepEqual(headings('## Goals ##\n\n## Now #\n\n## C# basics\n'), ['Goals', 'Now', 'C# basics']);
+});
+
+test('--json reports a read failure as JSON', async () => {
+  const { main } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { mkdirSync } = await import('node:fs');
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/project.md'));
+  mkdirSync(join(dir, 'dybs/project.md'));
+  const logs = [];
+  const l = console.log; const e = console.error;
+  console.log = (m) => logs.push(m); console.error = () => {};
+  let code;
+  try { code = main(['node', 'v', dir, '--json']); } finally { console.log = l; console.error = e; }
+  assert.equal(code, 1);
+  const out = JSON.parse(logs.join('\n'));
+  assert.equal(out.ok, false);
+  assert.match(out.fatal, /could not read/);
+  rmSync(dir, { recursive: true });
+});
