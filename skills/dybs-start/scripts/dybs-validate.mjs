@@ -91,35 +91,89 @@ export function parseFrontmatter(text) {
   return { data, body: text.slice(m[0].length), duplicates, unparsed };
 }
 
-// What a reader sees: HTML comments and fenced code blocks dropped, by
-// Markdown's rules. A fence closes only with the same character, at least
-// as long as it opened, so a ```` block may hold ``` lines; an unclosed
-// comment or fence runs to the end. An indented code block (four spaces or
-// a tab) starts only after a blank line and outside a list, since an
-// indented line there continues a paragraph or a list item instead.
-export function visibleText(body) {
-  const noComments = body.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+// A real calendar date in YYYY-MM-DD, not just the right shape.
+export function isDate(v) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v || '')) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
+// One line with HTML comments removed, except inside inline code spans,
+// where `<!--` is literal text. `open` is true when a comment starts here and
+// does not close on this line.
+function stripComments(line) {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === '`') {
+      const run = line.slice(i).match(/^`+/)[0];
+      const close = line.slice(i + run.length).search(new RegExp(`(?<!\`)${run}(?!\`)`));
+      if (close >= 0) {
+        const endAt = i + run.length + close + run.length;
+        out += line.slice(i, endAt);
+        i = endAt;
+      } else {
+        out += run;
+        i += run.length;
+      }
+      continue;
+    }
+    if (line.startsWith('<!--', i)) {
+      const end = line.indexOf('-->', i + 4);
+      if (end < 0) return { text: out, open: true };
+      i = end + 3;
+      continue;
+    }
+    out += line[i++];
+  }
+  return { text: out, open: false };
+}
+
+// What a reader sees: HTML comments and code blocks dropped, by Markdown's
+// rules, in one pass so each construct is judged where it actually occurs:
+// `<!--` inside a fence, an indented block or a code span is text, not a
+// comment. A fence closes only with the same character, at least as long as
+// it opened, so a ```` block may hold ``` lines; an unclosed comment or fence
+// runs to the end. An indented code block (four spaces or a tab) starts only
+// after a blank line and outside a list, since an indented line there
+// continues a paragraph or a list item instead.
+// With `keepCode`, code stays in (only comments are dropped): placeholders in
+// code still count, as the rule exempts HTML comments alone.
+export function visibleText(body, { keepCode = false } = {}) {
   const out = [];
   let fence = null;
   let indented = false;
   let inList = false;
   let prevBlank = true;
-  for (const line of noComments.split(/\r?\n/)) {
+  let inComment = false;
+  for (const raw of body.split(/\r?\n/)) {
+    let line = raw;
+    if (inComment) {
+      const end = line.indexOf('-->');
+      if (end < 0) continue;
+      inComment = false;
+      line = line.slice(end + 3);
+    }
     const blank = line.trim() === '';
     const isIndented = /^( {4}|\t)/.test(line);
     if (indented) {
-      if (blank || isIndented) { prevBlank = blank; continue; }
+      if (blank || isIndented) { prevBlank = blank; if (keepCode) out.push(line); continue; }
       indented = false;
     }
     const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
+      if (keepCode) out.push(line);
       continue;
     }
-    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; continue; }
-    if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; continue; }
-    if (!blank && !isIndented) inList = /^ {0,3}([-*+]|\d{1,9}[.)])(\s|$)/.test(line) || (inList && !prevBlank);
-    prevBlank = blank;
+    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; if (keepCode) out.push(line); continue; }
+    if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; if (keepCode) out.push(line); continue; }
+    const stripped = stripComments(line);
+    inComment = stripped.open;
+    line = stripped.text;
+    const nowBlank = line.trim() === '';
+    if (!nowBlank && !/^( {4}|\t)/.test(line)) inList = /^ {0,3}([-*+]|\d{1,9}[.)])(\s|$)/.test(line) || (inList && !prevBlank);
+    prevBlank = nowBlank;
     out.push(line);
   }
   return out.join('\n');
@@ -198,11 +252,11 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
     if (duplicates.length) fail('frontmatter', `frontmatter key(s) ${[...new Set(duplicates)].join(', ')} appear more than once`);
     if (data.doc !== name) fail('doc-name', `frontmatter "doc" must be "${name}" (found "${data.doc ?? ''}")`);
     if (!STATUSES.includes(data.status)) fail('status', `frontmatter "status" must be one of ${STATUSES.join('|')}`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.updated || '')) fail('updated', 'frontmatter "updated" must be YYYY-MM-DD');
+    if (!isDate(data.updated)) fail('updated', 'frontmatter "updated" must be a real date, YYYY-MM-DD');
     if (data.depth !== undefined && !DEPTHS.includes(data.depth)) {
       fail('depth', `frontmatter "depth" must be one of ${DEPTHS.join('|')}`);
     }
-    if (data.status === 'accepted' && !/^\d{4}-\d{2}-\d{2}$/.test(data.accepted || '')) {
+    if (data.status === 'accepted' && !isDate(data.accepted)) {
       fail('accepted-date', 'accepted docs need frontmatter "accepted: YYYY-MM-DD" (set only on the human\'s word)');
     }
     if (name === 'project') {
@@ -254,7 +308,7 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
   }
 
   const frontmatterValues = Object.values(data || {}).join('\n');
-  if (PLACEHOLDER.test(body.replace(/<!--[\s\S]*?(?:-->|$)/g, '')) || PLACEHOLDER.test(frontmatterValues)) {
+  if (PLACEHOLDER.test(visibleText(body, { keepCode: true })) || PLACEHOLDER.test(frontmatterValues)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);
@@ -498,7 +552,15 @@ export function main(argv) {
   const root = resolve(positional[0] || '.');
   if (accept) {
     if (!DOCS[accept]) { console.error(`unknown doc "${accept}". Known: ${ORDER.join(', ')}`); return 2; }
-    const r = acceptDoc(root, accept);
+    let r;
+    try {
+      r = acceptDoc(root, accept);
+    } catch (err) {
+      // An operational failure (a leftover temp file, permissions) is still
+      // reported in the requested format, never as a bare exception.
+      if (!json) throw err;
+      r = { ok: false, errors: [err.message] };
+    }
     if (json) {
       console.log(JSON.stringify({ schema: 2, accept, ok: r.ok, errors: r.errors || [] }, null, 2));
       return r.ok ? 0 : 1;
