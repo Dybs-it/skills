@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, existsSync, statSync, realpathSync, openSync, closeSync, fstatSync, constants as fsConstants } from 'node:fs';
+import { readFileSync, existsSync, statSync, lstatSync, realpathSync, openSync, closeSync, fstatSync, constants as fsConstants } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -836,10 +836,22 @@ export function validateDoc(name, text) {
 
 // Reads a file only if it is a regular file. Opened without blocking, so a
 // FIFO or a device at a doc's name never hangs the check, and judged on the
-// open descriptor, not on a separate look at the name. null otherwise.
+// open descriptor, not on a separate look at the name. Never through a
+// link at its own name (O_NOFOLLOW), and only while the opened file is what
+// the name itself is (same device and inode, not a link). null otherwise.
 function readRegular(p) {
-  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
-  try { return fstatSync(fd).isFile() ? readFileSync(fd, 'utf8') : null; } finally { closeSync(fd); }
+  let fd;
+  try { fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+    if (e.code === 'ELOOP' || e.code === 'EMLINK') return null;
+    throw e;
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) return null;
+    const own = lstatSync(p);
+    if (own.isSymbolicLink() || own.dev !== st.dev || own.ino !== st.ino) return null;
+    return readFileSync(fd, 'utf8');
+  } finally { closeSync(fd); }
 }
 
 // Whether a path is there: only ENOENT and ENOTDIR mean "missing". Any
@@ -851,8 +863,9 @@ function lookup(p) {
   }
 }
 
-// Test seam: runs right after project.md is read for its settings.
-export const validateHooks = { afterSettings: null };
+// Test seams: right after project.md is read for its settings, and right
+// before each doc is read.
+export const validateHooks = { afterSettings: null, beforeRead: null };
 
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
@@ -910,6 +923,7 @@ export function validateProject(root, only) {
     }
     // project.md is validated from the very bytes its settings came from:
     // a save in between would otherwise mix two versions in one result.
+    if (!(name === 'project' && projectText !== null)) validateHooks.beforeRead?.(path);
     const text = name === 'project' && projectText !== null ? projectText : readRegular(path);
     if (text === null) {
       results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });

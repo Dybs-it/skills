@@ -974,3 +974,23 @@ test('code spans keep link syntax as text, defined references can split a placeh
   // A thematic break ends the block before it: `2.` may start a list.
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '***\n2. ## Goals')).rules.includes('sections'));
 });
+
+test('a doc swapped for a link right before it is read is never read through the link', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { symlinkSync } = await import('node:fs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const doc = join(dir, 'dybs/context/ui.md');
+  writeFileSync(join(outside, 'ui.md'), readFileSync(doc, 'utf8'));
+  mod.validateHooks.beforeRead = (p) => {
+    if (p !== doc) return;
+    rmSync(doc);
+    symlinkSync(join(outside, 'ui.md'), doc);
+  };
+  let r;
+  try { r = validateProject(dir, 'ui'); } finally { mod.validateHooks.beforeRead = null; }
+  assert.equal(r.ok, false);
+  assert.notDeepEqual(r.results.find((x) => x.name === 'ui').errors, []);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
