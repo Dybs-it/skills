@@ -59,7 +59,8 @@ Read `dybs/project.md` and the `kickoff` lines in `dybs/log.md` first: the
 kickoff already collected the idea and the sources. Ask only for what is new
 for this doc: "Anything else I should read for this part?" Without a
 kickoff, ask once: "What do you already have? Notes, docs, links, designs,
-code, anything else?" Read all of it. Use sub-agents for large sources and keep
+code, anything else?" With `checkins: none`, ask neither: use what is already
+in `dybs/`, `dybs/log.md` and the repo. Read all of it. Use sub-agents for large sources and keep
 only what they extract.
 
 **Facts are your job, decisions are the human's.** Never ask something you
@@ -144,8 +145,13 @@ What a skill's **Check in** section asks for depends on `checkins` in
 - **`none`:** validate, write the same `needs-you` lines, and do not ask
   anything. The final report lists them with what awaits acceptance.
 
+Give each item an id (`NY1`, `NY2`... counting on from the log). When the
+human answers one, append a `resolved` line with the same id; the log stays
+append-only. An item is open while it has no `resolved` line.
+
 ```
-- 2026-10-02 prd needs-you: Is "household admin" really the first user? (inferred)
+- 2026-10-02 prd needs-you NY3: Is "household admin" really the first user? (inferred)
+- 2026-10-05 prd resolved NY3: Yes, the admin sets the house up first. (human)
 ```
 
 ## Decision log

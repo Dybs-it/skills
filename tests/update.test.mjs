@@ -474,3 +474,11 @@ test('CLI: an unknown option or a second folder is refused, nothing is written',
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
 });
+
+test('interview.md defines needs-you ids and their resolution; dybs-check skips resolved ones', () => {
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-start', 'interview.md'), 'utf8');
+  assert.match(t, /needs-you NY3:/);
+  assert.match(t, /resolved NY3:/);
+  assert.match(t, /With `checkins: none`, ask neither/);
+  assert.match(readFileSync(join(SKILLS_SRC, 'dybs-check', SKILL), 'utf8'), /no `resolved` line with the same id/);
+});

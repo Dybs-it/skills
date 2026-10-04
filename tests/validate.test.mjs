@@ -547,3 +547,29 @@ test('--accept with --json answers in JSON', () => {
   assert.equal(JSON.parse(bad.out).ok, false);
   rmSync(dir, { recursive: true });
 });
+
+// --- Codex review round 7 on PR #2 ---
+
+test('--accept refuses a doc while project.md is missing', () => {
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/project.md'));
+  const r = acceptDoc(dir, 'prd', '2026-10-04');
+  assert.equal(r.ok, false);
+  assert.match(r.errors[0], /project\.md is missing/);
+  rmSync(dir, { recursive: true });
+});
+
+test('a section heading inside a comment or a code fence does not count', () => {
+  const hidden = (wrap) => VALID_PRD.replace('## Goals', wrap('## Goals'));
+  assert.deepEqual(validateDoc('prd', hidden((h) => `<!--\n${h}\n-->`)).rules, ['sections']);
+  assert.deepEqual(validateDoc('prd', hidden((h) => '```\n' + h + '\n```')).rules, ['sections']);
+  assert.deepEqual(validateDoc('prd', VALID_PRD).rules, []);
+});
+
+test('a missing method README routes to dybs-start, not to a doc', () => {
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/README.md'));
+  const { out } = capture(() => main(['node', 'v', dir, '--json']));
+  assert.equal(JSON.parse(out).next, 'dybs-start');
+  rmSync(dir, { recursive: true });
+});
