@@ -317,7 +317,7 @@ test('changing the depth of an accepted doc breaks its acceptance', () => {
 test('project.md lists only known docs, and none as both quick and thorough', () => {
   const project = (extra) => validateDoc('project', VALID_PROJECT.replace(/^skip:.*$/m, `skip:\n${extra}`));
   assert.deepEqual(project('thorough: architecture, prd').rules, []);
-  assert.deepEqual(project('skip: uix').rules, ['doc-lists']);
+  assert.deepEqual(validateDoc('project', VALID_PROJECT.replace(/^skip:.*$/m, 'skip: uix')).rules, ['doc-lists']);
   assert.deepEqual(project('quick: project').rules, ['doc-lists']);
   assert.deepEqual(project('quick: prd\nthorough: prd').rules, ['doc-lists']);
 });
@@ -494,5 +494,25 @@ test('an accepted doc without a fingerprint is flagged as not verifiable', () =>
   acceptDoc(dir, 'prd', '2026-10-04');
   const after = validateProject(dir).results.find((x) => x.name === 'prd');
   assert.ok(!after.warnings.some((w) => w.includes('without a fingerprint')));
+  rmSync(dir, { recursive: true });
+});
+
+// --- Codex review round 5 on PR #2 ---
+
+test('a frontmatter key that appears twice is an error, so --accept cannot be fooled', () => {
+  const twice = VALID_PRD.replace('status: accepted', 'status: draft\nstatus: draft');
+  assert.deepEqual(validateDoc('prd', twice).rules, ['frontmatter']);
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t.replace('status: accepted', 'status: draft\nstatus: draft'));
+  assert.equal(acceptDoc(dir, 'prd', '2026-10-04').ok, false);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept checks project.md at its own requested depth', () => {
+  const dir = copySample();
+  // 300 words: over the quick cap (250), within the thorough cap (350)
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: each-doc\ndepth: thorough') + '\n' + 'word '.repeat(300 - validateDoc('project', t).words));
+  assert.deepEqual(validateProject(dir).results.find((x) => x.name === 'project').errors, []);
+  assert.equal(acceptDoc(dir, 'prd', '2026-10-04').ok, true);
   rmSync(dir, { recursive: true });
 });

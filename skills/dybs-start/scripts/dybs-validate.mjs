@@ -57,7 +57,7 @@ export const CHECKINS = ['each-doc', 'end', 'none'];
 // validator is not installed. Every id here is enforced in validateDoc, and
 // tests keep the skills' standalone sections in step with this list.
 export const MANUAL_RULES = [
-  { id: 'frontmatter', text: 'The doc starts with a frontmatter block between two `---` lines.' },
+  { id: 'frontmatter', text: 'The doc starts with a frontmatter block between two `---` lines, and no key appears in it twice.' },
   { id: 'doc-name', text: 'Frontmatter `doc` is exactly this doc\'s name (for example `doc: prd`).' },
   { id: 'status', text: 'Frontmatter `status` is `draft` or `accepted`, nothing else.' },
   { id: 'updated', text: 'Frontmatter `updated` is a date written as YYYY-MM-DD.' },
@@ -77,11 +77,14 @@ export function parseFrontmatter(text) {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   if (!m) return { data: null, body: text };
   const data = {};
+  const duplicates = [];
   for (const line of m[1].split(/\r?\n/)) {
     const kv = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
-    if (kv) data[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
+    if (!kv) continue;
+    if (kv[1] in data) duplicates.push(kv[1]);
+    data[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
   }
-  return { data, body: text.slice(m[0].length) };
+  return { data, body: text.slice(m[0].length), duplicates };
 }
 
 export function headings(body) {
@@ -137,11 +140,14 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
   const warnings = [];
   const rules = new Set();
   const fail = (id, msg) => { rules.add(id); errors.push(msg); };
-  const { data, body } = parseFrontmatter(text);
+  const { data, body, duplicates = [] } = parseFrontmatter(text);
 
   if (!data) {
     fail('frontmatter', 'missing frontmatter (--- block at the top)');
   } else {
+    // One key, one value: a second `status:` would make tools disagree on
+    // which one counts.
+    if (duplicates.length) fail('frontmatter', `frontmatter key(s) ${[...new Set(duplicates)].join(', ')} appear more than once`);
     if (data.doc !== name) fail('doc-name', `frontmatter "doc" must be "${name}" (found "${data.doc ?? ''}")`);
     if (!STATUSES.includes(data.status)) fail('status', `frontmatter "status" must be one of ${STATUSES.join('|')}`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.updated || '')) fail('updated', 'frontmatter "updated" must be YYYY-MM-DD');
@@ -315,7 +321,8 @@ export function acceptDoc(root, name, today = localDate()) {
   if (name !== 'project') {
     const projectPath = join(root, 'dybs', DOCS.project.file);
     if (existsSync(projectPath)) {
-      const project = validateDoc('project', readFileSync(projectPath, 'utf8'));
+      const projectText = readFileSync(projectPath, 'utf8');
+      const project = validateDoc('project', projectText, depthFor('project', parseFrontmatter(projectText).data));
       if (project.errors.length) return { ok: false, errors: project.errors.map((e) => `project.md: ${e}`) };
     }
   }

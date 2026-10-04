@@ -440,3 +440,26 @@ test('a linked .claude folder cannot pull an outside install into a project upda
   rmSync(root, { recursive: true });
   rmSync(shared, { recursive: true });
 });
+
+test('every doc skill defers its check-in under checkins end or none', () => {
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-start', 'interview.md'), 'utf8');
+  assert.match(t, /## 5\. Check in/);
+  for (const s of ['dybs-prd', 'dybs-scope', 'dybs-domain', 'dybs-architecture', 'dybs-ux', 'dybs-ui']) {
+    const check = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8').split('## Check in')[1].split('\n## ')[0];
+    assert.match(check, /With `checkins: end` or `none`, do not ask now/, s);
+  }
+});
+
+test('every file docs/sources.md names as adapted carries the upstream copyright', () => {
+  const adapted = {
+    'dybs-domain/SKILL.md': 'Matt Pocock', 'dybs-architecture/SKILL.md': 'Matt Pocock',
+    'dybs-prd/SKILL.md': 'BMad Code, LLC', 'dybs-start/assets/team.md': 'BMad Code, LLC',
+  };
+  const sources = readFileSync(join(PKG_ROOT, 'docs/sources.md'), 'utf8');
+  for (const [file, owner] of Object.entries(adapted)) {
+    const skill = file.split('/')[0];
+    assert.ok(sources.includes(skill) || (file.endsWith('team.md') && sources.includes('team.md')), `${file} not in sources.md`);
+    const t = readFileSync(join(SKILLS_SRC, file), 'utf8').replace(/\s+/g, ' ');
+    assert.match(t, new RegExp(`Copyright \\(c\\) \\d{4} ${owner}`), file);
+  }
+});

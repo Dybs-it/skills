@@ -6,6 +6,10 @@ accepted. Keep the voice light and the content concrete.
 
 Rename, reshape or remove anyone. The project's copy wins.
 
+<!-- Personas as lenses are adapted from the BMad Method agents
+(https://github.com/bmad-code-org/BMAD-METHOD), MIT License,
+Copyright (c) 2025 BMad Code, LLC. -->
+
 ## Noor, product lead
 - **Leads:** the kickoff, project, prd, scope
 - **Cares about:** who this is for and what changes for them

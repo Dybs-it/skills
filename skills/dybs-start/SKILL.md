@@ -126,10 +126,12 @@ deepening (the validator reports `needs thorough`); offer it, and say that
 deepening makes an accepted doc a draft again.
 
 The order is fixed: project, prd, scope, domain, architecture, ux, ui, check.
-The next step is the first doc that is missing, failing, or still `draft`,
-except that with `checkins: end` or `none` a `draft` status does not stop
-the route: those docs wait for the review point the human chose, and the
-next step is the first doc that is missing or failing.
+The next step is the first doc that is missing, failing, still `draft`, or
+needing deepening (written below the requested depth, accepted or not).
+With `checkins: end` or `none`, a `draft` status does not stop the route:
+those docs wait for the review point the human chose. With `none`, a doc
+needing deepening does not stop it either, since nothing is asked; the final
+report lists it.
 
 - With `checkins: each-doc`, if `project.md` is a draft, check in on it
   first (brief format from `dybs/README.md`). The human accepts it or edits
