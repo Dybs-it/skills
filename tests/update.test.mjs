@@ -1658,3 +1658,70 @@ test('a staged file replaced by one with the same bytes is never placed', async 
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
 });
+
+test('a removed file that reappears before commit stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(join(dir, 'retired.md'), 'as shipped');
+  const known = { ...knownHashes(), 'dybs-prd/retired.md': [sha('as shipped')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const beforeCommit = () => writeFileSync(join(dir, 'retired.md'), 'written again by a tool');
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /appeared again/);
+  assert.equal(readFileSync(join(dir, 'retired.md'), 'utf8'), 'written again by a tool');
+  rmSync(root, { recursive: true });
+});
+
+test('without hard links, the fallback copy checks the folders before it writes anything', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = false;
+  // The failed link is the last moment before the copy: the folder is
+  // swapped for a link to an outside folder right then.
+  mod.fsOps.link = (from) => {
+    if (!swapped && from.endsWith('.new')) {
+      swapped = true;
+      // The staging name is visible, so the outside folder can offer one.
+      writeFileSync(join(outside, from.split('/').at(-1)), 'staged elsewhere');
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    }
+    throw Object.assign(new Error('no hard links'), { code: 'EPERM' });
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.ok(!existsSync(join(outside, SKILL)), 'nothing is written outside');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('committed cleanup re-checks the folders right before moving the old version', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let kept = null;
+  mod.testHooks.beforeTrash = (s) => {
+    if (kept || s.a.rel !== SKILL) return;
+    kept = join(outside, s.old.split('/').at(-1));
+    linkSync(s.old, kept);
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  try { mod.applyPlan(plan); } finally { mod.testHooks.beforeTrash = null; }
+  assert.ok(kept);
+  assert.ok(existsSync(kept), 'the outside name must survive');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
