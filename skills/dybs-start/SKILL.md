@@ -23,6 +23,11 @@ If `dybs/` already exists, repair a partial setup before anything else:
   **1. Listen**; step 4 creates only what is missing and keeps the rest.
 - No `dybs/README.md` or `dybs/team.md`: copy the missing one from
   `assets/` and say you restored it. Never overwrite one that exists.
+- No `dybs/log.md`: the decisions behind the docs are gone. Say so before
+  routing, recreate it from what `project.md` and the docs record (one
+  `kickoff` line per frontmatter choice, marked *(recovered)*), and ask the
+  human to confirm or correct those lines. Later skills read the log instead
+  of asking again, so never route on without it.
 
 Then read `dybs/project.md`. With `kickoff: parked`
 in its frontmatter, the kickoff was parked before a route was chosen: read
@@ -172,7 +177,7 @@ every one. The readiness checklist of each doc follows them.
 8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.
 9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
 10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
-11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`.
+11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
 12. No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.
 <!-- rules:end -->
 

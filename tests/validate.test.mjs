@@ -811,3 +811,40 @@ test('fences in a block quote or a list item are code; an unclosed comment hides
   assert.ok(!r.rules.includes('placeholder'));
   rmSync(dir, { recursive: true });
 });
+
+test('an escaped <!-- is visible text, so its words count', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('one \\<!-- two three --> four'), 4);
+  assert.equal(wordCount('one <!-- two three --> four'), 2);
+  assert.equal(wordCount('one \\\\<!-- two three --> four'), 2);
+});
+
+test('checkins: none refuses any thorough doc', () => {
+  const project = (extra) => {
+    const dir = copySample();
+    edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', `checkins: none${extra}`));
+    const r = validateProject(dir).results.find((x) => x.name === 'project');
+    rmSync(dir, { recursive: true });
+    return r;
+  };
+  assert.ok(!project('').rules.includes('checkins'), project('').errors.join('; '));
+  assert.ok(project('\nthorough: prd').rules.includes('checkins'));
+  assert.ok(project('\ndepth: thorough').rules.includes('checkins'));
+  assert.ok(!project('\ndepth: thorough\nquick: prd, scope, domain, architecture, ux, ui').rules.includes('checkins'));
+});
+
+test('--doc and --accept may each appear once, and not together', () => {
+  const quiet = (fn) => { const e = console.error; const l = console.log; console.error = () => {}; console.log = () => {}; try { return fn(); } finally { console.error = e; console.log = l; } };
+  const dir = copySample();
+  assert.equal(quiet(() => main(['node', 'v', dir, '--accept', 'ui', '--accept', 'prd'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', dir, '--doc', 'ui', '--doc', 'prd'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', dir, '--doc', 'prd', '--accept', 'ui'])), 2);
+  assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
+  rmSync(dir, { recursive: true });
+});
+
+test('dybs-start recovers a missing log before routing', () => {
+  const skill = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(skill, /No `dybs\/log\.md`: the decisions behind the docs are gone/);
+  assert.match(skill, /never route on without it/);
+});
