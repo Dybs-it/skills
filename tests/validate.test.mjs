@@ -1258,3 +1258,18 @@ test('quotes and lists: nested quote closers, quote exits, quoted ordered lists,
   // Inside a quoted list item, code sits four past the item's content.
   assert.equal(wordCount('> - item\n>\n>       code here\n'), 1);
 });
+
+test('an unclosed comment ends with the block quote or list item it opened in', async () => {
+  const { headings, wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.deepEqual(headings('> <!-- note\n\n## A\n\n## B\n'), ['A', 'B']);
+  assert.deepEqual(headings('- <!-- note\n  still comment\n\n## A\n'), ['A']);
+  // A comment at top level after a list is not in the list: it runs on.
+  assert.equal(wordCount('- a\n\n<!-- x\nhidden words\n-->\nshown\n'), 2);
+});
+
+test('an HTML block that interrupts a paragraph ends a code span', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(visibleText('open `\n<div>\nx <!-- TODO --> y\nclose `\n', { keepCode: true }), 'open `\n<div>\nx  y\nclose `\n');
+  // An inline tag (type 7) cannot interrupt a paragraph: the span holds.
+  assert.equal(visibleText('open `\n<span>\nx <!-- TODO --> y\nclose `\n', { keepCode: true }), 'open `\n<span>\nx <!-- TODO --> y\nclose `\n');
+});
