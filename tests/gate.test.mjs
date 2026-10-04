@@ -860,3 +860,44 @@ test('a gate.md that is not a regular file is a read error, never a hang', () =>
   assert.match(r.out, /not a regular file/);
   rmSync(dir, { recursive: true });
 });
+
+function gateRepo() {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  return { repo, gatePath };
+}
+// Runs the gate with a git that first runs `script` once, on the given subcommand.
+function gateWithGit(gatePath, sub, script) {
+  const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\ncase " $* " in *" ${sub} "*) if [ ! -e "${bin}/done" ]; then touch "${bin}/done"; ${script}; fi;; esac\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+  let r;
+  try { r = { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  return { r, bin };
+}
+
+test('a gate.md swapped for a link to the same bytes mid-check gets no decision', () => {
+  const { repo, gatePath } = gateRepo();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const twin = join(outside, 'gate.md');
+  writeFileSync(twin, readFileSync(gatePath, 'utf8'));
+  const { r, bin } = gateWithGit(gatePath, 'status', `rm "${gatePath}"; ln -s "${twin}" "${gatePath}"`);
+  assert.equal(r.code, 2, r.out);
+  assert.doesNotMatch(r.out, /Decision: PASS/);
+  for (const d of [repo, outside, bin]) rmSync(d, { recursive: true });
+});
+
+test('a gate.md that disappears mid-check gets no decision, not a crash read as FAIL', () => {
+  const { repo, gatePath } = gateRepo();
+  const { r, bin } = gateWithGit(gatePath, 'rev-parse', `rm "${gatePath}"`);
+  assert.notEqual(r.code, 1, r.out);
+  assert.notEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /\n\s+at /, 'no stack trace');
+  for (const d of [repo, bin]) rmSync(d, { recursive: true });
+});

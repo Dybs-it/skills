@@ -550,7 +550,10 @@ export function freshness(gatePath, text) {
   let isLink = false;
   try { isLink = lstatSync(abs).isSymbolicLink(); } catch { isLink = false; }
   if (isLink) return { status: 'stale', reason: 'gate.md is a symbolic link. Keep the gate as a real file in the repository' };
-  const gateRel = rel(abs);
+  let gateRel;
+  try { gateRel = rel(abs); } catch (e) {
+    return { status: 'stale', reason: `gate.md could not be resolved while it was checked (${e.code || e.message}). Run the gate again` };
+  }
   if (gateRel === '..' || gateRel.startsWith('../') || resolve(gateRel) === gateRel) {
     return { status: 'stale', reason: 'gate.md resolves outside the repository. Keep the gate as a real file in the repository' };
   }
@@ -601,10 +604,16 @@ export function freshness(gatePath, text) {
 
 // Reads gate.md without blocking on a FIFO or a device: opened non-blocking
 // and judged on the open descriptor, so only a regular file is read.
+// Never through a link at its own name (O_NOFOLLOW), and only while the
+// opened file is what the name itself is (no link followed, same device
+// and inode): a gate swapped for a link mid-check is no input at all.
 function readGate(p) {
-  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
   try {
-    if (!fstatSync(fd).isFile()) throw Object.assign(new Error('not a regular file'), { code: 'not a regular file' });
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw Object.assign(new Error('not a regular file'), { code: 'not a regular file' });
+    const own = lstatSync(p);
+    if (own.isSymbolicLink() || own.dev !== st.dev || own.ino !== st.ino) throw Object.assign(new Error('not a regular file'), { code: 'not a regular file' });
     return readFileSync(fd, 'utf8');
   } finally { closeSync(fd); }
 }
@@ -622,6 +631,16 @@ export function main(argv) {
   try {
     text = readGate(resolve(file));
   } catch (err) {
+    // A link at the gate's name is the freshness rule's to explain: Git
+    // cannot see the file it points to change.
+    let link = false;
+    try { link = lstatSync(resolve(file)).isSymbolicLink(); } catch { link = false; }
+    if (link) {
+      const reason = 'gate.md is a symbolic link. Keep the gate as a real file in the repository';
+      if (json) console.log(JSON.stringify({ schema: 1, decision: null, stale: reason, problems: [] }, null, 2));
+      else console.error(`STALE: ${reason}.`);
+      return 3;
+    }
     // Exit 1 means a computed FAIL; a gate that could not be read is not one.
     const problem = `cannot read ${file}: ${err.code || err.message}`;
     if (json) console.log(JSON.stringify({ schema: 1, decision: null, problems: [problem] }, null, 2));
@@ -635,7 +654,14 @@ export function main(argv) {
     return 2;
   }
   // No decision on evidence that is not the committed state gate.md names.
-  const fresh = freshness(file, text);
+  let fresh;
+  try { fresh = freshness(file, text); } catch (err) {
+    // Exit 1 is a computed FAIL; a check that could not run is no decision.
+    const problem = `the freshness check could not run: ${err.code || err.message}`;
+    if (json) console.log(JSON.stringify({ schema: 1, decision: null, problems: [problem] }, null, 2));
+    else console.error(problem);
+    return 2;
+  }
   if (fresh.status === 'stale') {
     if (json) console.log(JSON.stringify({ schema: 1, decision: null, stale: fresh.reason, problems: [] }, null, 2));
     else console.error(`STALE: ${fresh.reason}.`);
