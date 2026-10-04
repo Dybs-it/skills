@@ -350,15 +350,28 @@ function mkdirNoFollow(root, relDir) {
   if (relDir === '.' || relDir === '') return undefined;
   let p = root;
   let first;
+  // Every level already passed, by identity: each is checked again right
+  // before a folder is made under it, so a level swapped for a link after
+  // its look is refused rather than written through. (Node has no
+  // mkdirat(), so a swap in the last instant is detected afterwards by the
+  // caller's recheck, not prevented.)
+  const pins = [[root, idOf(root)]];
+  const still = () => pins.every(([q, id]) => {
+    try { const st = lstatSync(q); return !st.isSymbolicLink() && st.isDirectory() && idOfStat(st) === id; } catch { return false; }
+  });
   for (const part of relDir.split(/[\\/]/)) {
     p = join(p, part);
     let st = null;
     try { st = lstatSync(p); } catch (err) { if (err.code !== 'ENOENT') throw err; }
     if (st) {
       if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`${posix(relative(root, p))} is not a real folder; nothing was changed, run update again`);
+      pins.push([p, idOfStat(st)]);
       continue;
     }
+    testHooks.afterLook?.(p);
+    if (!still()) throw new Error(`a folder on the way to ${posix(relative(root, p))} changed; nothing was changed, run update again`);
     mkdirSync(p);
+    pins.push([p, idOf(p)]);
     first = first || p;
   }
   return first;
@@ -383,7 +396,20 @@ export function placeNoClobber(from, to) {
   } catch (err) {
     if (err.code === 'EEXIST') throw err;
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    fsOps.copyFile(from, to, fsConstants.COPYFILE_EXCL);
+    // Created exclusively (O_EXCL) and identified before any byte goes in:
+    // a copy that fails halfway (disk full, I/O) leaves a partial file only
+    // this call can prove is its own, so it is removed here, by identity,
+    // before the error reaches the caller.
+    const data = fsOps.read(from);
+    let id = null;
+    try {
+      writeOwnFile(to, data, lstatSync(from).mode & 0o7777, (made) => { id = made; });
+    } catch (e) {
+      if (id) {
+        try { rmIfOurs(to, id); } catch (e2) { e.message += `; the partial copy is kept: ${e2.message}`; }
+      }
+      throw e;
+    }
     return 'copy';
   }
 }

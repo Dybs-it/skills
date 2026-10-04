@@ -701,9 +701,7 @@ test('a filesystem root contains every path under it', async () => {
 test('without hard links, placement creates the target exclusively and keeps its mode', async () => {
   const mod = await import('../src/update.mjs');
   const real = { ...mod.fsOps };
-  const calls = [];
   mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
-  mod.fsOps.copyFile = (from, to, flags) => { calls.push(flags); return real.copyFile(from, to, flags); };
   const dir = mkdtempSync(join(tmpdir(), 'dybs-place-'));
   try {
     writeFileSync(join(dir, 'from'), 'new'); chmodSync(join(dir, 'from'), 0o755);
@@ -713,8 +711,6 @@ test('without hard links, placement creates the target exclusively and keeps its
     // The source stays until the caller has recorded the placement.
     assert.equal(readFileSync(join(dir, 'from'), 'utf8'), 'new');
     rmSync(join(dir, 'from'));
-    assert.ok(calls.every((f) => f & fsConstants.COPYFILE_EXCL));
-    assert.equal(calls.length, 1);
     // Something that appears at the target is refused, never replaced.
     writeFileSync(join(dir, 'from'), 'newer');
     assert.throws(() => mod.placeNoClobber(join(dir, 'from'), join(dir, 'to')), (e) => e.code === 'EEXIST');
@@ -1536,4 +1532,45 @@ test('a file swapped for a link before it is moved aside is refused, never repla
     assert.equal(readFileSync(theirs, 'utf8'), 'old shipped version');
     rmSync(root, { recursive: true });
   }
+});
+
+test('without hard links, a placement copy that fails halfway leaves nothing behind', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  // The target is created, then the write fails (disk full).
+  mod.fsOps.write = () => { throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }); };
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-place-'));
+  try {
+    writeFileSync(join(dir, 'from'), 'new');
+    assert.throws(() => mod.placeNoClobber(join(dir, 'from'), join(dir, 'to')), (e) => e.code === 'ENOSPC');
+    assert.ok(!existsSync(join(dir, 'to')), 'the partial copy is removed');
+  } finally { Object.assign(mod.fsOps, real); rmSync(dir, { recursive: true }); }
+});
+
+test('a folder is never made through a parent swapped for a link after its look', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  rmSync(join(dir, 'scripts'), { recursive: true });
+  const plan = mod.planInstall(findInstalls([root])[0]);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = false;
+  // `scripts` was seen missing; then the skill folder itself becomes a link.
+  mod.testHooks.afterLook = (p) => {
+    if (swapped || p !== join(dir, 'scripts')) return;
+    swapped = true;
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  // Refused before mkdir, not cleaned up after it: a folder made outside
+  // could gain content before any rollback reached it.
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { mod.testHooks.afterLook = null; }
+  assert.ok(swapped);
+  assert.match(err?.message ?? '', /a folder on the way to scripts changed/);
+  assert.deepEqual(readdirSync(outside), [], 'nothing is created outside');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });

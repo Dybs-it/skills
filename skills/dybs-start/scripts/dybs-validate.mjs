@@ -219,6 +219,10 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
   // of the quote lazily continues that paragraph, so re-entering the quote
   // afterwards does not start a new block (and so no indented code).
   let paraQuote = 0;
+  // Whether the line before was paragraph text: only paragraph text takes a
+  // setext underline, and only then can `2. ` fail to interrupt it. In
+  // doubt this is false, which can only count more words, never fewer.
+  let para = false;
   // A heading, a thematic break or a closed fence is not a paragraph, so an
   // indented code block may follow it with no blank line in between. So may
   // the first line of a new block quote, which interrupts a paragraph.
@@ -243,7 +247,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
         // as an HTML comment, a heading or a list item, checked below.
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
         if (HTML_INTERRUPT.test(rest)) return false;
-        if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|1[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$|=+[ \t]*$|-+[ \t]*$)/.test(rest)) return false;
+        if (/^ {0,3}(<!--|`{3,}[^`]*$|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|1[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$|=+[ \t]*$|-+[ \t]*$)/.test(rest)) return false;
         if (found(lines[k])) return true;
       }
       return false;
@@ -259,7 +263,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     let htmlTail = false;
     if (inComment) {
       const end = line.indexOf('-->');
-      if (end < 0) continue;
+      if (end < 0) { para = false; continue; }
       inComment = false;
       line = line.slice(end + 3);
       htmlTail = true;
@@ -273,7 +277,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     // An indented block continues only at its own code column: inside a
     // list item that is four past the item's content (`listIndent + 4`).
     if (indented) {
-      if (blank || inner.match(/^ */)[0].length >= indented || /^\t/.test(inner)) { prevBlank = blank; if (keepCode) out.push(line); continue; }
+      if (blank || inner.match(/^ */)[0].length >= indented || /^\t/.test(inner)) { prevBlank = blank; para = false; if (keepCode) out.push(line); continue; }
       indented = false;
     }
     // A fence may sit in a block quote or start a list item (`> ```` or
@@ -311,6 +315,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
       // A closer may be indented at most three spaces past its container's
       // content column, not past the opener's own indentation.
       if (c && c[1].length <= (fence.listFirst ? fence.col : 0) + 3 && (fence.listFirst ? quoteDepth(line.slice(Math.min(c[1].length, fence.col))) : quoteDepth(line)) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) { fence = null; afterBlock = true; }
+      para = false;
       if (keepCode) out.push(line);
       continue;
     }
@@ -325,6 +330,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
       const prefix = line.slice(0, at);
       fence = { ch: m[1][0], len: m[1].length, quote: (prefix.match(/>/g) || []).length, col, listFirst: /^\s*(?:[-*+]|\d{1,9}[.)])[ \t]/.test(prefix) || (inList && !/^ {0,3}>/.test(line) && col > 0) };
       prevBlank = false;
+      para = false;
       if (keepCode) out.push(line);
       continue;
     }
@@ -335,6 +341,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
       indented = codeAt;
       paraQuote = 0;
       prevBlank = false;
+      para = false;
       if (keepCode) out.push(line);
       continue;
     }
@@ -347,7 +354,12 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     // content column.
     const afterMarkers = line.replace(/^(?:(?: {0,3}>[ \t]?)|(?: {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+))+/, '');
     const markerLead = afterMarkers.match(/^ */)[0].length;
-    const blockComment = !st.span && /^ *<!--/.test(afterMarkers) && (afterMarkers !== line.replace(/^(?: {0,3}>[ \t]?)+/, '') || markerLead < (inList ? codeAt : 4));
+    // As for a fence, `2. <!--` after paragraph text is more of that
+    // paragraph: only a list starting at 1 may interrupt one.
+    const lateOrdered = /^ {0,3}(?:>[ \t]?)*\s*(\d{1,9})[.)][ \t]/.exec(line);
+    // A paragraph inside a quote is not continued by a line outside it.
+    const interrupts = !(lateOrdered && Number(lateOrdered[1]) !== 1 && para && !inList && quoteDepth(line) >= paraQuote);
+    const blockComment = !st.span && interrupts && /^ *<!--/.test(afterMarkers) && (afterMarkers !== line.replace(/^(?: {0,3}>[ \t]?)+/, '') || markerLead < (inList ? codeAt : 4));
     const commentLead = line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length;
     if (blockComment) htmlTail = true;
     const stripped = stripComments(line, st, closesLater, blockComment, commentClosesLater, hideUnclosed);
@@ -370,13 +382,14 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     const breaksList = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
       || (inList && /^ {0,3}>/.test(line) && line.match(/^ */)[0].length < (items.at(-1) ?? listIndent));
     if (!nowBlank && !/^( {4}|\t)/.test(qline)) {
-      const item = breaksList ? null : qline.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
+      // `2. x` after paragraph text continues the paragraph: no list starts.
+      const item = breaksList || !interrupts ? null : qline.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
       if (item) listIndent = item[0].length;
       inList = Boolean(item) || (inList && !prevBlank && !breaksList);
     }
     if (!nowBlank) {
       const at = qline.match(/^ */)[0].length;
-      const marker = breaksList ? null : qline.match(/^ *(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
+      const marker = breaksList || !interrupts ? null : qline.match(/^ *(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
       if (marker && at < (items.at(-1) ?? 0) + 4) {
         while (items.length && items.at(-1) > at) items.pop();
         items.push(marker[0].length);
@@ -399,7 +412,12 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     // A heading that opens a list item (`- ## Example`) counts as well.
     const block = qline.replace(/^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+(?=#)/, '');
     afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(block)
-      || (!wasBlank && /^ {0,3}(=+|-+)[ \t]*$/.test(qline));
+      || (!wasBlank && para && /^ {0,3}(=+|-+)[ \t]*$/.test(qline)
+        // A setext underline is never a lazy line: outside the quote or the
+        // list item that holds the paragraph, it is paragraph text.
+        && quoteDepth(lines[n]) >= paraQuote
+        && !(inList && qline.match(/^ */)[0].length < (items.at(-1) ?? listIndent)));
+    para = !nowBlank && !afterBlock && !htmlTail;
     out.push(line);
   }
   return out.join('\n');
