@@ -1708,3 +1708,9 @@ test('--accept cleanup re-checks the folders right before removing the old versi
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('2. followed by a heading after paragraph text is more of that paragraph', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // commonmark.js: one paragraph, so the indented line is prose.
+  assert.equal(wordCount('ordinary\n2. ## fake\n    many words\n'), 5);
+});
