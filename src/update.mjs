@@ -174,6 +174,19 @@ function idOf(p) {
   try { return idOfStat(lstatSync(p)); } catch { return null; }
 }
 
+// Creates `p` exclusively and writes `data` to it. `onCreate(id)` runs as
+// soon as the file exists, before any write that can fail, so the caller
+// can register it for rollback; the identity comes from the open file
+// itself, not from a second lookup of the path.
+function writeOwnFile(p, data, mode, onCreate) {
+  const fd = openSync(p, 'wx', mode ?? 0o666);
+  try {
+    onCreate(idOfStat(fstatSync(fd)));
+    fsOps.write(fd, data);
+    if (mode !== undefined) fchmodSync(fd, mode);
+  } finally { closeSync(fd); }
+}
+
 // Removes `p` only while it is still the file we created (`id`).
 function rmIfOurs(p, id) {
   const now = idOf(p);
@@ -289,7 +302,7 @@ function mkdirNoFollow(root, relDir) {
 
 // Filesystem calls applyPlan uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync };
+export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync };
 
 // Puts a copy of `from` at `to` without overwriting anything there, and
 // leaves `from` for the caller to remove once it has recorded the placement:
@@ -369,24 +382,23 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       const tmp = `${p}.${tag}.new`;
       // A replaced file keeps its permissions: a 0600 file stays 0600.
       const mode = a.op === 'add' ? undefined : lstatSync(p).mode & 0o7777;
-      const fd = openSync(tmp, 'wx', mode ?? 0o666);
-      let tmpId;
-      try {
-        writeFileSync(fd, want[a.rel]);
-        if (mode !== undefined) fchmodSync(fd, mode);
-        tmpId = idOfStat(fstatSync(fd));
-      } finally { closeSync(fd); }
-      const entry = { a, p, tmp, tmpId, chain };
-      staged.push(entry);
+      // Registered as soon as it exists, before any write that can fail
+      // (disk full, quota), so the rollback always knows to remove it.
+      const entry = { a, p, tmp, chain };
+      writeOwnFile(tmp, want[a.rel], mode, (id) => { entry.tmpId = id; staged.push(entry); });
       beforeStageCheck?.(entry);
-      if (!chain || chainOf(dir, a.rel) !== chain || idOf(tmp) !== tmpId) {
+      if (!chain || chainOf(dir, a.rel) !== chain || idOf(tmp) !== entry.tmpId) {
         throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again (a stray ${basename(tmp)} may have been written through it)`);
       }
       if (a.op === 'replace') {
+        // The backup is written the same way: created exclusively, tracked
+        // before its bytes go in, and proven to be where we meant it.
         const b = backupPath(p);
-        copyFileSync(p, b, fsConstants.COPYFILE_EXCL);
-        backups.push({ path: b, id: idOf(b) });
-        if (chainOf(dir, a.rel) !== chain || !idOf(b)) throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again`);
+        const backup = { path: b };
+        writeOwnFile(b, readFileSync(p), lstatSync(p).mode & 0o7777, (id) => { backup.id = id; backups.push(backup); });
+        if (chainOf(dir, a.rel) !== chain || idOf(b) !== backup.id) {
+          throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again (a stray ${basename(b)} may have been written through it)`);
+        }
         a.backup = b;
       }
     }
