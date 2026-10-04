@@ -1126,3 +1126,23 @@ test('frontmatter needs a closing line that is exactly ---', async () => {
   assert.equal(parseFrontmatter('---\ndoc: prd\n---  \n# T\n').data.doc, 'prd');
   assert.equal(parseFrontmatter('---\ndoc: prd\n---').data.doc, 'prd');
 });
+
+test('staging refuses a folder that became a link before it was pinned', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-start']);
+  const scripts = join(root, '.agents/skills/dybs-start/scripts');
+  const [install] = findInstalls([root]);
+  writeFileSync(join(scripts, 'dybs-validate.mjs'), 'old version');
+  const plan = planInstall(install, { force: true });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = false;
+  const beforeStage = (a) => {
+    if (!swapped && a.rel.startsWith('scripts/')) { renameSync(scripts, `${scripts}.moved`); symlinkSync(outside, scripts); swapped = true; }
+  };
+  assert.throws(() => applyPlan(plan, { beforeStage }), /not a real folder/);
+  assert.ok(swapped);
+  assert.deepEqual(readdirSync(outside), []);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

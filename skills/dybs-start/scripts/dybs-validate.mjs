@@ -176,7 +176,7 @@ function quoteDepth(line) {
 // continues a paragraph or a list item instead.
 // With `keepCode`, code stays in (only comments are dropped): placeholders in
 // code still count, as the rule exempts HTML comments alone.
-export function visibleText(body, { keepCode = false } = {}) {
+export function visibleText(body, { keepCode = false, hideSpanLines = false } = {}) {
   const out = [];
   let fence = null;
   let indented = false;
@@ -271,6 +271,10 @@ export function visibleText(body, { keepCode = false } = {}) {
       if (keepCode) out.push(line);
       continue;
     }
+    // A line that starts inside a code span continued from the line above
+    // is code at its start: with `hideSpanLines` it is left out, so a tag
+    // there is never read as raw HTML.
+    const inSpan = Boolean(st.span);
     const stripped = stripComments(line, st, closesLater);
     inComment = stripped.open;
     line = stripped.text;
@@ -294,6 +298,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     if (!inList) items.length = 0;
     prevBlank = nowBlank;
     // Judged after the `>` markers, like blankness and indentation.
+    if (hideSpanLines && inSpan) { afterBlock = false; out.push(''); continue; }
     afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(line.replace(/^(?: {0,3}>[ \t]?)+/, ''));
     out.push(line);
   }
@@ -433,7 +438,7 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
   // A block quote or list item does not hide one (`> <div>`, `- <pre>`), and
   // neither does the indentation of a list item's content.
-  const html = visibleText(body).split('\n').find((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
+  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
@@ -477,6 +482,12 @@ export function validateProject(root, only) {
   } else if (!statSync(readme).isFile()) {
     results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
       errors: ['dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'], warnings: [] });
+  } else {
+    // A file the skills cannot read is as good as missing.
+    try { readFileSync(readme); } catch (e) {
+      results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
+        errors: [`dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`], warnings: [] });
+    }
   }
 
   const projectPath = join(dir, DOCS.project.file);
