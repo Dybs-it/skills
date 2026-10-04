@@ -22,7 +22,9 @@ If `dybs/` already exists, repair a partial setup before anything else:
 - No `dybs/project.md`: the kickoff never finished. Say so, and run it from
   **1. Listen**; step 4 creates only what is missing and keeps the rest.
 - No `dybs/README.md` or `dybs/team.md`: copy the missing one from
-  `assets/` and say you restored it. Never overwrite one that exists.
+  `assets/` and say you restored it. Never overwrite one that exists. If
+  one exists but is not a file (a folder, say), stop and ask the human to
+  move it aside; then restore it.
 - No `dybs/log.md`: the decisions behind the docs are gone. Say so before
   routing, and recreate it from what `project.md` and the docs record (one
   `kickoff` line per frontmatter choice, marked *(recovered)*). Later skills

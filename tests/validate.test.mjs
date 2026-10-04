@@ -1156,3 +1156,14 @@ test('--accept rollback never moves an outside file reached through a swapped fo
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a dybs/README.md that is not a file is an error', async () => {
+  const { mkdirSync } = await import('node:fs');
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/README.md'));
+  mkdirSync(join(dir, 'dybs/README.md'));
+  const r = validateProject(dir);
+  assert.equal(r.ok, false);
+  assert.ok(r.results.find((x) => x.name === 'readme').errors[0].includes('not a file'));
+  rmSync(dir, { recursive: true });
+});
