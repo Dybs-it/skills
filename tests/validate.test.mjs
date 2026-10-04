@@ -1185,3 +1185,15 @@ test('an indented code block may follow a heading or a closed fence directly', a
   assert.equal(wordCount('```\nx\n```\n    code a b\n'), 0);
   assert.equal(wordCount('para one\n    still para\n'), 4);
 });
+
+test('with checkins: none, a doc may not declare itself thorough', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: none'));
+  assert.equal(validateProject(dir).results.find((x) => x.name === 'ui').errors.length, 0);
+  edit(dir, 'context/ui.md', (t) => t.replace('status: draft', 'status: draft\ndepth: thorough'));
+  const r = validateProject(dir);
+  assert.equal(r.ok, false);
+  assert.ok(r.results.find((x) => x.name === 'ui').rules.includes('checkins'));
+  assert.equal(acceptDoc(dir, 'ui', '2026-10-04').ok, false);
+  rmSync(dir, { recursive: true });
+});

@@ -337,7 +337,7 @@ export function acceptedHash(data, body) {
 // the doc says it was written at. The cap follows the doc. A doc written at
 // quick depth where thorough is requested needs deepening; it is never
 // reported as thorough just because the project setting changed.
-export function validateDoc(name, text, requestedDepth = 'quick') {
+export function validateDoc(name, text, requestedDepth = 'quick', checkins = undefined) {
   const spec = DOCS[name];
   const errors = [];
   const warnings = [];
@@ -397,6 +397,11 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
   // In project.md, `depth` is the project's setting, not how deep project.md
   // itself was written, so project.md never needs deepening.
   const documentDepth = name !== 'project' && DEPTHS.includes(data?.depth) ? data.depth : null;
+  // With `checkins: none` nothing is asked, so no doc can have been written
+  // thorough, whatever its own frontmatter claims.
+  if (checkins === 'none' && documentDepth === 'thorough') {
+    fail('checkins', '"checkins: none" in project.md asks nothing, so this doc must be quick: set depth: quick');
+  }
   // A doc that does not say how deep it was written gets the quick cap: a
   // project setting alone never raises a doc's allowance.
   const depth = name === 'project' ? requestedDepth : documentDepth ?? 'quick';
@@ -476,7 +481,7 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
-    results.push(validateDoc(name, readFileSync(path, 'utf8'), depthFor(name, projectData)));
+    results.push(validateDoc(name, readFileSync(path, 'utf8'), depthFor(name, projectData), projectData?.checkins));
   }
   // ok: no rule is broken (missing and draft docs are allowed).
   // complete: every doc that is not skipped exists and is ok.
@@ -625,7 +630,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
         if (!existsSync(depPath)) return { ok: false, errors: [`${depRel} is missing: ${name} cannot be written without it. Write ${dep} first.`] };
         const depUnsafe = unsafePath(root, depRel);
         if (depUnsafe) return { ok: false, errors: [`refusing to accept: ${depUnsafe}`] };
-        const r = validateDoc(dep, readFileSync(depPath, 'utf8'), depthFor(dep, projectData));
+        const r = validateDoc(dep, readFileSync(depPath, 'utf8'), depthFor(dep, projectData), projectData?.checkins);
         if (r.errors.length) return { ok: false, errors: r.errors.map((e) => `${DOCS[dep].file}: ${e}`) };
       }
     }
@@ -637,7 +642,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
   const next = setFrontmatter(text, { status: 'accepted', updated: today, accepted: today, 'accepted-hash': acceptedHash(data, body) });
   const projectPath = join(root, 'dybs', DOCS.project.file);
   const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
-  const check = validateDoc(name, next, depthFor(name, projectData));
+  const check = validateDoc(name, next, depthFor(name, projectData), projectData?.checkins);
   if (check.errors.length) return { ok: false, errors: check.errors };
   // Write beside it and rename into place: rename replaces whatever is at
   // the path, it never follows a link that appeared in the meantime.
