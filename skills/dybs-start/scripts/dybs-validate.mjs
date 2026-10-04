@@ -67,7 +67,7 @@ export const MANUAL_RULES = [
   { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.' },
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
   { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).' },
-  { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`.' },
+  { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 
@@ -116,6 +116,12 @@ function stripComments(line) {
         out += run;
         i += run.length;
       }
+      continue;
+    }
+    // `\<!--` is an escaped `<`: literal text, not a comment.
+    if (line[i] === '\\') {
+      out += line.slice(i, i + 2);
+      i += 2;
       continue;
     }
     if (line.startsWith('<!--', i)) {
@@ -275,6 +281,11 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
       if (both.length) fail('doc-lists', `${both.join(', ')} listed under both "quick:" and "thorough:"`);
       if (data.checkins !== undefined && !CHECKINS.includes(data.checkins)) {
         fail('checkins', `"checkins" must be one of ${CHECKINS.join('|')} (found "${data.checkins}")`);
+      }
+      // No questions means no thorough docs: thorough needs answers.
+      if (data.checkins === 'none') {
+        const thorough = LISTABLE.filter((n) => !skipList.has(n) && depthFor(n, data) === 'thorough');
+        if (thorough.length) fail('checkins', `"checkins: none" asks nothing, so every doc must be quick; thorough here: ${thorough.join(', ')}`);
       }
     }
     // A draft keeps no trace of an earlier acceptance: that acceptance was
@@ -521,14 +532,23 @@ export function main(argv) {
   // `--accpet prd` must not quietly run a plain validation that exits 0.
   {
     const positionals = [];
+    const seenFlags = new Set();
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
-      if (a === '--doc' || a === '--accept') { i++; continue; }
+      if (a === '--doc' || a === '--accept') {
+        // Each at most once, and not together: a second one would be
+        // silently ignored, and automation would believe it ran.
+        if (seenFlags.has(a)) { console.error(`${a} given more than once; run one doc at a time`); return 2; }
+        seenFlags.add(a);
+        i++;
+        continue;
+      }
       if (a === '--json') continue;
       if (a.startsWith('-') && a !== '-') { console.error(`unknown option ${a}. Options: --doc <name>, --accept <doc>, --json`); return 2; }
       positionals.push(a);
     }
     if (positionals.length > 1) { console.error(`one project folder at most, got: ${positionals.join(' ')}`); return 2; }
+    if (seenFlags.size > 1) { console.error('use --doc or --accept, not both'); return 2; }
   }
   const json = args.includes('--json');
   // A flag that takes a doc name must get one: a bare `--accept` that
