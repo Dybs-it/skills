@@ -418,6 +418,15 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       if (s.tmp) {
         tick();
         pinned(s);
+        // The staged file must still hold exactly the bytes we wrote: one
+        // edited in place keeps its identity and its folders, so only its
+        // content can tell. A link places this very file, so it is checked
+        // here, right before.
+        let staged = null;
+        try { staged = readFileSync(s.tmp); } catch { staged = null; }
+        if (!staged || sha(staged) !== sha(want[s.a.rel])) {
+          throw new Error(`the staged copy of ${s.a.rel} changed before it was installed; nothing was kept, run update again`);
+        }
         try {
           placeNoClobber(s.tmp, s.p);
         } catch (err) {
