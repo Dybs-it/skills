@@ -776,3 +776,28 @@ test('status --json reports a discovery failure as JSON', async () => {
   assert.equal(code, 1);
   assert.match(JSON.parse(out.join('\n')).error, /EACCES/);
 });
+
+test('cleanup never deletes through a skill folder swapped for a link', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const { renameSync, readdirSync: ls } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let decoy;
+  const beforeCleanup = (s) => {
+    decoy = join(outside, s.old.slice(dir.length + 1));
+    writeFileSync(decoy, 'old shipped version');
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  const result = applyPlan(plan, { beforeCleanup });
+  assert.equal(readFileSync(decoy, 'utf8'), 'old shipped version');
+  assert.ok(result.actions.find((a) => a.rel === SKILL).kept);
+  assert.ok(ls(outside).length >= 1);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
