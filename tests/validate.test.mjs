@@ -2256,3 +2256,9 @@ test('--accept falls back to copies where link() answers EISDIR (Windows exFAT)'
   assert.equal(r.ok, true, (r.errors || []).join(' '));
   rmSync(dir, { recursive: true });
 });
+
+test('a reference definition with an angle-bracketed destination is no raw HTML', () => {
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nSee [the details].\n\n[the details]: <details>\n').rules.includes('html'));
+  // A real tag on its own line still is.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n<details>\n').rules.includes('html'));
+});
