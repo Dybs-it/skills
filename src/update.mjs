@@ -540,23 +540,39 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             throw e;
           }
           s.old = old;
+          // The copy's identity is recorded the moment it exists, never
+          // read again later: a file that replaced it meanwhile is not ours.
+          s.oldId = idOf(old);
           done.push(s);
           beforeAside?.(s);
           // Re-pinned right before the move: through a folder swapped for a
           // link, the rename would take someone else's file off its name.
           pinned(s);
+          // A file saved over the original since the copy is never moved:
+          // the update stops while it is still at its own name.
+          if (idOf(s.p) !== origId || !isRegular(s.p)) throw new Error(`${s.a.rel} changed while it was being moved aside; nothing was changed, run update again`);
           const aside = `${s.p}.${randomUUID()}.rm`;
           renameSync(s.p, aside);
           let same = false;
           try { same = isRegular(aside) && idOf(aside) === origId && sha(fsOps.read(aside)) === sha(fsOps.read(old)); } catch { same = false; }
-          if (!same) throw new Error(`${s.a.rel} changed while it was being moved aside; your version is kept at ${aside}`);
+          if (!same) {
+            // Changed in the last instant: put it back at its own name while
+            // that is still free, so the user's version is where they left it.
+            let back = false;
+            try { if (idOf(s.p) === null) { renameSync(aside, s.p); back = true; } } catch { back = false; }
+            throw new Error(back
+              ? `${s.a.rel} changed while it was being moved aside; it is back at its own name, run update again`
+              : `${s.a.rel} changed while it was being moved aside; your version is kept at ${aside}`);
+          }
           // Deleted by identity under yet another private name, never by a
           // plain unlink after the check: a file that replaced `aside` since
           // is put back, not deleted.
           rmIfOurs(aside, origId);
         }
         pinned(s);
-        s.oldId = idOf(s.old);
+        // Checked against the identity recorded at creation, not re-read:
+        // a replacement of the moved-aside file is never adopted as ours.
+        if (idOf(s.old) !== s.oldId) throw new Error(`${s.a.rel} is not where it was moved aside; run update again`);
         if (sha(readFileSync(s.old)) !== s.a.hash) throw new Error(`${s.a.rel} changed since the update was planned; nothing was changed, run update again`);
       }
       if (s.tmp) {
