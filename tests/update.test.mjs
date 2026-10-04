@@ -600,3 +600,8 @@ test('every doc skill stops when project.md skips its doc', () => {
     assert.match(t, new RegExp(`lists \`${d}\` under \`skip:\`, say so and stop`), d);
   }
 });
+
+test('CLI help shows --accept', () => {
+  const out = execFileSync('node', [join(PKG_ROOT, 'bin/dybs-skills.mjs'), '--help'], { encoding: 'utf8' });
+  assert.match(out, /--accept <doc>/);
+});
