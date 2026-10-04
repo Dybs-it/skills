@@ -111,7 +111,8 @@ export function run(argv, deps = {}) {
       // An update that stopped (a path changed, a permission error) is still
       // reported as JSON when asked, so automation can handle it.
       if (opts.json) {
-        console.log(JSON.stringify({ schema: JSON_SCHEMA, dryRun: opts.dryRun, error: err.message }, null, 2));
+        // Installs updated before the failure are committed: listed here.
+        console.log(JSON.stringify({ schema: JSON_SCHEMA, dryRun: opts.dryRun, error: err.message, ...(err.completed ? { completed: err.completed } : {}) }, null, 2));
         return 1;
       }
       throw err;

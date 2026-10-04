@@ -215,7 +215,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
         // as an HTML comment, a heading or a list item, checked below.
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
         if (HTML_INTERRUPT.test(rest)) return false;
-        if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
+        if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|1[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
         if (closer(run).test(lines[k])) return true;
       }
       return false;
@@ -223,11 +223,16 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     // A comment opened in a block quote or list item ends with it: a line
     // outside that container (a blank line ends a quote) is read afresh.
     if (inComment && (quoteDepth(line) < inComment.quote || (line.trim() !== '' && line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length < inComment.col))) inComment = false;
+    // Text on the line a comment ends is never block Markdown: after a
+    // block comment it is the rest of that HTML block (CommonMark), and
+    // after an inline one it continues a paragraph.
+    let htmlTail = false;
     if (inComment) {
       const end = line.indexOf('-->');
       if (end < 0) continue;
       inComment = false;
       line = line.slice(end + 3);
+      htmlTail = true;
     }
     // Inside a block quote, blankness and indentation are judged after the
     // `>` markers: `>` alone is a blank line, `>     x` is indented code.
@@ -290,6 +295,8 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     // is code at its start: with `hideSpanLines` it is left out, so a tag
     // there is never read as raw HTML.
     const inSpan = Boolean(st.span);
+    // A line that starts with a comment is an HTML block to its end.
+    if (!st.span && /^ {0,3}<!--/.test(line.replace(/^(?: {0,3}>[ \t]?)+/, ''))) htmlTail = true;
     const stripped = stripComments(line, st, closesLater);
     // Remember the container the comment opened in (see above).
     if (stripped.open) {
@@ -299,6 +306,9 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
       inComment = { quote: quoteDepth(line), col: mk ? mk[0].length : itemCol };
     } else inComment = false;
     line = stripped.text;
+    // Marked so it is still counted as text but never read as a heading,
+    // a list item or a fence. U+0001 is not a word character.
+    if (htmlTail && line.replace(/^(?: {0,3}>[ \t]?)+/, '').trim() !== '') line = line.replace(/^((?: {0,3}>[ \t]?)*)/, '$1\u0001');
     // List markers are read after the `>` markers too (`> 10. item`).
     const qline = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
     const nowBlank = qline.trim() === '';
@@ -463,7 +473,7 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
   // A block quote or list item does not hide one (`> <div>`, `- <pre>`), and
   // neither does the indentation of a list item's content.
-  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
+  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*\u0001?[ \t]*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);

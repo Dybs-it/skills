@@ -1289,3 +1289,20 @@ test('--accept writes nothing through a folder swapped for a link before the wri
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('text after a comment on the same line is never a heading', async () => {
+  const { headings, wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.deepEqual(headings('<!-- note -->## Problem\n\n## Real\n'), ['Real']);
+  assert.deepEqual(headings('<!--\nx\n--> ## Problem\n\n## Real\n'), ['Real']);
+  assert.equal(wordCount('<!-- note -->two words\n'), 2);
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t + '\n<!-- x --><div>\n');
+  assert.ok(validateProject(dir).results.find((x) => x.name === 'project').rules.includes('html'));
+  rmSync(dir, { recursive: true });
+});
+
+test('only an ordered list starting at 1 interrupts a paragraph', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(visibleText('ordinary `open\n2. still <!-- TODO -->\nclose`\n', { keepCode: true }), 'ordinary `open\n2. still <!-- TODO -->\nclose`\n');
+  assert.equal(visibleText('ordinary `open\n1. item <!-- TODO -->\nclose`\n', { keepCode: true }), 'ordinary `open\n1. item \nclose`\n');
+});

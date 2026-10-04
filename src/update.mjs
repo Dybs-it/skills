@@ -591,8 +591,22 @@ export function updateInstall(install, { dryRun = false, ...opts } = {}) {
 export function update(roots, opts = {}) {
   const { installs, skipped } = discover(roots);
   const installed = new Set(installs.map((i) => i.skill));
+  // Each install is its own transaction. When a later one fails, the ones
+  // before it are already committed: the error says which, and carries their
+  // results, so nothing changed goes unreported.
+  const results = [];
+  for (const i of installs) {
+    try {
+      results.push(updateInstall(i, opts));
+    } catch (err) {
+      const changed = results.filter((r) => r.applied && r.actions.some((a) => ['add', 'update', 'replace', 'remove'].includes(a.op)));
+      if (changed.length) err.message += `; already updated before it stopped: ${changed.map((r) => `${r.skill} (${r.dir})`).join(', ')}`;
+      err.completed = results;
+      throw err;
+    }
+  }
   return {
-    results: installs.map((i) => updateInstall(i, opts)),
+    results,
     notInstalled: skillNames().filter((s) => !installed.has(s)),
     skipped,
   };
