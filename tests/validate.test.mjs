@@ -2343,3 +2343,19 @@ test('a destination is stripped only after a link opener, and headings are compa
   const ref = VALID_PRD.replace('## Goals', '## Go&#97;ls');
   assert.ok(!validateDoc('prd', ref).rules.includes('sections'));
 });
+
+test('acceptance reports the doc\'s warnings, such as nearing its cap', () => {
+  const dir = copySample();
+  const result = () => validateProject(dir).results.find((x) => x.name === 'prd');
+  edit(dir, 'context/prd.md', (t) => t.replace('status: accepted', 'status: draft').replace(/^accepted.*\n/gm, ''));
+  assert.deepEqual(result().warnings, []);
+  // Pad the doc until it nears its cap: still valid, now with a warning.
+  for (let i = 0; i < 400 && !result().warnings.length; i++) edit(dir, 'context/prd.md', (t) => t + '\nword word word word word\n');
+  const mid = result();
+  assert.deepEqual(mid.errors, []);
+  assert.match(mid.warnings.join(' '), /close to the/);
+  const r = acceptDoc(dir, 'prd', '2026-10-04');
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.warnings, mid.warnings);
+  rmSync(dir, { recursive: true });
+});

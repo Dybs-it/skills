@@ -1472,7 +1472,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // swapped for a link since the check above is never acted through.
       try { rmIfOurs(old, oldId, pinned); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
     }
-    if (!ours) return { ok: true, warnings: [`the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
+    if (!ours) return { ok: true, warnings: [...check.warnings, `the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
   } catch (err) {
     // Undo through the same paths: a file that went through a swapped link
     // comes back the same way. Only what is provably ours is removed.
@@ -1524,7 +1524,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     }
     throw err;
   }
-  return { ok: true };
+  return { ok: true, warnings: check.warnings };
 }
 
 export function main(argv) {

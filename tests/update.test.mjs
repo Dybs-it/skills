@@ -327,6 +327,15 @@ test('interview.md defines how depth and check-ins combine', () => {
   assert.match(t, /## Changing an accepted doc/);
 });
 
+test('every skill recovers a lost log instead of starting an empty one', () => {
+  // A doc skill installed alone has only its own interview.md to go by.
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-prd', 'interview.md'), 'utf8');
+  assert.doesNotMatch(t, /Create it if missing/);
+  assert.match(t, /Create it fresh only when `dybs\/project.md` does not exist yet/);
+  assert.match(t, /\*\(recovered\)\*/);
+  assert.match(t, /Never re-ask or draft on without it/);
+});
+
 test('a failure at any step of an update leaves the skill exactly as it was', async () => {
   const { planInstall, applyPlan } = await import('../src/update.mjs');
   const files = Object.keys(shippedFiles('dybs-prd'));
