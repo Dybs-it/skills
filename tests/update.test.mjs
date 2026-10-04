@@ -1103,3 +1103,24 @@ test('moving an original aside never replaces a file that appeared at the .old n
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
 });
+
+test('an update that stops partway names the installs it already committed', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd', 'dybs-check']);
+  const known = {};
+  for (const s of ['dybs-prd', 'dybs-check']) {
+    writeFileSync(join(root, `.agents/skills/${s}/SKILL.md`), `old ${s}`);
+    known[`${s}/SKILL.md`] = [sha(`old ${s}`)];
+  }
+  const order = mod.discover([root]).installs.map((i) => i.skill);
+  const [first, second] = order;
+  mod.fsOps.link = (from, to) => { if (String(to).includes(`/${second}/`)) throw Object.assign(new Error('EIO: disk gone'), { code: 'EIO' }); return real.link(from, to); };
+  let err;
+  try { mod.update([root], { known }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(err);
+  assert.match(err.message, new RegExp(`already updated before it stopped: ${first}`));
+  assert.equal(err.completed.length, 1);
+  assert.equal(err.completed[0].skill, first);
+  rmSync(root, { recursive: true });
+});
