@@ -80,8 +80,8 @@ Tailor the route to the type of project, and say what you would leave out:
 | Type | Usually skip | Pay extra attention to |
 |---|---|---|
 | Web, mobile or desktop app | nothing | ux, ui |
-| API or backend | ui; ux becomes developer experience (errors, docs) | domain, architecture |
-| Library or CLI | ui | domain, architecture; ux as developer experience |
+| API or backend | ui; ux covers developer experience (see `dybs-ux`) | domain, architecture |
+| Library or CLI | ui; ux covers developer experience (see `dybs-ux`) | domain, architecture |
 | Website or content site | domain is short | ux, ui |
 | Internal tool | ui is light | domain, scope |
 | AI agent or automation | ui unless it has screens | domain, architecture (failure, cost, safety) |

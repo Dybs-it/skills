@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -177,6 +177,7 @@ const VALID_PROJECT = readFileSync(join(SAMPLE, 'dybs/project.md'), 'utf8');
 // Rules that only apply to project.md are broken there instead.
 const BREAK_PROJECT = {
   'doc-lists': (t) => t.replace(/^skip:.*$/m, 'skip:\nthorough: archtecture'),
+  'checkins': (t) => t.replace('checkins: each-doc', 'checkins: en'),
 };
 const BREAK = {
   'frontmatter': (t) => t.replace(/^---[\s\S]*?---\n/, ''),
@@ -340,4 +341,87 @@ test('with check-ins at the end or none, drafts do not stop the route', () => {
   edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: end'));
   assert.equal(validateProject(dir).checkins, 'end');
   rmSync(dir, { recursive: true });
+});
+
+// --- Codex review round 2 on PR #2 ---
+
+const capture = (fn) => {
+  const out = [];
+  const { log, error } = console;
+  console.log = (...a) => out.push(a.join(' '));
+  console.error = (...a) => out.push(a.join(' '));
+  try { return { code: fn(), out: out.join('\n') }; } finally { console.log = log; console.error = error; }
+};
+
+test('project.md can never skip itself', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: project'));
+  const report = validateProject(dir);
+  const project = report.results.find((x) => x.name === 'project');
+  assert.notEqual(project.status, 'skipped');
+  assert.deepEqual(project.rules, ['doc-lists']);
+  assert.equal(report.ok, false);
+  rmSync(dir, { recursive: true });
+});
+
+test('the acceptance hash covers every frontmatter setting, not the bookkeeping', () => {
+  const dir = copySample();
+  assert.equal(acceptDoc(dir, 'project', '2026-10-04').ok, true);
+  const result = () => validateProject(dir).results.find((x) => x.name === 'project');
+  assert.deepEqual(result().errors, []);
+  edit(dir, 'project.md', (t) => t.replace('updated: 2026-10-04', 'updated: 2026-10-05'));
+  assert.deepEqual(result().errors, []);
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: end'));
+  assert.deepEqual(result().rules, ['accepted-hash']);
+  rmSync(dir, { recursive: true });
+});
+
+test('with checkins none, a doc that needs deepening does not block the final report', () => {
+  const results = [{ name: 'prd', status: 'draft', errors: [], needsDeepening: true }];
+  assert.equal(nextStep(results, 'none'), null);
+  assert.equal(nextStep(results, 'end'), 'prd');
+  assert.equal(nextStep(results, 'each-doc'), 'prd');
+});
+
+test('deferred drafts are never reported as accepted', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: end'));
+  const { out } = capture(() => main(['node', 'v', dir]));
+  assert.doesNotMatch(out, /All Getting Started docs accepted/);
+  assert.match(out, /Awaiting acceptance: ui/);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept on a doc without frontmatter fails cleanly', () => {
+  const dir = copySample();
+  edit(dir, 'context/ui.md', (t) => t.replace(/^---[\s\S]*?---\n/, ''));
+  const r = acceptDoc(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(' '), /frontmatter/);
+  assert.equal(capture(() => main(['node', 'v', dir, '--accept', 'ui'])).code, 1);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept never writes through a symbolic link', () => {
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const target = join(outside, 'ui.md');
+  const original = readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8');
+  writeFileSync(target, original);
+  rmSync(join(dir, 'dybs/context/ui.md'));
+  symlinkSync(target, join(dir, 'dybs/context/ui.md'));
+  const r = acceptDoc(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.match(r.errors[0], /symbolic link/);
+  assert.equal(readFileSync(target, 'utf8'), original);
+  // a linked folder on the way is refused too
+  const dir2 = copySample();
+  const ctx = join(outside, 'context');
+  cpSync(join(dir2, 'dybs/context'), ctx, { recursive: true });
+  rmSync(join(dir2, 'dybs/context'), { recursive: true });
+  symlinkSync(ctx, join(dir2, 'dybs/context'));
+  const before = readFileSync(join(ctx, 'prd.md'), 'utf8');
+  assert.equal(acceptDoc(dir2, 'prd').ok, false);
+  assert.equal(readFileSync(join(ctx, 'prd.md'), 'utf8'), before);
+  for (const d of [dir, dir2, outside]) rmSync(d, { recursive: true });
 });
