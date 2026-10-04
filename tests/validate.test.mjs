@@ -1554,3 +1554,18 @@ test('without hard links, --accept re-checks the folders right before moving the
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('--accept reports a previous version it could not remove instead of claiming a clean success', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  mod.fsOps.rename = (from, to) => {
+    if (from.endsWith('.old')) throw Object.assign(new Error('locked'), { code: 'EPERM' });
+    return real.rename(from, to);
+  };
+  let r;
+  try { r = mod.acceptDoc(dir, 'ui', '2026-10-04'); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(r.ok, true);
+  assert.match((r.warnings || []).join(' '), /kept at \S+\.old/);
+  rmSync(dir, { recursive: true });
+});
