@@ -510,3 +510,42 @@ test('indented table rows are refused: under a list item they still render', () 
   const text = gate({ items: [full('a', 'P0')] }).replace('## Risks', '10. archived\n\n    | Item | Priority | Coverage | Evidence | Security |\n    |---|---|---|---|---|\n    | b | P0 | NONE |  | no |\n\n## Risks');
   assert.ok(parseGate(text).problems.some((p) => p.includes('may not be indented')));
 });
+
+test('dybs-pr: committing gate.md and pr.md never makes the gate stale', () => {
+  const skill = readFileSync(join(ROOT, 'skills/dybs-pr/SKILL.md'), 'utf8');
+  const spec = ":(exclude)dybs/work/<task>/gate.md";
+  assert.ok(skill.includes(spec) && skill.includes(":(exclude)dybs/work/<task>/pr.md"));
+  // The documented command, run for real: code commit, gate, then the gate's own commit.
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-pr-'));
+  const git = (...a) => execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }).trim();
+  git('init', '-q');
+  writeFileSync(join(repo, 'code.js'), 'x');
+  git('add', '.'); git('commit', '-qm', 'code');
+  const gateCommit = git('rev-parse', '--short', 'HEAD');
+  execFileSync('mkdir', ['-p', join(repo, 'dybs/work/t')]);
+  writeFileSync(join(repo, 'dybs/work/t/gate.md'), `commit: ${gateCommit}`);
+  writeFileSync(join(repo, 'dybs/work/t/pr.md'), 'pr');
+  git('add', '.'); git('commit', '-qm', 'gate');
+  const last = () => git('log', '-1', '--format=%h', '--', '.', ':(exclude)dybs/work/t/gate.md', ':(exclude)dybs/work/t/pr.md');
+  assert.equal(last(), gateCommit);
+  // A real change afterwards does make it stale.
+  writeFileSync(join(repo, 'code.js'), 'y');
+  git('commit', '-qam', 'more code');
+  assert.notEqual(last(), gateCommit);
+  rmSync(repo, { recursive: true });
+});
+
+test('a waiver whose reason or approver renders as nothing is incomplete', () => {
+  for (const blank of ['&nbsp;', '&#32;', '&nbsp;&nbsp;']) {
+    const r = run({ items: [gap('a', 'P0')], waivers: [waiver('a', { reason: blank })] });
+    assert.equal(r.decision, 'FAIL', `reason ${blank}`);
+    const r2 = run({ items: [gap('a', 'P0')], waivers: [waiver('a', { by: blank })] });
+    assert.equal(r2.decision, 'FAIL', `by ${blank}`);
+  }
+  assert.equal(run({ items: [gap('a', 'P0')], waivers: [waiver('a')] }).decision, 'WAIVED');
+});
+
+test('an indented fence (for example on a list continuation line) is refused', () => {
+  const text = gate({ items: [full('a', 'P0')] }).replace('## Risks', '- archived\n  ```\n\n## Risks');
+  assert.ok(parseGate(text).problems.some((p) => p.includes('code fences must start')));
+});

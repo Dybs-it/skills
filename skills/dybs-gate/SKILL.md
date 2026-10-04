@@ -70,7 +70,9 @@ gate computed on uncommitted work proves nothing about a commit, so then
 write `commit: uncommitted` and say so; it counts as stale. Otherwise copy
 the decision and its reasons into the Decision section and set `commit:` in
 the frontmatter to `git rev-parse --short HEAD`, so a later change makes the
-result visibly stale. Without Node
+result visibly stale. (Committing `gate.md` and `pr.md` afterwards is not
+such a change: `dybs-pr` compares against the last commit that touched
+anything else.) Without Node
 or without the script, **do not decide**: write `Decision: not computed (no
 gate script)`, list what looks blocking against the rules in `quality.md` as
 findings, and say the gate must be computed before merging. A gate that was

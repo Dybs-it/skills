@@ -99,6 +99,9 @@ export function markdownHazards(text) {
         if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
         continue;
       }
+      // An indented fence may belong to a list item (a continuation line),
+      // and would then end with that item: refused rather than modelled.
+      if (m && /^[ \t]/.test(line)) problems.push('code fences must start at the beginning of the line (no indentation)');
       if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; continue; }
     }
     if (inComment) {
@@ -336,7 +339,10 @@ export function waiverIssue(w, today) {
   // An unfilled template value (`{{reason}}`, TODO, TBD) is no reason and no
   // name: the waiver is incomplete, so the FAIL stands.
   const unfilled = (v) => /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/i.test(v);
-  if (!w.reason || !w.by || unfilled(w.reason) || unfilled(w.by)) return 'waiver needs a real reason and the name of the human who approved it';
+  // Something a reader can see: an entity such as `&nbsp;` or `&#32;` is a
+  // non-empty source string that renders as nothing.
+  const blank = (v) => !/[\p{L}\p{N}]/u.test(v.replace(/&[#A-Za-z0-9]+;/g, ''));
+  if (!w.reason || !w.by || unfilled(w.reason) || unfilled(w.by) || blank(w.reason) || blank(w.by)) return 'waiver needs a real reason and the name of the human who approved it';
   if (!isDate(w.approved) || !isDate(w.expires)) return 'waiver needs real approved and expires dates (YYYY-MM-DD)';
   if (w.approved > today) return `waiver approval is dated ${w.approved}, after today`;
   if (w.expires < today) return `waiver expired on ${w.expires}`;

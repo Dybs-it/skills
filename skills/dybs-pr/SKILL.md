@@ -43,8 +43,13 @@ Before and after, as concrete as the environment allows:
 - a screenshot pair for a visible change (best)
 - the test that failed before and passes now, or command output (good)
 - the gate decision with its coverage numbers: run the gate script on
-  `gate.md` again now, and compare its `commit:` with `HEAD`. If code or
-  tests changed since, if `commit:` says `uncommitted`, or if
+  `gate.md` again now, and compare its `commit:` with the last commit that
+  changed anything besides this task's `gate.md` and `pr.md`:
+  `git log -1 --format=%h -- . ':(exclude)dybs/work/<task>/gate.md'
+  ':(exclude)dybs/work/<task>/pr.md'`. Committing those two outputs moves
+  `HEAD` but changes no evidence, so it never makes the gate stale. If that
+  commit differs from `commit:` (code or tests changed since), if `commit:`
+  says `uncommitted`, or if
   `git status --porcelain` shows any uncommitted change other than this
   task's `gate.md` and `pr.md`, the result is **stale**: say so and suggest
   running `dybs-gate` again rather than quoting the old decision. Only those
