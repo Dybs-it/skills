@@ -735,3 +735,9 @@ test('dybs-start repairs a partial setup before routing', () => {
   assert.match(skill, /No `dybs\/project\.md`: the kickoff never finished/);
   assert.match(skill, /No `dybs\/README\.md` or `dybs\/team\.md`: copy the missing one from `assets\/`/);
 });
+
+test('tilde fences and indented code blocks are left out of the word count', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('one two\n\n~~~\nthree four five\n~~~\n'), 2);
+  assert.equal(wordCount('one two\n\n    three four five\n'), 2);
+});
