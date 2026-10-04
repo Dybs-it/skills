@@ -1838,3 +1838,27 @@ test('--doc without a doc name is refused, never a whole-project pass', async ()
     }
   } finally { console.error = err; console.log = log; }
 });
+
+test('without hard links, --accept checks the folders before a fallback copy writes anything', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'context'));
+  let swapped = false;
+  mod.fsOps.link = (from) => {
+    if (!swapped && from.endsWith('.tmp')) {
+      swapped = true;
+      writeFileSync(join(outside, 'context', from.split('/').at(-1)), 'staged elsewhere');
+      renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+      symlinkSync(outside, join(dir, 'dybs'));
+    }
+    throw Object.assign(new Error('no hard links'), { code: 'EPERM' });
+  };
+  try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.ok(!existsSync(join(outside, 'context/ui.md')), 'nothing is written outside');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

@@ -890,6 +890,9 @@ export function placeNoClobber(from, to, check) {
 // can prove is its own, so it is removed here, by identity and after
 // `check`, and never blocks putting the original back. Returns its identity.
 function copyExclusive(from, to, check) {
+  // The folders are checked before anything is read or created, not only
+  // when a partial copy has to be cleaned up.
+  check?.();
   const data = readFileSync(from);
   let id = null;
   try {
