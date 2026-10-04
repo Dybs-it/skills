@@ -24,10 +24,13 @@ If `dybs/` already exists, repair a partial setup before anything else:
 - No `dybs/README.md` or `dybs/team.md`: copy the missing one from
   `assets/` and say you restored it. Never overwrite one that exists.
 - No `dybs/log.md`: the decisions behind the docs are gone. Say so before
-  routing, recreate it from what `project.md` and the docs record (one
-  `kickoff` line per frontmatter choice, marked *(recovered)*), and ask the
-  human to confirm or correct those lines. Later skills read the log instead
-  of asking again, so never route on without it.
+  routing, and recreate it from what `project.md` and the docs record (one
+  `kickoff` line per frontmatter choice, marked *(recovered)*). Later skills
+  read the log instead of asking again, so never route on without it. The
+  check-in setting decides when the human sees those lines:
+  - `each-doc` (or none set): ask them to confirm or correct the lines now.
+  - `end`: do not ask now; list the recovered lines in `dybs-check`.
+  - `none`: ask nothing; list the recovered lines in the final report.
 
 Then read `dybs/project.md`. With `kickoff: parked`
 in its frontmatter, the kickoff was parked before a route was chosen: read
