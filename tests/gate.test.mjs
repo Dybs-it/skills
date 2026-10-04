@@ -747,3 +747,25 @@ test('a repository whose history holds only gate.md and pr.md is refused, never 
   assert.match(r.out, /STALE: no commit holds the evidence/);
   rmSync(repo, { recursive: true });
 });
+
+test('git missing or refusing the repository is STALE inside a repository, never an unchecked PASS', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  const run = (env) => { try { return { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  // Git absent from PATH.
+  let r = run({ ...process.env, PATH: '/nonexistent' });
+  assert.equal(r.code, 3, r.out); assert.match(r.out, /STALE: git is not available/);
+  // Git refusing the repository: safe.directory with a foreign owner.
+  if (process.getuid?.() === 0) {
+    execFileSync('chown', ['-R', 'nobody', repo]);
+    r = run({ ...process.env, HOME: mkdtempSync(join(tmpdir(), 'dybs-home-')), GIT_CONFIG_NOSYSTEM: '1' });
+    assert.equal(r.code, 3, r.out); assert.match(r.out, /STALE: git refused the repository/);
+  }
+  rmSync(repo, { recursive: true });
+});

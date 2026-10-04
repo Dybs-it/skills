@@ -11,7 +11,7 @@
 // agent's judgement. quality.md describes the same rules in words.
 
 import { readFileSync, realpathSync, lstatSync } from 'node:fs';
-import { resolve, dirname, relative, sep } from 'node:path';
+import { resolve, dirname, relative, sep, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -513,11 +513,31 @@ export function decide({ items, risks, waivers }, today = localDate()) {
 // pr.md is uncommitted, and when its `commit:` names the last commit that
 // changed anything else: committing those two outputs moves HEAD but no
 // evidence. Outside git nothing can be checked, and the result says so.
+// Whether a `.git` entry (folder or file) sits in `dir` or above it.
+function insideGitFolder(dir) {
+  for (let d = resolve(dir); ; d = dirname(d)) {
+    try { lstatSync(join(d, '.git')); return true; } catch { /* keep looking */ }
+    if (dirname(d) === d) return false;
+  }
+}
+
 export function freshness(gatePath, text) {
   const abs = resolve(gatePath);
   const git = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   let top;
-  try { top = git(dirname(abs), ['rev-parse', '--show-toplevel']); } catch { return { status: 'unchecked', reason: 'not inside a git repository' }; }
+  // Only Git's own "not a git repository" answer means there is nothing to
+  // check. Git missing, or refusing the repository (safe.directory, a broken
+  // .git), is never taken for that: inside a repository it is refused.
+  try {
+    top = execFileSync('git', ['-C', dirname(abs), 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (e) {
+    const said = String(e.stderr || '').trim().split('\n')[0];
+    if (e.code !== 'ENOENT' && /not a git repository/i.test(said)) return { status: 'unchecked', reason: 'not inside a git repository' };
+    if (e.code === 'ENOENT' && !insideGitFolder(dirname(abs))) return { status: 'unchecked', reason: 'git is not installed and no .git folder is above the gate' };
+    return { status: 'stale', reason: e.code === 'ENOENT'
+      ? 'git is not available, so the committed evidence cannot be checked. Install git and run the gate again'
+      : `git refused the repository (${said || e.message}). Fix that and run the gate again` };
+  }
   const rel = (p) => relative(realpathSync(top), realpathSync(p)).split(sep).join('/');
   // The gate is a real file inside the repository: a link (to a file
   // outside, or anywhere Git does not track it as itself) can change
