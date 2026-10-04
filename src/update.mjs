@@ -659,6 +659,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // not ours, so the name we just created for it is removed (by that
         // identity) and the update stops; the original is then put back.
         const placedNow = idOf(s.p);
+        // A folder swapped during the placement put the new name outside the
+        // install. That name was just created by this run (placement never
+        // replaces anything), so it is removed by the identity it has now,
+        // without requiring the changed folders, and the update stops.
+        if (chainOf(dir, s.a.rel) !== s.chain) {
+          try { rmIfOurs(s.p, placedNow); } catch { /* reported by the rollback */ }
+          throw new Error(`a folder on the way to ${s.a.rel} changed while it was being installed; nothing was kept, run update again`);
+        }
         if (how === 'link' && placedNow !== s.tmpId) {
           try { rmIfOurs(s.p, placedNow, chainCheck(s)); } catch { /* reported by the rollback */ }
           throw new Error(`the staged copy of ${s.a.rel} changed while it was being installed; nothing was kept, run update again`);
