@@ -27,9 +27,11 @@ export const CATEGORIES = ['security', 'data', 'business', 'performance', 'techn
 // are blanked out, so a hidden or example table never counts. Follows
 // Markdown's rules rather than guessing: a comment or fence that is never
 // closed runs to the end of the file, and a fence may be indented up to three
-// spaces and closes only with the same character, at least as long.
+// spaces and closes only with the same character, at least as long. A
+// comment counts only where it starts a line; anything else that looks like
+// one (escaped, mid-line) is refused by markdownHazards(), not interpreted.
 export function visible(text) {
-  const noComments = text.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  const noComments = text.replace(/^ {0,3}<!--[\s\S]*?(?:-->|(?![\s\S]))/gm, '');
   const out = [];
   let fence = null;
   for (const line of noComments.split(/\r?\n/)) {
@@ -48,6 +50,56 @@ export function visible(text) {
     out.push(line);
   }
   return out.join('\n');
+}
+
+// Markdown this parser does not model, refused rather than guessed at:
+// a comment marker that does not start a line (escaped or inline), text
+// after a comment's closing `-->`, and a fence opened inside a list item or
+// a quote (its contents could still look like a table here).
+export function markdownHazards(text) {
+  const problems = [];
+  const lines = text.split(/\r?\n/);
+  let inComment = false;
+  for (const line of lines) {
+    if (inComment) {
+      const end = line.indexOf('-->');
+      if (end < 0) continue;
+      inComment = false;
+      if (line.slice(end + 3).trim()) problems.push('put nothing after a comment\'s closing --> on the same line');
+      continue;
+    }
+    const start = line.match(/^ {0,3}<!--/);
+    if (start) {
+      const rest = line.slice(start[0].length);
+      const end = rest.indexOf('-->');
+      if (end < 0) { inComment = true; continue; }
+      if (rest.slice(end + 3).trim()) problems.push('put nothing after a comment\'s closing --> on the same line');
+      if (rest.slice(end + 3).includes('<!--')) problems.push('HTML comments must start a line of their own');
+      continue;
+    }
+    if (line.includes('<!--')) problems.push('HTML comments must start a line of their own (no escaped or inline <!--)');
+    if (/^ {0,3}(?:>\s?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)+(`{3,}|~{3,})/.test(line)) problems.push('gate.md may not open a code fence inside a list item or a quote');
+  }
+  return [...new Set(problems)];
+}
+
+// Cells of a table line, split the way Markdown does: a pipe is a cell
+// boundary unless an odd number of backslashes precedes it.
+export function cellsOf(line) {
+  const cells = [];
+  let cur = '';
+  let slashes = 0;
+  for (const ch of line) {
+    if (ch === '|' && slashes % 2 === 0) { cells.push(cur); cur = ''; slashes = 0; continue; }
+    if (ch === '|') { cur = cur.slice(0, -1) + '|'; slashes = 0; continue; }
+    slashes = ch === '\\' ? slashes + 1 : 0;
+    cur += ch;
+  }
+  cells.push(cur);
+  // A leading and a trailing boundary pipe open and close the row.
+  if (line.trim().startsWith('|')) cells.shift();
+  if (cells.length && cells[cells.length - 1].trim() === '' && /\|\s*$/.test(line) && !/(^|[^\\])(\\\\)*\\\|\s*$/.test(line)) cells.pop();
+  return cells.map((c) => c.trim());
 }
 
 // "## <heading>" as Markdown renders it: indented four spaces or a tab, it
@@ -70,15 +122,13 @@ export function tableAt(text, heading) {
   const lines = visible(text).split(/\r?\n/);
   const start = lines.findIndex((l) => isHeading(l, heading));
   if (start < 0) return null;
-  // Split on unescaped pipes only; `\|` is a pipe inside a cell.
-  const cellsOf = (line) => line.slice(1, /(?<!\\)\|$/.test(line) ? -1 : undefined)
-    .split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
   const isSeparator = (cells) => cells.every((c) => /^:?-{3,}:?$/.test(c));
   const isIndented = (l) => /^( {4}|\t)/.test(l || '');
   const rows = [];
   let columns = null;
   let tables = 0;
   let inTable = false;
+  let ragged = 0;
   for (let i = start + 1; i < lines.length; i++) {
     const raw = lines[i];
     const line = raw.trim();
@@ -101,9 +151,12 @@ export function tableAt(text, heading) {
     if (tables > 1) continue;
     const cells = cellsOf(line);
     if (cells.every((c) => c === '')) continue;
+    // Markdown drops extra cells and pads missing ones; a row that needs
+    // either would be read differently here than on screen, so it is refused.
+    if (cells.length !== columns.length) ragged++;
     rows.push(Object.fromEntries(columns.map((h, j) => [h, cells[j] ?? ''])));
   }
-  return columns ? { columns, rows, tables } : null;
+  return columns ? { columns, rows, tables, ragged } : null;
 }
 
 // Rows only, for callers that do not need the column names.
@@ -126,6 +179,7 @@ function schemaProblems(text, table, heading) {
   if (headingCount(text, heading) > 1) problems.push(`"## ${heading}" appears more than once; keep one`);
   if (!table) return problems;
   if (table.tables > 1) problems.push(`the ${heading} section has more than one table; keep one`);
+  if (table.ragged) problems.push(`the ${heading} table has ${table.ragged} row(s) with a different number of cells than its header`);
   const missing = COLUMNS[heading].filter((c) => !table.columns.includes(c));
   if (missing.length) problems.push(`the ${heading} table lacks column(s): ${missing.join(', ')}`);
   const twice = table.columns.filter((c, i) => c && table.columns.indexOf(c) !== i);
@@ -149,7 +203,7 @@ export function isDate(v) {
 }
 
 export function parseGate(text) {
-  const problems = [];
+  const problems = [...markdownHazards(text)];
   // Raw HTML can hide or show content in ways this parser does not follow
   // (<pre>, <details>, <table>). gate.md needs none, so any is refused.
   const html = visible(text).split(/\r?\n/).filter((l) => /^ {0,3}<[A-Za-z/!?]/.test(l));

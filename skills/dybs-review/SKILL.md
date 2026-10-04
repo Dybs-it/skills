@@ -20,12 +20,14 @@ fix nothing unless the human asks.
 ## 1. Pin the change
 
 Ask for the fixed point if the human did not give one (a commit, branch,
-tag or `main`). Check that it resolves and that the diff is not empty before
-anything else. Review the change as it is now, committed or not: diff the
-working tree against the merge base,
-`git diff $(git merge-base <point> HEAD)`, which includes staged and unstaged
-edits, and list new untracked files with `git status --short` and read them
-too. `git log <point>..HEAD --oneline` lists the commits so far.
+tag or `main`). Check that it resolves before anything else. Review the
+change as it is now, committed or not: diff the working tree against the
+merge base, `git diff $(git merge-base <point> HEAD)`, which includes staged
+and unstaged edits, and list new untracked files with
+`git status --short --untracked-files=all` and read them too. The change is
+empty only when both the diff and the untracked list are empty: a change made
+only of new files is still a change. `git log <point>..HEAD --oneline` lists
+the commits so far.
 
 ## 2. Gather the sources
 

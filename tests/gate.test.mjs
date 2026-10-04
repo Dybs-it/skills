@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -381,4 +381,42 @@ test('a separator row narrower than the header is not a table', () => {
   const text = gate({ items: [] }).replace(/## Items\n\n[\s\S]*?\n\n## Risks/,
     '## Items\n\n| Item | Priority | Coverage | Evidence | Security |\n|---|\n| a | P0 | FULL | tests/a.test.js:1 | no |\n\n## Risks');
   assert.match(parseGate(text).problems.join(' '), /missing "## Items" table/);
+});
+
+// --- Codex review on PR #3, commit 9598952 ---
+
+test('an escaped or inline comment marker is refused, never used to hide rows', () => {
+  const real = gate({ items: [full('a', 'P0'), gap('b', 'P0')] });
+  const hidden = real.replace(/\| a \| P0 \| FULL \|([^\n]*)\n/, (m) => m.replace(/\n$/, ' \\<!-- |\n'))
+    .replace(/(\| b \| P0 \| NONE \|[^\n]*\n)/, '$1--> \n');
+  const parsed = parseGate(hidden);
+  assert.match(parsed.problems.join(' '), /HTML comments must start a line of their own/);
+  assert.notEqual(decide(parsed, TODAY).decision, 'PASS');
+  const trailing = real.replace('## Items\n\n', '## Items\n\n<!-- note --> | x |\n\n');
+  assert.match(parseGate(trailing).problems.join(' '), /nothing after a comment's closing -->/);
+});
+
+test('pipes split by backslash parity, and a row with extra cells is refused', async () => {
+  const { cellsOf } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  assert.deepEqual(cellsOf('| a \\| b | c |'), ['a | b', 'c']);
+  assert.deepEqual(cellsOf('| a \\\\| b | c |'), ['a \\\\', 'b', 'c']);
+  const base = gate({ items: [gap('a', 'P0')] });
+  assert.ok(base.includes('| a | P0 | NONE |  | no |'));
+  const text = base.replace('| a | P0 | NONE |  | no |', '| a | P0 | NONE |  | no \\\\| yes |');
+  const parsed = parseGate(text);
+  assert.match(parsed.problems.join(' '), /different number of cells than its header/);
+});
+
+test('a code fence opened inside a list item is refused', () => {
+  const block = '- ```\n  ' + waiverRows.split('\n').join('\n  ') + '\n  ```';
+  const parsed = parseGate(withWaiverBlock(block));
+  // A format problem makes the CLI exit 2 before any decision is shown.
+  assert.match(parsed.problems.join(' '), /code fence inside a list item or a quote/);
+});
+
+test('review counts untracked files before calling a change empty; pr ignores its own work files', () => {
+  const review = readFileSync(join(ROOT, 'skills/dybs-review/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(review, /empty only when both the diff and the untracked list are empty/);
+  const pr = readFileSync(join(ROOT, 'skills/dybs-pr/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(pr, /anything outside `dybs\/`: the work files this flow writes/);
 });
