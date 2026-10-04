@@ -188,8 +188,9 @@ export function visibleText(body, { keepCode = false } = {}) {
 }
 
 // Headings a reader sees: none inside HTML comments or fenced examples.
+// An optional closing run of `#` (`## Goals ##`) is not part of the text.
 export function headings(body) {
-  return [...visibleText(body).matchAll(/^ {0,3}##\s+(.+?)\s*$/gm)].map((h) => h.at(1));
+  return [...visibleText(body).matchAll(/^ {0,3}##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/gm)].map((h) => h.at(1));
 }
 
 export function wordCount(body) {
@@ -591,7 +592,15 @@ export function main(argv) {
     console.log(`${accept} accepted.`);
     return 0;
   }
-  const report = validateProject(root, only);
+  let report;
+  try {
+    report = validateProject(root, only);
+  } catch (err) {
+    // A read failure (a folder where a doc should be, permissions) is still
+    // reported in the requested format, never as a bare exception.
+    if (!json) throw err;
+    report = { ok: false, complete: false, accepted: false, fatal: `could not read the project: ${err.message}`, results: [] };
+  }
 
   if (json) {
     // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
