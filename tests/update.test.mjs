@@ -1437,3 +1437,44 @@ test('a skill left alone is never also reported as not installed', () => {
   assert.ok(!notInstalled.includes('dybs-prd'));
   rmSync(root, { recursive: true });
 });
+
+test('a file the plan found current is checked again before the update commits', async () => {
+  const mod = await import('../src/update.mjs');
+  for (const change of ['edit', 'remove']) {
+    const root = project(['dybs-prd']);
+    const template = join(root, '.agents/skills/dybs-prd/template.md');
+    writeFileSync(prd(root), 'old shipped version');
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const plan = mod.planInstall(findInstalls([root])[0], { known });
+    assert.ok(plan.actions.some((a) => a.rel === 'template.md' && a.op === 'same'));
+    const beforeCommit = () => { if (change === 'edit') writeFileSync(template, 'my edit'); else rmSync(template); };
+    assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /template\.md/);
+    // Nothing is committed: SKILL.md is back to what it was.
+    assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version', change);
+    if (change === 'edit') assert.equal(readFileSync(template, 'utf8'), 'my edit');
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('the staging name is removed by identity, never a file that replaced it', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let replaced = null;
+  mod.testHooks.afterLook = (p) => {
+    if (replaced || !p.endsWith('.new')) return;
+    replaced = p;
+    writeFileSync(`${p}.x`, 'someone else');
+    renameSync(`${p}.x`, p);
+  };
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { mod.testHooks.afterLook = null; }
+  assert.ok(replaced, 'the hook ran on the staging name');
+  const kept = existsSync(replaced) ? replaced : err?.message.match(/kept at (\S+?)(;|$)/)?.[1];
+  assert.ok(kept, err?.message);
+  assert.equal(readFileSync(kept, 'utf8'), 'someone else');
+  rmSync(root, { recursive: true });
+});

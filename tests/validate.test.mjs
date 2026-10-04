@@ -615,3 +615,9 @@ test('emphasized placeholders and inline HTML anywhere in a line are caught', ()
     assert.ok(!validateDoc('prd', VALID_PRD + `\n${ok}\n`).rules.includes('html'), ok);
   }
 });
+
+test('2. followed by a heading after paragraph text is more of that paragraph', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // commonmark.js: one paragraph, so the indented line is prose.
+  assert.equal(wordCount('ordinary\n2. ## fake\n    many words\n'), 5);
+});

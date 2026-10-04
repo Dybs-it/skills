@@ -420,7 +420,8 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     // A setext underline (`===` or `---` under paragraph text) completes a
     // heading too.
     // A heading that opens a list item (`- ## Example`) counts as well.
-    const block = qline.replace(/^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+(?=#)/, '');
+    // Not after `2. ` that continues a paragraph: `2. ## x` is paragraph text.
+    const block = interrupts ? qline.replace(/^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+(?=#)/, '') : qline;
     afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(block)
       || (!wasBlank && para && /^ {0,3}(=+|-+)[ \t]*$/.test(qline)
         // A setext underline is never a lazy line: outside the quote or the
