@@ -568,3 +568,11 @@ test('an unclosed <!-- in a paragraph is literal text, not a comment to the end'
   assert.doesNotMatch(visibleText('ordinary <!-- a\nTODO hidden\n-->\n'), /TODO/);
   assert.doesNotMatch(visibleText('<!-- a\n\nTODO hidden\n'), /TODO/);
 });
+
+test('a heading inside an unclosed comment in a list item never counts as present', async () => {
+  const { headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // CommonMark: `- <!--` opens an HTML block in the item, to the end (checked against commonmark.js).
+  assert.deepEqual(headings('- <!--\n  ## Problem\n'), []);
+  assert.deepEqual(headings('10. <!--\n    ## Problem\n'), []);
+  assert.deepEqual(headings('## Goal\n'), ['Goal']);
+});
