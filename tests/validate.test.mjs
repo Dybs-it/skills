@@ -1833,7 +1833,8 @@ test('--doc without a doc name is refused, never a whole-project pass', async ()
   console.error = () => {}; console.log = () => {};
   try {
     const { main } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
-    for (const args of [['--doc'], ['--doc', ''], ['--doc', '--json']]) {
+    // A second `--doc` is refused, not silently dropped.
+    for (const args of [['--doc'], ['--doc', ''], ['--doc', '--json'], ['--doc', 'project', '--doc', 'prd']]) {
       assert.equal(main(['node', 'dybs-validate.mjs', SAMPLE, ...args]), 2, args.join(' '));
     }
   } finally { console.error = err; console.log = log; }
@@ -1991,4 +1992,27 @@ test('a folder swapped during the --accept placement leaves no new name outside 
 test('dybs-start has a recovery step for a method README that cannot be read', () => {
   const t = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(t, /is a file that cannot be read \(its permissions\), stop and ask the human to fix its permissions or move it aside/);
+});
+
+test('a list item opening with indented code, and lines leaving that item, are read as CommonMark does', async () => {
+  const { visibleText, wordCount, headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // `-     <!--`: five spaces after the marker make the rest indented code.
+  for (const d of ['-     <!-- TODO\n', '1.     <!-- TODO\n', '> -     <!-- TODO\n']) {
+    assert.match(visibleText(d, { keepCode: true }), /TODO/, d);
+    assert.ok(!validateDoc('prd', VALID_PRD + '\n' + d).ok, d);
+  }
+  // Left of the item's content and after an HTML block: indented code.
+  assert.match(visibleText('-    <!-- x\n    <!-- TODO\nTODO -->\n', { keepCode: true }), /TODO\nTODO/);
+  // A lazy line outside the list's quote is measured from the margin.
+  assert.match(visibleText('> - y\n    <!-- TODO\n', { keepCode: true }), /TODO/);
+  // A quote closed by a blank line takes its list with it.
+  assert.match(visibleText('> - y\n\n    <!-- TODO\nTODO -->\n', { keepCode: true }), /<!-- TODO/);
+  // An inline comment that closes keeps its paragraph going.
+  assert.equal(wordCount('text\n    <!-- TODO\nTODO -->\n    <!-- TODO\n'), 2);
+  // A fence outside the list's quote opens at the margin and holds `## H`.
+  assert.deepEqual(headings('> - y\n   ```\n## H\n'), []);
+  assert.deepEqual(headings('> - y\n    <!-- TODO\n   ```\n## H\n'), []);
+  // `    <!--` at the item's content column opens an HTML block there, so
+  // the inline comment above it never closes.
+  assert.match(visibleText('- a\n      <!-- TODO\n    <!--\n-->\n', { keepCode: true }), /TODO/);
 });

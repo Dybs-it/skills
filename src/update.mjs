@@ -217,12 +217,19 @@ const idOfStat = (st) => `${st.dev}:${st.ino}`;
 // only if what was opened is a regular file: a file swapped for a link after
 // it was inspected is never read through. null when it is not.
 function readNoFollow(p) {
+  return readNoFollowStat(p)?.data ?? null;
+}
+// The same, with the mode of the very file read (not of a later lookup).
+function readNoFollowStat(p) {
   let fd;
   try { fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
     if (['ELOOP', 'EMLINK', 'ENOENT', 'ENOTDIR'].includes(e.code)) return null;
     throw e;
   }
-  try { return fstatSync(fd).isFile() ? readFileSync(fd) : null; } finally { closeSync(fd); }
+  try {
+    const st = fstatSync(fd);
+    return st.isFile() ? { data: readFileSync(fd), mode: st.mode & 0o7777 } : null;
+  } finally { closeSync(fd); }
 }
 
 function idOf(p) {
@@ -409,14 +416,17 @@ export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write
 // with O_EXCL, so a file or link that appears there at any moment is
 // refused, never replaced. A check followed by rename() would overwrite
 // whatever appeared in between.
-export function placeNoClobber(from, to, check, fromId) {
+// `out.id`, when `out` is given, is set to the identity of a copy: the only
+// proof afterwards that a file at `to` is the one this call created.
+export function placeNoClobber(from, to, check, fromId, out) {
   try {
     fsOps.link(from, to);
     return 'link';
   } catch (err) {
     if (err.code === 'EEXIST') throw err;
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    copyExclusive(from, to, check, fromId);
+    const id = copyExclusive(from, to, check, fromId);
+    if (out) out.id = id;
     return 'copy';
   }
 }
@@ -541,10 +551,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       if (a.op === 'replace') {
         // The backup is written the same way: created exclusively, tracked
         // before its bytes go in, and proven to be where we meant it.
+        // Read without following a link at the name: a file swapped for a
+        // link since the plan is refused, never copied from where it points.
         const b = backupPath(p);
-        const bytes = readFileSync(p);
+        const orig = readNoFollowStat(p);
+        if (!orig) throw new Error(`${a.rel} is no longer a regular file; nothing was changed, run update again`);
+        const bytes = orig.data;
         const backup = { path: b, hash: sha(bytes), entry };
-        writeOwnFile(b, bytes, lstatSync(p).mode & 0o7777, (id) => { backup.id = id; backups.push(backup); });
+        writeOwnFile(b, bytes, orig.mode, (id) => { backup.id = id; backups.push(backup); });
         if (chainOf(dir, a.rel) !== chain || idOf(b) !== backup.id) {
           throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again (a stray ${basename(b)} may have been written through it)`);
         }
@@ -653,8 +667,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           throw new Error(`the staged copy of ${s.a.rel} changed before it was installed; nothing was kept, run update again`);
         }
         let how;
+        const copied = {};
         try {
-          how = placeNoClobber(s.tmp, s.p, chainCheck(s), s.tmpId);
+          how = placeNoClobber(s.tmp, s.p, chainCheck(s), s.tmpId, copied);
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`${s.a.rel} appeared since the update was planned; nothing was changed, run update again`);
           throw err;
@@ -664,17 +679,26 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // not ours, so the name we just created for it is removed (by that
         // identity) and the update stops; the original is then put back.
         const placedNow = idOf(s.p);
+        // Only a file provably created by this placement is ever removed: a
+        // copy by the identity the copy was created with, a link only while
+        // the staging name still holds the very same file (the link made the
+        // two names one). A file that replaced the new name after it was
+        // created matches neither, and is left where it is, named.
+        const oursNow = () => placedNow !== null && placedNow === (how === 'copy' ? copied.id : idOf(s.tmp));
+        const dropOurs = (check) => {
+          if (!oursNow()) return ` (${s.p} is not provably this update's file and was left in place)`;
+          try { rmIfOurs(s.p, placedNow, check); return ''; } catch (e) { return ` (${e.message})`; }
+        };
         // A folder swapped during the placement put the new name outside the
-        // install. That name was just created by this run (placement never
-        // replaces anything), so it is removed by the identity it has now,
-        // without requiring the changed folders, and the update stops.
+        // install: it is removed only if it is provably ours, without
+        // requiring the changed folders, and the update stops.
         if (chainOf(dir, s.a.rel) !== s.chain) {
-          try { rmIfOurs(s.p, placedNow); } catch { /* reported by the rollback */ }
-          throw new Error(`a folder on the way to ${s.a.rel} changed while it was being installed; nothing was kept, run update again`);
+          const note = dropOurs();
+          throw new Error(`a folder on the way to ${s.a.rel} changed while it was being installed; nothing was kept, run update again${note}`);
         }
-        if (how === 'link' && placedNow !== s.tmpId) {
-          try { rmIfOurs(s.p, placedNow, chainCheck(s)); } catch { /* reported by the rollback */ }
-          throw new Error(`the staged copy of ${s.a.rel} changed while it was being installed; nothing was kept, run update again`);
+        if (placedNow !== (how === 'copy' ? copied.id : s.tmpId)) {
+          const note = dropOurs(chainCheck(s));
+          throw new Error(`the staged copy of ${s.a.rel} changed while it was being installed; nothing was kept, run update again${note}`);
         }
         s.placed = true;
         s.placedId = placedNow;

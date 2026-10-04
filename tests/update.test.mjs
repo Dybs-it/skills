@@ -2063,3 +2063,125 @@ test('a folder swapped during the placement link leaves no new name outside the 
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a file that replaces the placed name right after the link is never removed as ours', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let replaced = false;
+  mod.fsOps.link = (from, to) => {
+    const r = real.link(from, to);
+    if (!replaced && from.endsWith('.new') && to === prd(root)) {
+      replaced = true;
+      // Another writer renames its own file over the name just created.
+      writeFileSync(`${to}.x`, 'theirs');
+      renameSync(`${to}.x`, to);
+    }
+    return r;
+  };
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(replaced);
+  assert.match(String(err?.message), /changed while it was being installed.*left in place/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'theirs', 'their file is kept');
+  rmSync(root, { recursive: true });
+});
+
+test('a file that replaces a placed copy before it is checked is never adopted or removed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, statSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const shipped = String(plan.want[SKILL]);
+  let replaced = false;
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.write = (fd, data) => {
+    // The placing copy: the target was just created empty and gets the
+    // shipped bytes. Right after, another writer renames over it.
+    const placing = !replaced && String(data) === shipped && existsSync(prd(root)) && statSync(prd(root)).size === 0;
+    const r = real.write(fd, data);
+    if (placing) {
+      replaced = true;
+      writeFileSync(`${prd(root)}.x`, 'theirs');
+      renameSync(`${prd(root)}.x`, prd(root));
+    }
+    return r;
+  };
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(replaced);
+  assert.match(String(err?.message), /changed while it was being installed.*left in place/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'theirs', 'their file is kept');
+  rmSync(root, { recursive: true });
+});
+
+test('a folder swapped after the placement link never costs the other folder its file', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  rmSync(join(dir, 'template.md'));
+  const plan = mod.planInstall(findInstalls([root])[0]);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'template.md'), 'theirs');
+  let swapped = false;
+  mod.fsOps.link = (from, to) => {
+    const r = real.link(from, to);
+    if (!swapped && from.endsWith('.new') && to.endsWith('template.md')) {
+      swapped = true;
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    }
+    return r;
+  };
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.match(String(err?.message), /changed while it was being installed.*left in place/);
+  assert.equal(readFileSync(join(outside, 'template.md'), 'utf8'), 'theirs', 'their file is kept');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a --force backup is never read through a link that replaced the file', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own version');
+  const plan = mod.planInstall(findInstalls([root])[0], { force: true });
+  assert.equal(ops(plan)[SKILL], 'replace');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'secret'), 'private bytes');
+  let swapped = false;
+  const beforeStageCheck = (entry) => {
+    if (swapped || entry.a.rel !== SKILL) return;
+    swapped = true;
+    rmSync(prd(root));
+    symlinkSync(join(outside, 'secret'), prd(root));
+  };
+  const dir = join(root, '.agents/skills/dybs-prd');
+  // Looked for while the update runs: a rollback deleting the backup
+  // afterwards does not undo having copied those bytes.
+  const leaked = [];
+  const scan = () => {
+    for (const f of readdirSync(dir)) {
+      if (lstatSync(join(dir, f)).isFile() && readFileSync(join(dir, f), 'utf8').includes('private bytes')) leaked.push(f);
+    }
+  };
+  mod.testHooks.afterLook = scan;
+  try {
+    assert.throws(() => mod.applyPlan(plan, { beforeStageCheck, beforeAside: scan, beforeCleanup: scan }), /no longer a regular file/);
+  } finally { mod.testHooks.afterLook = null; }
+  assert.ok(swapped);
+  scan();
+  assert.deepEqual(leaked, []);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
