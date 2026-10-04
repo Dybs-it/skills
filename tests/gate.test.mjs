@@ -418,7 +418,10 @@ test('review counts untracked files before calling a change empty; pr ignores it
   const review = readFileSync(join(ROOT, 'skills/dybs-review/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(review, /empty only when both the diff and the untracked list are empty/);
   const pr = readFileSync(join(ROOT, 'skills/dybs-pr/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
-  assert.match(pr, /anything outside `dybs\/`: the work files this flow writes/);
+  assert.match(pr, /any uncommitted change other than this task's `gate\.md` and `pr\.md`/);
+  assert.match(pr, /A changed `review\.md`, `test-plan\.md`, `task\.md` or context doc is a gate input/);
+  const gateSkill = readFileSync(join(ROOT, 'skills/dybs-gate/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(gateSkill, /any change other than this task's `gate\.md` and `pr\.md`/);
 });
 
 test('a <!-- inside a code fence is text: it never hides the rows after the fence', () => {

@@ -62,8 +62,9 @@ node <skills>/dybs-gate/scripts/dybs-gate.mjs dybs/work/<task>/gate.md
 ```
 
 (`<skills>` is the folder that holds this skill.) The evidence must be
-committed first: if `git status --porcelain` shows changes to code or tests
-(anything outside `dybs/`; the work files in `dybs/work/` do not count),
+committed first: if `git status --porcelain` shows any change other than
+this task's `gate.md` and `pr.md` (code, tests, and the gate's inputs such as
+`review.md`, `test-plan.md`, `task.md` and the context docs all count),
 ask the human to commit them (or do it on their word) and check again. A
 gate computed on uncommitted work proves nothing about a commit, so then
 write `commit: uncommitted` and say so; it counts as stale. Otherwise copy

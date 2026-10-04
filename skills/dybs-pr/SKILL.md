@@ -45,11 +45,13 @@ Before and after, as concrete as the environment allows:
 - the gate decision with its coverage numbers: run the gate script on
   `gate.md` again now, and compare its `commit:` with `HEAD`. If code or
   tests changed since, if `commit:` says `uncommitted`, or if
-  `git status --porcelain` shows uncommitted changes to code or tests, the
-  result is **stale**: say so and suggest running `dybs-gate` again rather
-  than quoting the old decision. Code or tests means anything outside
-  `dybs/`: the work files this flow writes (`gate.md`, `pr.md`) are expected
-  to be uncommitted and do not make the gate stale
+  `git status --porcelain` shows any uncommitted change other than this
+  task's `gate.md` and `pr.md`, the result is **stale**: say so and suggest
+  running `dybs-gate` again rather than quoting the old decision. Only those
+  two outputs are expected to be uncommitted. A changed `review.md`,
+  `test-plan.md`, `task.md` or context doc is a gate input: re-running the
+  script only recounts the tables already in `gate.md`, it does not rebuild
+  them from those inputs
 
 Say plainly what was **not** verified.
 
