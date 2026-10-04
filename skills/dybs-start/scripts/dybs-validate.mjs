@@ -178,6 +178,13 @@ function quoteDepth(line) {
 // continues a paragraph or a list item instead.
 // With `keepCode`, code stays in (only comments are dropped): placeholders in
 // code still count, as the rule exempts HTML comments alone.
+function expandTabs(line) {
+  if (!line.includes('\t')) return line;
+  let out = '';
+  for (const ch of line) out += ch === '\t' ? ' '.repeat(4 - (out.length % 4)) : ch;
+  return out;
+}
+
 export function visibleText(body, { keepCode = false, hideUnclosed = false } = {}) {
   const out = [];
   let fence = null;
@@ -191,13 +198,19 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
   // ends where that item ends, not where the outer one does.
   const items = [];
   let prevBlank = true;
+  // The deepest quote the open paragraph has reached: a line that drops out
+  // of the quote lazily continues that paragraph, so re-entering the quote
+  // afterwards does not start a new block (and so no indented code).
+  let paraQuote = 0;
   // A heading, a thematic break or a closed fence is not a paragraph, so an
   // indented code block may follow it with no blank line in between. So may
   // the first line of a new block quote, which interrupts a paragraph.
   let afterBlock = false;
   let inComment = false;
   const st = { span: null };
-  const lines = body.split(/\r?\n/);
+  // Block structure is measured in columns, with tab stops every four
+  // (CommonMark): `-\titem` puts the content at column four, not two.
+  const lines = body.split(/\r?\n/).map(expandTabs);
   for (let n = 0; n < lines.length; n++) {
     let line = lines[n];
     // A code span stays inside its paragraph: a blank line, a fence, a
@@ -301,8 +314,9 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     // Measured after the `>` markers, where a quoted list item's content is.
     const lead = inner.match(/^ */)[0].length;
     const codeAt = inList ? (items.at(-1) ?? listIndent) + 4 : 4;
-    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock || quoteDepth(line) > (n ? quoteDepth(lines[n - 1]) : 0))) {
+    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock || quoteDepth(line) > paraQuote)) {
       indented = codeAt;
+      paraQuote = 0;
       prevBlank = false;
       if (keepCode) out.push(line);
       continue;
@@ -356,6 +370,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     if (!inList) items.length = 0;
     const wasBlank = prevBlank;
     prevBlank = nowBlank;
+    paraQuote = nowBlank ? 0 : Math.max(wasBlank ? 0 : paraQuote, quoteDepth(lines[n]));
     // Judged after the `>` markers, like blankness and indentation.
     // A setext underline (`===` or `---` under paragraph text) completes a
     // heading too.

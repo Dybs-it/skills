@@ -576,3 +576,15 @@ test('a heading inside an unclosed comment in a list item never counts as presen
   assert.deepEqual(headings('10. <!--\n    ## Problem\n'), []);
   assert.deepEqual(headings('## Goal\n'), ['Goal']);
 });
+
+test('list indentation is measured in tab-expanded columns, and a lazy line keeps its paragraph open', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // `-\t` puts the content at column four: six spaces is prose, not code
+  // (checked against commonmark.js).
+  assert.equal(wordCount('-\titem\n\n      six words\n'), 3);
+  // A line that drops out of the quote lazily continues its paragraph, so
+  // the re-quoted indented line is prose too.
+  assert.equal(wordCount('> q\nlazy\n>       deep words\n'), 4);
+  // A real indented block is still code.
+  assert.equal(wordCount('-\titem\n\n        code words\n'), 1);
+});

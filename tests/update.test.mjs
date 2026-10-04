@@ -1332,3 +1332,33 @@ test('without hard links, the fallback move re-checks the pinned folders first',
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a file swapped for a link before it is moved aside is refused, never replaced', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  for (const noLinks of [false, true]) {
+    const root = project(['dybs-prd']);
+    writeFileSync(prd(root), 'old shipped version');
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const plan = mod.planInstall(findInstalls([root])[0], { known });
+    // The user points SKILL.md at a file of their own that happens to hold
+    // the planned old bytes; reads through the link would match.
+    const theirs = join(root, 'their-skill.md');
+    writeFileSync(theirs, 'old shipped version');
+    let swapped = false;
+    const beforePin = (st) => {
+      if (swapped || st.a.rel !== SKILL || !st.tmp) return;
+      swapped = true;
+      rmSync(st.p);
+      symlinkSync(theirs, st.p);
+    };
+    if (noLinks) mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+    try {
+      assert.throws(() => mod.applyPlan(plan, { beforePin }), /no longer a regular file/);
+    } finally { Object.assign(mod.fsOps, real); }
+    assert.ok(swapped);
+    assert.ok(lstatSync(prd(root)).isSymbolicLink(), `the user's link stays (noLinks=${noLinks})`);
+    assert.equal(readFileSync(theirs, 'utf8'), 'old shipped version');
+    rmSync(root, { recursive: true });
+  }
+});
