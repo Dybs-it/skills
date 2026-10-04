@@ -850,3 +850,18 @@ test('only a well-formed reference definition is left out of the HTML scan, the 
   // A label of only whitespace defines nothing.
   assert.equal(wordCount("[ ]: /u\n"), 1);
 });
+
+test('a destination is stripped only after a link opener, and headings are compared as rendered', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // No `[` opener: `](<details>)` is text and `<details>` raw HTML.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nRaw ](<details>) content\n').rules.includes('html'));
+  // An escaped opener is none either.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n\\[a](<details>)\n').rules.includes('html'));
+  // A link inside link text makes the outer one text (CommonMark).
+  assert.ok(validateDoc('prd', VALID_PRD + '\n[a [b](c)](<details>)\n').rules.includes('html'));
+  assert.ok(!validateDoc('prd', VALID_PRD + '\n[a](<details>)\n').rules.includes('html'));
+  assert.equal(wordCount('Raw ](https://example.com/x) y\n'), 6);
+  // `## Wh&#121;` renders as Why.
+  const ref = VALID_PRD.replace('## Goals', '## Go&#97;ls');
+  assert.ok(!validateDoc('prd', ref).rules.includes('sections'));
+});
