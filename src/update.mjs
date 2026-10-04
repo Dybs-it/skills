@@ -643,22 +643,32 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // while it is still the same file.
         try {
           pinned(s);
+          // The identity planned is taken before the link. The new name is
+          // ours only while it is the very file it was linked from (one file
+          // under both names, as seen now); a file that replaced it since is
+          // never adopted or removed.
+          const linkedId = idOf(s.p);
           fsOps.link(s.p, old);
+          const dropOld = (check) => {
+            const now = idOf(old);
+            if (now === null) return '';
+            if (now !== idOf(s.p)) return ` (${old} is not provably this update's and was left in place)`;
+            try { rmIfOurs(old, now, check); return ''; } catch (e) { return ` (${e.message})`; }
+          };
           // A folder swapped in the instant of the link would put the new
           // name outside the install: the name this run just created there
           // is removed again (it is only a second name, the file itself is
           // untouched) and the update stops.
           if (chainOf(dir, s.a.rel) !== s.chain) {
-            try { rmIfOurs(old, idOf(old)); } catch { /* reported below */ }
-            throw new Error(`a folder on the way to ${s.a.rel} changed during the update; nothing was changed, run update again`);
+            const note = dropOld();
+            throw new Error(`a folder on the way to ${s.a.rel} changed during the update; nothing was changed, run update again${note}`);
           }
-          if (!isRegular(old)) {
-            const strayId = idOf(old);
-            try { rmIfOurs(old, strayId, chainCheck(s)); } catch { /* reported below */ }
-            throw new Error(`${s.a.rel} changed since the update was planned (it is no longer a regular file); nothing was changed, run update again`);
+          if (!isRegular(old) || idOf(old) !== linkedId) {
+            const note = dropOld(chainCheck(s));
+            throw new Error(`${s.a.rel} changed since the update was planned (it is no longer a regular file); nothing was changed, run update again${note}`);
           }
           s.old = old;
-          s.oldId = idOf(old);
+          s.oldId = linkedId;
           done.push(s);
           rmIfOurs(s.p, s.oldId, () => pinned(s));
         } catch (err) {

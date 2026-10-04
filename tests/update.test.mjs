@@ -2476,3 +2476,34 @@ test('putting back a file that was not the update\'s never lands it outside the 
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a file that replaces the moved-aside name right after the link is never removed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, SKILL), 'theirs');
+  let theirs = null;
+  mod.fsOps.link = (from, to) => {
+    if (theirs || !to.endsWith('.old')) return real.link(from, to);
+    // The folder is swapped during the link, and right after it a watcher
+    // renames its own file over the new name.
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+    const r = real.link(from, to);
+    theirs = join(outside, to.split('/').at(-1));
+    writeFileSync(`${theirs}.x`, 'theirs too');
+    renameSync(`${theirs}.x`, theirs);
+    return r;
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(theirs);
+  assert.equal(readFileSync(theirs, 'utf8'), 'theirs too', 'their file is kept');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
