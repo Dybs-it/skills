@@ -688,7 +688,9 @@ function rmIfOurs(p, id) {
   if (!id || pathId(p) !== id) return;
   testHooks.afterLook?.(p);
   const aside = `${p}.${randomUUID()}.rm`;
-  try { renameSync(p, aside); } catch { return; }
+  // Only a name that is already gone counts as removed; any other failure
+  // (permissions, a lock) is the caller's to report or roll back.
+  try { fsOps.rename(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   if (pathId(aside) === id) { fsOps.rm(aside); return; }
   try { fsOps.link(aside, p); fsOps.rm(aside); } catch {
     throw new Error(`${p} changed while it was being removed; it is kept at ${aside}`);
@@ -706,7 +708,7 @@ export function localDate(d = new Date()) {
 // its content. Refuses a doc that would not validate as accepted.
 // Filesystem calls acceptDoc uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync };
+export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync };
 
 // Puts `from` at `to` without overwriting anything there: link() where the
 // filesystem has hard links, an exclusive copy (COPYFILE_EXCL, O_EXCL) where
