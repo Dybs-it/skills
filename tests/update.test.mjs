@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, cpSync, symlinkSync,
+  readdirSync, lstatSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -367,4 +368,75 @@ test('every quality skill carries the same standalone section', () => {
     return t.slice(i);
   };
   for (const s of QUALITY) assert.equal(block(s), block(QUALITY[0]), s);
+});
+
+test('a failure at any step of an update leaves the skill exactly as it was', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const files = Object.keys(shippedFiles('dybs-prd'));
+  const snapshot = (dir) => {
+    const out = {};
+    const walk = (d, pre = '') => {
+      for (const n of readdirSync(d)) {
+        const p = join(d, n);
+        if (lstatSync(p).isDirectory()) walk(p, `${pre}${n}/`);
+        else out[`${pre}${n}`] = readFileSync(p, 'utf8');
+      }
+    };
+    walk(dir);
+    return out;
+  };
+  // Every shipped file is an older known version, one is missing (add), one
+  // was edited (replace with --force), one is no longer shipped (remove).
+  const setup = () => {
+    const root = project(['dybs-prd']);
+    const dir = join(root, '.agents/skills/dybs-prd');
+    const known = {};
+    for (const rel of files) {
+      writeFileSync(join(dir, rel), `old ${rel}`);
+      known[`dybs-prd/${rel}`] = [sha(`old ${rel}`)];
+    }
+    rmSync(join(dir, files[files.length - 1]));
+    writeFileSync(join(dir, files[0]), 'my edit');
+    writeFileSync(join(dir, 'gone.md'), 'old gone');
+    known['dybs-prd/gone.md'] = [sha('old gone')];
+    return { root, dir, known };
+  };
+  let failures = 0;
+  for (let failAt = 0; ; failAt++) {
+    const { root, dir, known } = setup();
+    const before = snapshot(dir);
+    const [install] = findInstalls([root]);
+    const plan = planInstall(install, { known, force: true });
+    try {
+      applyPlan(plan, { failAt });
+    } catch {
+      failures++;
+      assert.deepEqual(snapshot(dir), before, `failure at step ${failAt}`);
+      rmSync(root, { recursive: true });
+      continue;
+    }
+    // No more steps to fail: the whole update applied.
+    assert.equal(readFileSync(join(dir, files[1]), 'utf8'), shippedFiles('dybs-prd')[files[1]].toString());
+    assert.ok(!existsSync(join(dir, 'gone.md')));
+    assert.ok(Object.keys(snapshot(dir)).every((n) => !n.includes('.dybs-')));
+    rmSync(root, { recursive: true });
+    break;
+  }
+  assert.ok(failures >= files.length, `only ${failures} steps were exercised`);
+});
+
+test('a linked .claude folder cannot pull an outside install into a project update', () => {
+  const shared = project(['dybs-prd']);
+  const root = mkdtempSync(join(tmpdir(), 'dybs-update-'));
+  symlinkSync(join(shared, '.claude'), join(root, '.claude'));
+  writeFileSync(prd(shared), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const { results, skipped } = update([root], { known });
+  assert.equal(results.length, 0);
+  assert.equal(skipped.length, 1);
+  assert.equal(readFileSync(prd(shared), 'utf8'), 'old shipped version');
+  // Asking for the outside folder itself still updates it.
+  assert.equal(update([shared], { known }).results.length, 1);
+  rmSync(root, { recursive: true });
+  rmSync(shared, { recursive: true });
 });

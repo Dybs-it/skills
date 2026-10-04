@@ -63,8 +63,9 @@ export const MANUAL_RULES = [
   { id: 'accepted-date', text: 'An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human\'s word.' },
   { id: 'sections', text: 'Every required `##` section is present (see the template or the doc contract).' },
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
-  { id: 'cap', text: 'The doc is under the word cap for its depth (quick or thorough), not counting HTML comments and code blocks.' },
-  { id: 'accepted-hash', text: 'An accepted doc is not changed. Any real change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change.)' },
+  { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.' },
+  { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its `depth`. Any real change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change.)' },
+  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), and no doc is both `quick` and `thorough`.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 
@@ -95,6 +96,9 @@ function list(raw) {
   return new Set((raw || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
 }
 
+// Docs that project.md's `quick:`, `thorough:` and `skip:` may name.
+export const LISTABLE = ORDER.filter((n) => n !== 'project');
+
 // project.md sets `depth: quick|thorough` for every doc; `quick:` and
 // `thorough:` list docs that differ from it. Unset means quick.
 export function depthFor(name, projectData) {
@@ -108,10 +112,13 @@ function skipped(projectData) {
   return list(projectData?.skip);
 }
 
-// Fingerprint of a doc's content (not its frontmatter), stored as
+// Fingerprint of what the human accepted: the content plus the frontmatter
+// that changes its meaning (`depth`, which sets readiness and the cap). The
+// bookkeeping fields (status, dates, the hash itself) are left out. Stored as
 // `accepted-hash` when the human accepts, so a later edit is detectable.
-export function bodyHash(body) {
-  return createHash('sha256').update(body.replace(/\r\n/g, '\n').trim()).digest('hex').slice(0, 12);
+export function acceptedHash(data, body) {
+  const meaning = `depth:${data?.depth ?? ''}\n`;
+  return createHash('sha256').update(meaning + body.replace(/\r\n/g, '\n').trim()).digest('hex').slice(0, 12);
 }
 
 // requestedDepth is what project.md asks for this doc; documentDepth is what
@@ -138,14 +145,24 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
     if (data.status === 'accepted' && !/^\d{4}-\d{2}-\d{2}$/.test(data.accepted || '')) {
       fail('accepted-date', 'accepted docs need frontmatter "accepted: YYYY-MM-DD" (set only on the human\'s word)');
     }
-    if (data.status === 'accepted' && data['accepted-hash'] && data['accepted-hash'] !== bodyHash(body)) {
+    if (name === 'project') {
+      for (const key of ['quick', 'thorough', 'skip']) {
+        const unknown = [...list(data[key])].filter((n) => !LISTABLE.includes(n));
+        if (unknown.length) fail('doc-lists', `"${key}:" names unknown doc(s) ${unknown.join(', ')}. Known: ${LISTABLE.join(', ')}`);
+      }
+      const both = [...list(data.quick)].filter((n) => list(data.thorough).has(n));
+      if (both.length) fail('doc-lists', `${both.join(', ')} listed under both "quick:" and "thorough:"`);
+    }
+    if (data.status === 'accepted' && data['accepted-hash'] && data['accepted-hash'] !== acceptedHash(data, body)) {
       fail('accepted-hash', 'changed after it was accepted: set status: draft, remove accepted and accepted-hash, and ask the human to accept again');
     }
   }
   // In project.md, `depth` is the project's setting, not how deep project.md
   // itself was written, so project.md never needs deepening.
   const documentDepth = name !== 'project' && DEPTHS.includes(data?.depth) ? data.depth : null;
-  const depth = documentDepth ?? requestedDepth;
+  // A doc that does not say how deep it was written gets the quick cap: a
+  // project setting alone never raises a doc's allowance.
+  const depth = name === 'project' ? requestedDepth : documentDepth ?? 'quick';
   const needsDeepening = name !== 'project' && requestedDepth === 'thorough' && documentDepth !== 'thorough';
 
   const found = headings(body);
@@ -213,11 +230,16 @@ export function validateProject(root, only) {
   const atRequestedDepth = docs.every((r) => !r.needsDeepening);
   const accepted = complete && docs.every((r) => r.status === 'accepted');
   const deepen = docs.filter((r) => r.needsDeepening && r.status !== 'missing').map((r) => r.name);
-  return { ok, complete, atRequestedDepth, accepted, deepen, results };
+  const checkins = projectData?.checkins || 'each-doc';
+  return { ok, complete, atRequestedDepth, accepted, deepen, checkins, results };
 }
 
-function nextStep(results) {
-  const pending = results.find((r) => r.status === 'missing' || r.status === 'draft' || r.errors.length || r.needsDeepening);
+// With `checkins: end` or `none` a draft waits for the review point the
+// human chose, so it does not stop the route.
+export function nextStep(results, checkins = 'each-doc') {
+  const draftsWait = checkins === 'end' || checkins === 'none';
+  const pending = results.find((r) => r.status === 'missing' || r.errors.length || r.needsDeepening
+    || (r.status === 'draft' && !draftsWait));
   return pending ? pending.name : null;
 }
 
@@ -242,7 +264,8 @@ export function acceptDoc(root, name, today = new Date().toISOString().slice(0, 
   const path = join(root, 'dybs', DOCS[name].file);
   const text = readFileSync(path, 'utf8');
   const { body } = parseFrontmatter(text);
-  const next = setFrontmatter(text, { status: 'accepted', updated: today, accepted: today, 'accepted-hash': bodyHash(body) });
+  const { data } = parseFrontmatter(text);
+  const next = setFrontmatter(text, { status: 'accepted', updated: today, accepted: today, 'accepted-hash': acceptedHash(data, body) });
   const projectPath = join(root, 'dybs', DOCS.project.file);
   const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
   const check = validateDoc(name, next, depthFor(name, projectData));
@@ -254,14 +277,25 @@ export function acceptDoc(root, name, today = new Date().toISOString().slice(0, 
 export function main(argv) {
   const args = argv.slice(2);
   const json = args.includes('--json');
-  const docIdx = args.indexOf('--doc');
-  const only = docIdx >= 0 ? args[docIdx + 1] : undefined;
+  // A flag that takes a doc name must get one: a bare `--accept` that
+  // silently ran a plain validation would look like it had accepted.
+  const operand = (flag) => {
+    const i = args.indexOf(flag);
+    if (i < 0) return { given: false };
+    const v = args[i + 1];
+    return { given: true, value: v && !v.startsWith('--') ? v : undefined };
+  };
+  const doc = operand('--doc');
+  const acc = operand('--accept');
+  for (const [flag, o] of [['--doc', doc], ['--accept', acc]]) {
+    if (o.given && !o.value) { console.error(`${flag} needs a doc name. Known: ${ORDER.join(', ')}`); return 2; }
+  }
+  const only = doc.value;
   if (only && !DOCS[only]) {
     console.error(`unknown doc "${only}". Known: ${ORDER.join(', ')}`);
     return 2;
   }
-  const acceptIdx = args.indexOf('--accept');
-  const accept = acceptIdx >= 0 ? args[acceptIdx + 1] : undefined;
+  const accept = acc.value;
   const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--doc' && args[i - 1] !== '--accept');
   const root = resolve(positional[0] || '.');
   if (accept) {
@@ -275,7 +309,7 @@ export function main(argv) {
 
   if (json) {
     // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
-    console.log(JSON.stringify({ schema: 2, ...report, next: nextStep(report.results) }, null, 2));
+    console.log(JSON.stringify({ schema: 2, ...report, next: nextStep(report.results, report.checkins) }, null, 2));
     return report.ok ? 0 : 1;
   }
   if (report.fatal) {
@@ -291,7 +325,7 @@ export function main(argv) {
     for (const e of r.errors) console.log(`          error: ${e}`);
     for (const w of r.warnings) console.log(`          warn:  ${w}`);
   }
-  const next = nextStep(report.results);
+  const next = nextStep(report.results, report.checkins);
   console.log(next ? `\nNext: ${next}` : '\nAll Getting Started docs accepted at the requested depth.');
   return report.ok ? 0 : 1;
 }

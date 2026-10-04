@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync } 
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, bodyHash } from '../skills/dybs-start/scripts/dybs-validate.mjs';
+import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, acceptedHash, nextStep, main } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
@@ -150,8 +150,13 @@ test('thorough depth allows a longer doc than quick', () => {
   const quick = validateProject(dir).results.find((x) => x.name === 'scope');
   assert.ok(quick.errors.some((e) => e.includes('quick cap')));
   edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip:\nthorough: scope'));
+  // The project setting alone does not raise the cap: the doc must say it
+  // was written at thorough depth.
+  const requested = validateProject(dir).results.find((x) => x.name === 'scope');
+  assert.equal(requested.requestedDepth, 'thorough');
+  assert.ok(requested.errors.some((e) => e.includes('quick cap')));
+  edit(dir, 'context/scope.md', (t) => t.replace('status: accepted', 'status: accepted\ndepth: thorough'));
   const thorough = validateProject(dir).results.find((x) => x.name === 'scope');
-  assert.equal(thorough.requestedDepth, 'thorough');
   assert.deepEqual(thorough.errors, []);
   rmSync(dir, { recursive: true });
 });
@@ -168,6 +173,11 @@ test('an invalid depth in a doc is an error', () => {
 // validator must report exactly that rule. This is what keeps checking by
 // hand and the validator equivalent, not just similar text.
 const VALID_PRD = readFileSync(join(SAMPLE, 'dybs/context/prd.md'), 'utf8');
+const VALID_PROJECT = readFileSync(join(SAMPLE, 'dybs/project.md'), 'utf8');
+// Rules that only apply to project.md are broken there instead.
+const BREAK_PROJECT = {
+  'doc-lists': (t) => t.replace(/^skip:.*$/m, 'skip:\nthorough: archtecture'),
+};
 const BREAK = {
   'frontmatter': (t) => t.replace(/^---[\s\S]*?---\n/, ''),
   'doc-name': (t) => t.replace('doc: prd', 'doc: scope'),
@@ -179,6 +189,7 @@ const BREAK = {
   'cap': (t) => t + '\n' + 'word '.repeat(DOCS.prd.maxWords.quick),
   'accepted-hash': (t) => t.replace('status: accepted', 'status: accepted\naccepted-hash: 000000000000'),
   'placeholder': (t) => t + '\nTODO\n',
+  ...BREAK_PROJECT,
 };
 
 test('every manual rule has a breaking fixture, and the fixtures cover nothing else', () => {
@@ -187,8 +198,9 @@ test('every manual rule has a breaking fixture, and the fixtures cover nothing e
 
 for (const rule of MANUAL_RULES) {
   test(`validator enforces manual rule "${rule.id}"`, () => {
-    assert.deepEqual(validateDoc('prd', VALID_PRD).rules, [], 'baseline must be valid');
-    const r = validateDoc('prd', BREAK[rule.id](VALID_PRD));
+    const [doc, valid] = rule.id in BREAK_PROJECT ? ['project', VALID_PROJECT] : ['prd', VALID_PRD];
+    assert.deepEqual(validateDoc(doc, valid).rules, [], 'baseline must be valid');
+    const r = validateDoc(doc, BREAK[rule.id](valid));
     if (rule.id === 'frontmatter') assert.ok(r.rules.includes('frontmatter'));
     else assert.deepEqual(r.rules, [rule.id]);
   });
@@ -277,6 +289,55 @@ test('--accept refuses a doc that would not validate as accepted', () => {
   rmSync(dir, { recursive: true });
 });
 
-test('bodyHash ignores frontmatter and line endings', () => {
-  assert.equal(bodyHash('a\r\nb\n'), bodyHash('a\nb'));
+test('acceptedHash ignores line endings and bookkeeping, not depth', () => {
+  assert.equal(acceptedHash({}, 'a\r\nb\n'), acceptedHash({ status: 'draft', updated: '2026-01-01' }, 'a\nb'));
+  assert.notEqual(acceptedHash({ depth: 'thorough' }, 'a'), acceptedHash({ depth: 'quick' }, 'a'));
+});
+
+// --- Codex review findings on PR #2 ---
+
+test('a doc with no written depth gets the quick cap, even in a thorough project', () => {
+  const long = VALID_PRD + '\n' + 'word '.repeat(DOCS.prd.maxWords.quick);
+  assert.deepEqual(validateDoc('prd', long, 'thorough').rules, ['cap']);
+});
+
+test('changing the depth of an accepted doc breaks its acceptance', () => {
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t.replace('status: accepted', 'status: draft\ndepth: thorough'));
+  assert.equal(acceptDoc(dir, 'prd', '2026-10-04').ok, true);
+  const result = () => validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.deepEqual(result().errors, []);
+  edit(dir, 'context/prd.md', (t) => t.replace('depth: thorough', 'depth: quick'));
+  assert.deepEqual(result().rules, ['accepted-hash']);
+  rmSync(dir, { recursive: true });
+});
+
+test('project.md lists only known docs, and none as both quick and thorough', () => {
+  const project = (extra) => validateDoc('project', VALID_PROJECT.replace(/^skip:.*$/m, `skip:\n${extra}`));
+  assert.deepEqual(project('thorough: architecture, prd').rules, []);
+  assert.deepEqual(project('skip: uix').rules, ['doc-lists']);
+  assert.deepEqual(project('quick: project').rules, ['doc-lists']);
+  assert.deepEqual(project('quick: prd\nthorough: prd').rules, ['doc-lists']);
+});
+
+test('a flag without its doc name is a usage error, not a plain validation', () => {
+  const quiet = (fn) => { const e = console.error; const l = console.log; console.error = () => {}; console.log = () => {}; try { return fn(); } finally { console.error = e; console.log = l; } };
+  assert.equal(quiet(() => main(['node', 'v', SAMPLE, '--accept'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', SAMPLE, '--accept', '--json'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', SAMPLE, '--doc'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', SAMPLE, '--doc', 'prd'])), 0);
+});
+
+test('with check-ins at the end or none, drafts do not stop the route', () => {
+  const results = [
+    { name: 'project', status: 'draft', errors: [] },
+    { name: 'prd', status: 'missing', errors: [] },
+  ];
+  assert.equal(nextStep(results, 'each-doc'), 'project');
+  assert.equal(nextStep(results, 'end'), 'prd');
+  assert.equal(nextStep(results, 'none'), 'prd');
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: end'));
+  assert.equal(validateProject(dir).checkins, 'end');
+  rmSync(dir, { recursive: true });
 });

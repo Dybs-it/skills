@@ -10,8 +10,9 @@ With the [skills](https://skills.sh) package manager (Claude Code, Codex,
 Cursor, Gemini CLI, Copilot and more):
 
 ```
-npx skills add Dybs-it/skills                      # all skills
+npx skills add Dybs-it/skills --skill '*'          # all skills, you pick the agents
 npx skills add Dybs-it/skills --skill dybs-start   # one skill
+npx skills add Dybs-it/skills                      # pick skills and agents from a list
 ```
 
 In Claude Code, as a plugin:
@@ -120,6 +121,9 @@ never mixes files from two releases. Links inside a skill are never followed
 or written through, `--force` included. `--dry-run --json` prints the plan.
 Discovery covers `.<agent>/skills/` folders directly under the project (and
 home with `--global`), not every place a package manager or plugin can live.
+A skill that resolves outside the folder you asked for (say, through a
+linked `.claude` folder) is reported and left alone. If writing fails
+halfway, the files already changed are put back.
 
 `npx skills update` also works, but replaces skill files whole.
 

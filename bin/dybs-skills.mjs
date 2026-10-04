@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
 import {
-  update, findInstalls, rootsFor, skillNames, packageVersion, INSTALL_HINT,
+  update, discover, rootsFor, skillNames, packageVersion, INSTALL_HINT,
 } from '../src/update.mjs';
 import { main as validateMain } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 import { main as gateMain } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
@@ -9,7 +9,8 @@ import { main as gateMain } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
 const HELP = `dybs-skills ${packageVersion()}
 
 Install the skills with a skills package manager:
-  ${INSTALL_HINT}                     all skills, 18+ agents
+  ${INSTALL_HINT}                     pick skills and agents
+  ${INSTALL_HINT} --skill '*'         all skills, pick agents
   ${INSTALL_HINT} --skill dybs-prd    one skill
 
 This CLI adds what a package manager can't:
@@ -28,7 +29,16 @@ skills that are already installed. A file you changed is never overwritten:
 --force replaces it and keeps a .bak copy. A skill with anything that needs
 you is left completely unchanged. Links inside a skill are never followed.
 Discovery covers .<agent>/skills/ folders directly under the project (and
-home); it is not an inventory of every package manager or plugin location.`;
+home); it is not an inventory of every package manager or plugin location.
+A skill that resolves outside the folder you asked for (for example through
+a linked .claude folder) is reported and left alone; use --global for
+installs in your home folder.`;
+
+function printSkipped(skipped) {
+  if (!skipped.length) return;
+  console.log('\nLeft alone, resolves outside the requested folder:');
+  for (const s of skipped) console.log(`  ${s.via} -> ${s.dir}`);
+}
 
 const SYMBOL = { add: '+', update: '~', replace: '!', remove: '-', conflict: '?', keep: '=', unsafe: 'x' };
 // Bump when the shape of --json output changes.
@@ -59,24 +69,29 @@ export function run(argv) {
   const roots = rootsFor(resolve(opts.positional[0] || '.'), opts);
 
   if (cmd === 'status') {
-    const installs = findInstalls(roots);
+    const { installs, skipped } = discover(roots);
     if (opts.json) {
-      console.log(JSON.stringify({ schema: JSON_SCHEMA, installs }, null, 2));
+      console.log(JSON.stringify({ schema: JSON_SCHEMA, installs, skipped }, null, 2));
       return 0;
     }
-    if (!installs.length) { console.log(`No Dybs skills installed. Install with: ${INSTALL_HINT}`); return 0; }
+    if (!installs.length) console.log(`No Dybs skills installed. Install with: ${INSTALL_HINT}`);
     for (const i of installs) console.log(`${i.skill.padEnd(18)} ${i.dir}${i.via.length > 1 ? `  (also via ${i.via.length - 1} link)` : ''}`);
+    printSkipped(skipped);
     return 0;
   }
 
   if (cmd === 'update') {
-    const { results, notInstalled } = update(roots, opts);
+    const { results, notInstalled, skipped } = update(roots, opts);
     const blocked = results.filter((r) => r.blocked);
     if (opts.json) {
-      console.log(JSON.stringify({ schema: JSON_SCHEMA, dryRun: opts.dryRun, results, notInstalled }, null, 2));
+      console.log(JSON.stringify({ schema: JSON_SCHEMA, dryRun: opts.dryRun, results, notInstalled, skipped }, null, 2));
       return blocked.length ? 1 : 0;
     }
-    if (!results.length) { console.log(`No Dybs skills installed. Install with: ${INSTALL_HINT}`); return 0; }
+    if (!results.length) {
+      console.log(`No Dybs skills installed. Install with: ${INSTALL_HINT}`);
+      printSkipped(skipped);
+      return 0;
+    }
     for (const r of results) {
       const changed = r.actions.filter((a) => a.op !== 'same');
       const state = r.blocked ? 'skipped, needs you' : changed.length ? `${changed.length} change(s)${r.applied ? '' : ' (dry run)'}` : 'up to date';
@@ -89,6 +104,7 @@ export function run(argv) {
       console.log(`\nNot installed (left alone): ${notInstalled.join(', ')}`);
       console.log(`Add one with: ${INSTALL_HINT} --skill <name>`);
     }
+    printSkipped(skipped);
     if (blocked.length) {
       console.log(`\n${blocked.length} skill(s) left completely unchanged, so none mixes files from two releases.`);
       if (blocked.some((r) => r.actions.some((a) => a.op === 'conflict'))) {
