@@ -17,7 +17,14 @@ names another.
 
 ## 0. Resume or start
 
-If `dybs/` already exists, read `dybs/project.md`. With `kickoff: parked`
+If `dybs/` already exists, repair a partial setup before anything else:
+
+- No `dybs/project.md`: the kickoff never finished. Say so, and run it from
+  **1. Listen**; step 4 creates only what is missing and keeps the rest.
+- No `dybs/README.md` or `dybs/team.md`: copy the missing one from
+  `assets/` and say you restored it. Never overwrite one that exists.
+
+Then read `dybs/project.md`. With `kickoff: parked`
 in its frontmatter, the kickoff was parked before a route was chosen: read
 the brief and the `kickoff` lines in `dybs/log.md`, ask only what is still
 open, and continue at **3. Advise**. After their choice, remove
@@ -102,8 +109,9 @@ Wait for their choice. Their word decides; do not start drafting before it.
 
 ## 4. Set up
 
-1. Create `dybs/` and `dybs/context/decisions/`.
-2. Copy `assets/README.md` and `assets/team.md` into `dybs/` unchanged.
+1. Create `dybs/` and `dybs/context/decisions/` where missing.
+2. Copy `assets/README.md` and `assets/team.md` into `dybs/` unchanged,
+   unless they already exist.
 3. Write `dybs/project.md` from `assets/project.md`: name, one line, Why, Who
    and Now from the kickoff, and the frontmatter from their choices (`type`,
    `stage`, `horizon`, `depth`, `quick:`, `thorough:`, `checkins`, `skip`).
