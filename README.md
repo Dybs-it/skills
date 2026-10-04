@@ -94,8 +94,8 @@ npx github:Dybs-it/skills status                  # where they are installed
 ```
 
 `update` finds Dybs skills in every `.<agent>/skills/` folder (and your home
-folder with `--global`), follows symlinks, and only touches skills that are
-already installed. **It never overwrites your edits:** a file is replaced
+folder with `--global`), follows the link a package manager makes for a
+whole skill folder, and only touches skills that are already installed. **It never overwrites your edits:** a file is replaced
 only when it still matches a version this package shipped. Anything you
 changed is reported and left alone; `--force` replaces it and keeps a `.bak`.
 A skill with anything that needs you is left completely unchanged, so it
