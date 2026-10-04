@@ -1013,6 +1013,23 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const text = readFileSync(path, 'utf8');
   const { data, body } = parseFrontmatter(text);
   if (!data) return { ok: false, errors: validateDoc(name, text).errors };
+  // project.md's check-ins bind the other docs too: `checkins: none` is not
+  // accepted while a doc that is not skipped was written thorough (whole-
+  // project validation would fail at once). Those docs are inputs as well.
+  if (name === 'project' && data.checkins === 'none') {
+    const skip = skipped(data);
+    for (const other of LISTABLE) {
+      if (skip.has(other)) continue;
+      const otherRel = `dybs/${DOCS[other].file}`;
+      if (!existsSync(join(root, otherRel))) continue;
+      const otherUnsafe = unsafePath(root, otherRel);
+      if (otherUnsafe) return { ok: false, errors: [`refusing to accept: ${otherUnsafe}`] };
+      const otherText = readFileSync(join(root, otherRel), 'utf8');
+      const r = validateDoc(other, otherText, depthFor(other, data), data.checkins);
+      if (r.rules.includes('checkins')) return { ok: false, errors: [`${DOCS[other].file}: "checkins: none" asks nothing, so it must be quick: set depth: quick there first`] };
+      inputs.push([otherRel, otherText]);
+    }
+  }
   const next = setFrontmatter(text, { status: 'accepted', updated: today, accepted: today, 'accepted-hash': acceptedHash(data, body) });
   const projectPath = join(root, 'dybs', DOCS.project.file);
   const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
