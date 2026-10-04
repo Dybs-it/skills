@@ -65,7 +65,15 @@ function skillFolders(root) {
   return readdirSync(root)
     .filter((n) => n.startsWith('.'))
     .map((n) => join(root, n, 'skills'))
-    .filter((p) => existsSync(p) && statSync(p).isDirectory());
+    // Only a folder that is really not there counts as absent: existsSync()
+    // also says false for one we may not enter, which would report an
+    // install we could not inspect as an empty one.
+    .filter((p) => {
+      try { return statSync(p).isDirectory(); } catch (e) {
+        if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false;
+        throw e;
+      }
+    });
 }
 
 // A root that already ends in a separator (`/`, `C:\\`) is its own prefix.

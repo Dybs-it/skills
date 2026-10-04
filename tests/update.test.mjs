@@ -971,3 +971,18 @@ test('staging refuses a folder that became a link before it was pinned', async (
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a skills folder that cannot be entered is a discovery error, not an empty install', async () => {
+  const root = project(['dybs-prd']);
+  chmodSync(root, 0o755);
+  chmodSync(join(root, '.agents'), 0o000);
+  // Root enters anything, so the CLI runs as an unprivileged user there.
+  const cli = join(PKG_ROOT, 'bin/dybs-skills.mjs');
+  const cmd = process.getuid?.() === 0 ? ['runuser', ['-u', 'nobody', '--', process.execPath, cli, 'status', root, '--json']] : [process.execPath, [cli, 'status', root, '--json']];
+  let out; let code = 0;
+  try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { out = e.stdout; code = e.status; }
+  chmodSync(join(root, '.agents'), 0o755);
+  assert.equal(code, 1);
+  assert.match(JSON.parse(out).error, /EACCES/);
+  rmSync(root, { recursive: true });
+});

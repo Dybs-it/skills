@@ -186,8 +186,11 @@ export function visibleText(body, { keepCode = false } = {}) {
       const depth = quoteDepth(lines[n]);
       for (let k = n + 1; k < lines.length; k++) {
         const rest = lines[k].replace(/^(?: {0,3}>[ \t]?)+/, '');
+        // A deeper quote ends the paragraph; a shallower line is a lazy
+        // continuation of it (CommonMark), unless it starts a block, such
+        // as an HTML comment, a heading or a list item, checked below.
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
-        if (/^ {0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
+        if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
         if (closer(run).test(lines[k])) return true;
       }
       return false;
@@ -226,7 +229,9 @@ export function visibleText(body, { keepCode = false } = {}) {
       // Inside a list item the closing fence sits at the item's content
       // indent (four spaces under `10. `), so it may be indented up to three
       // spaces past where the opening fence started.
-      const c = line.match(/^( *)((?:>[ \t]?)*) {0,3}(`{3,}|~{3,})[ \t]*$/);
+      // Each quote marker may be followed by up to three spaces before the
+      // next one, as for the opener (`>  > ````).
+      const c = line.match(/^( *)((?:>[ \t]?(?: {0,3}(?=>))?)*) {0,3}(`{3,}|~{3,})[ \t]*$/);
       if (c && c[1].length <= fence.indent + 3 && quoteDepth(line) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) { fence = null; afterBlock = true; }
       if (keepCode) out.push(line);
       continue;
@@ -244,7 +249,8 @@ export function visibleText(body, { keepCode = false } = {}) {
       if (keepCode) out.push(line);
       continue;
     }
-    const lead = line.match(/^ */)[0].length;
+    // Measured after the `>` markers, where a quoted list item's content is.
+    const lead = inner.match(/^ */)[0].length;
     const codeAt = inList ? listIndent + 4 : 4;
     if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock)) {
       indented = true;
@@ -255,15 +261,19 @@ export function visibleText(body, { keepCode = false } = {}) {
     const stripped = stripComments(line, st, closesLater);
     inComment = stripped.open;
     line = stripped.text;
-    const nowBlank = line.replace(/^(?: {0,3}>[ \t]?)+/, '').trim() === '';
-    if (!nowBlank && !/^( {4}|\t)/.test(line)) {
-      const item = line.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
+    // List markers are read after the `>` markers too (`> 10. item`).
+    const qline = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
+    const nowBlank = qline.trim() === '';
+    // A heading or a thematic break interrupts a list, blank line or not.
+    const breaksList = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline);
+    if (!nowBlank && !/^( {4}|\t)/.test(qline)) {
+      const item = breaksList ? null : qline.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
       if (item) listIndent = item[0].length;
-      inList = Boolean(item) || (inList && !prevBlank);
+      inList = Boolean(item) || (inList && !prevBlank && !breaksList);
     }
     if (!nowBlank) {
-      const at = line.match(/^ */)[0].length;
-      const marker = line.match(/^ *(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
+      const at = qline.match(/^ */)[0].length;
+      const marker = breaksList ? null : qline.match(/^ *(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
       if (marker && at < (items.at(-1) ?? 0) + 4) {
         while (items.length && items.at(-1) > at) items.pop();
         items.push(marker[0].length);
