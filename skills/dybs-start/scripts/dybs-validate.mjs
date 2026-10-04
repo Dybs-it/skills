@@ -104,6 +104,12 @@ function stripComments(line) {
       }
       continue;
     }
+    // `\<!--` is an escaped `<`: literal text, not a comment.
+    if (line[i] === '\\') {
+      out += line.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
     if (line.startsWith('<!--', i)) {
       const end = line.indexOf('-->', i + 4);
       if (end < 0) return { text: out, open: true };

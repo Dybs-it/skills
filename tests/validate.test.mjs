@@ -221,3 +221,10 @@ test('fences in a block quote or a list item are code; an unclosed comment hides
   assert.ok(!r.rules.includes('placeholder'));
   rmSync(dir, { recursive: true });
 });
+
+test('an escaped <!-- is visible text, so its words count', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('one \\<!-- two three --> four'), 4);
+  assert.equal(wordCount('one <!-- two three --> four'), 2);
+  assert.equal(wordCount('one \\\\<!-- two three --> four'), 2);
+});
