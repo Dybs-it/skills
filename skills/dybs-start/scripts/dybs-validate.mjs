@@ -51,6 +51,21 @@ export const DOCS = {
 export const ORDER = ['project', 'prd', 'scope', 'domain', 'architecture', 'ux', 'ui'];
 export const STATUSES = ['draft', 'accepted'];
 export const DEPTHS = ['quick', 'thorough'];
+// The same rules in words, for an agent checking a doc by hand when the
+// validator is not installed. Every id here is enforced in validateDoc, and
+// tests keep the skills' standalone sections in step with this list.
+export const MANUAL_RULES = [
+  { id: 'frontmatter', text: 'The doc starts with a frontmatter block between two `---` lines.' },
+  { id: 'doc-name', text: 'Frontmatter `doc` is exactly this doc\'s name (for example `doc: prd`).' },
+  { id: 'status', text: 'Frontmatter `status` is `draft` or `accepted`, nothing else.' },
+  { id: 'updated', text: 'Frontmatter `updated` is a date written as YYYY-MM-DD.' },
+  { id: 'accepted-date', text: 'An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human\'s word.' },
+  { id: 'sections', text: 'Every required `##` section is present (see the template or the doc contract).' },
+  { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
+  { id: 'cap', text: 'The doc is under the word cap for its depth (quick or thorough), not counting HTML comments and code blocks.' },
+  { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
+];
+
 const PLACEHOLDER = /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/;
 
 export function parseFrontmatter(text) {
@@ -95,48 +110,50 @@ export function validateDoc(name, text, depth = 'quick') {
   const spec = DOCS[name];
   const errors = [];
   const warnings = [];
+  const rules = new Set();
+  const fail = (id, msg) => { rules.add(id); errors.push(msg); };
   const { data, body } = parseFrontmatter(text);
 
   if (!data) {
-    errors.push('missing frontmatter (--- block at the top)');
+    fail('frontmatter', 'missing frontmatter (--- block at the top)');
   } else {
-    if (data.doc !== name) errors.push(`frontmatter "doc" must be "${name}" (found "${data.doc ?? ''}")`);
-    if (!STATUSES.includes(data.status)) errors.push(`frontmatter "status" must be one of ${STATUSES.join('|')}`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.updated || '')) errors.push('frontmatter "updated" must be YYYY-MM-DD');
+    if (data.doc !== name) fail('doc-name', `frontmatter "doc" must be "${name}" (found "${data.doc ?? ''}")`);
+    if (!STATUSES.includes(data.status)) fail('status', `frontmatter "status" must be one of ${STATUSES.join('|')}`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.updated || '')) fail('updated', 'frontmatter "updated" must be YYYY-MM-DD');
     if (data.depth !== undefined && !DEPTHS.includes(data.depth)) {
-      errors.push(`frontmatter "depth" must be one of ${DEPTHS.join('|')}`);
+      fail('depth', `frontmatter "depth" must be one of ${DEPTHS.join('|')}`);
     }
     if (data.status === 'accepted' && !/^\d{4}-\d{2}-\d{2}$/.test(data.accepted || '')) {
-      errors.push('accepted docs need frontmatter "accepted: YYYY-MM-DD" (set only on the human\'s word)');
+      fail('accepted-date', 'accepted docs need frontmatter "accepted: YYYY-MM-DD" (set only on the human\'s word)');
     }
   }
 
   const found = headings(body);
   const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase()));
-  for (const s of missing) errors.push(`missing section "## ${s}"`);
+  for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
   const words = wordCount(body);
   const cap = spec.maxWords[depth];
   if (words > cap) {
-    errors.push(`${words} words, ${depth} cap is ${cap}. Cut, or move the why to dybs/log.md or context/decisions/`);
+    fail('cap', `${words} words, ${depth} cap is ${cap}. Cut, or move the why to dybs/log.md or context/decisions/`);
   } else if (words > cap * 0.9) {
     warnings.push(`${words} words, close to the ${depth} cap of ${cap}`);
   }
 
   if (PLACEHOLDER.test(body.replace(/<!--[\s\S]*?-->/g, ''))) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
-    if (data?.status === 'accepted') errors.push(msg);
+    if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);
   }
 
-  return { name, file: spec.file, status: data?.status ?? null, depth, words, errors, warnings };
+  return { name, file: spec.file, status: data?.status ?? null, depth, words, errors, warnings, rules: [...rules] };
 }
 
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
   const results = [];
   if (!existsSync(dir) || !statSync(dir).isDirectory()) {
-    return { ok: false, fatal: `no dybs/ folder in ${root}. Run the dybs-start skill first.`, results };
+    return { ok: false, complete: false, accepted: false, fatal: `no dybs/ folder in ${root}. Run the dybs-start skill first.`, results };
   }
   if (!existsSync(join(dir, 'README.md'))) {
     results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
@@ -161,8 +178,14 @@ export function validateProject(root, only) {
     }
     results.push(validateDoc(name, readFileSync(path, 'utf8'), depthFor(name, projectData)));
   }
+  // ok: no rule is broken (missing and draft docs are allowed).
+  // complete: every doc that is not skipped exists and is ok.
+  // accepted: complete, and the human accepted every doc.
   const ok = results.every((r) => r.errors.length === 0);
-  return { ok, results };
+  const docs = results.filter((r) => r.status !== 'skipped' && r.name !== 'readme');
+  const complete = ok && !only && docs.every((r) => r.status !== 'missing');
+  const accepted = complete && docs.every((r) => r.status === 'accepted');
+  return { ok, complete, accepted, results };
 }
 
 function nextStep(results) {
@@ -184,7 +207,7 @@ export function main(argv) {
   const report = validateProject(root, only);
 
   if (json) {
-    console.log(JSON.stringify({ ...report, next: nextStep(report.results) }, null, 2));
+    console.log(JSON.stringify({ schema: 1, ...report, next: nextStep(report.results) }, null, 2));
     return report.ok ? 0 : 1;
   }
   if (report.fatal) {

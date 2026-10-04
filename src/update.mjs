@@ -2,15 +2,20 @@
 // `npx skills add Dybs-it/skills`, which puts the real files in
 // .agents/skills and symlinks other agents' folders to them).
 //
-// Safety rule: a file is only overwritten or deleted when its bytes match a
-// version this package has shipped (src/known-hashes.json, append-only).
-// Anything else is the user's edit: reported and left alone unless --force,
-// which keeps a .bak copy first.
+// Safety rules:
+// - A file is only overwritten or deleted when its bytes match a version this
+//   package shipped (src/known-hashes.json, append-only). Anything else is the
+//   user's edit: reported and left alone unless --force, which keeps a .bak.
+// - Nothing below the resolved skill folder is followed: a symbolic link,
+//   dangling or not, is never read through or written through, --force or not.
+// - A skill with any conflict is not touched at all, so it never mixes files
+//   from two releases.
 
 import { createHash } from 'node:crypto';
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync,
-  rmSync, rmdirSync, copyFileSync, realpathSync,
+  rmSync, rmdirSync, copyFileSync, realpathSync, lstatSync, renameSync,
+  constants as fsConstants,
 } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { homedir } from 'node:os';
@@ -84,9 +89,14 @@ export function rootsFor(projectRoot, { global = false } = {}) {
   return global ? [projectRoot, homedir()] : [projectRoot];
 }
 
+// lstat, not exists: a dangling link at the backup name counts as taken.
+function taken(p) {
+  try { lstatSync(p); return true; } catch { return false; }
+}
+
 function backupPath(p) {
   let b = `${p}.bak`;
-  for (let i = 1; existsSync(b); i++) b = `${p}.bak${i}`;
+  for (let i = 1; taken(b); i++) b = `${p}.bak${i}`;
   return b;
 }
 
@@ -98,16 +108,45 @@ function removeEmptyDirs(dir, stopAt) {
   }
 }
 
-export function updateInstall(install, { force = false, dryRun = false, known = knownHashes() } = {}) {
+// What is at `dir/rel`, judged without following any link below `dir`
+// (`dir` itself is the already-resolved skill folder). Only a regular file
+// reached through real directories is ever read or written.
+export function inspectPath(dir, rel) {
+  const parts = rel.split('/');
+  let p = dir;
+  for (let i = 0; i < parts.length; i++) {
+    p = join(p, parts[i]);
+    let st;
+    try {
+      st = lstatSync(p);
+    } catch (err) {
+      if (err.code === 'ENOENT') return { state: 'missing' };
+      throw err;
+    }
+    const last = i === parts.length - 1;
+    if (st.isSymbolicLink()) return { state: 'unsafe', why: `${posix(relative(dir, p))} is a symbolic link` };
+    if (!last && !st.isDirectory()) return { state: 'unsafe', why: `${posix(relative(dir, p))} is not a directory` };
+    if (last && !st.isFile()) return { state: 'unsafe', why: 'not a regular file' };
+  }
+  return { state: 'file' };
+}
+
+// Plans an update of one installed skill without touching the disk.
+// `blocked` is true when anything in the skill needs a human: then nothing
+// in that skill is applied, so a skill never ends up half one release and
+// half another. `--force` resolves edited regular files (with a backup); it
+// never resolves an unsafe path.
+export function planInstall(install, { force = false, known = knownHashes() } = {}) {
   const { skill, dir } = install;
   const want = shippedFiles(skill);
   const isKnown = (rel, hash) => (known[`${skill}/${rel}`] || []).includes(hash);
   const actions = [];
 
   for (const [rel, buf] of Object.entries(want)) {
-    const p = join(dir, rel);
-    if (!existsSync(p)) { actions.push({ op: 'add', rel }); continue; }
-    const curHash = sha(readFileSync(p));
+    const at = inspectPath(dir, rel);
+    if (at.state === 'unsafe') { actions.push({ op: 'unsafe', rel, why: at.why }); continue; }
+    if (at.state === 'missing') { actions.push({ op: 'add', rel }); continue; }
+    const curHash = sha(readFileSync(join(dir, rel)));
     if (curHash === sha(buf)) { actions.push({ op: 'same', rel }); continue; }
     if (isKnown(rel, curHash)) { actions.push({ op: 'update', rel }); continue; }
     actions.push({ op: force ? 'replace' : 'conflict', rel, why: 'changed after install' });
@@ -118,25 +157,56 @@ export function updateInstall(install, { force = false, dryRun = false, known = 
     if (!key.startsWith(`${skill}/`)) continue;
     const rel = key.slice(skill.length + 1);
     if (rel in want) continue;
-    const p = join(dir, rel);
-    if (!existsSync(p)) continue;
-    actions.push(isKnown(rel, sha(readFileSync(p)))
+    const at = inspectPath(dir, rel);
+    if (at.state === 'missing') continue;
+    if (at.state === 'unsafe') { actions.push({ op: 'unsafe', rel, why: at.why }); continue; }
+    actions.push(isKnown(rel, sha(readFileSync(join(dir, rel))))
       ? { op: 'remove', rel }
       : { op: 'keep', rel, why: 'changed after install, no longer shipped' });
   }
 
-  if (!dryRun) {
+  const blocked = actions.some((a) => a.op === 'conflict' || a.op === 'unsafe');
+  return { ...install, actions, blocked, want };
+}
+
+// Applies a plan. New content is written to temporary files next to their
+// targets first and only then renamed into place, so a failure while
+// writing leaves the skill as it was. rename() replaces a path, it never
+// follows a link at the destination.
+export function applyPlan(plan) {
+  if (plan.blocked) return { ...plan, applied: false };
+  const { dir, actions, want } = plan;
+  const staged = [];
+  try {
     for (const a of actions) {
+      if (!['add', 'update', 'replace'].includes(a.op)) continue;
       const p = join(dir, a.rel);
-      if (a.op === 'add' || a.op === 'update' || a.op === 'replace') {
-        mkdirSync(dirname(p), { recursive: true });
-        if (a.op === 'replace') { const b = backupPath(p); copyFileSync(p, b); a.backup = b; }
-        writeFileSync(p, want[a.rel]);
-      }
-      if (a.op === 'remove') { rmSync(p); removeEmptyDirs(dirname(p), dir); }
+      mkdirSync(dirname(p), { recursive: true });
+      const tmp = `${p}.dybs-tmp-${process.pid}`;
+      writeFileSync(tmp, want[a.rel], { flag: 'wx' });
+      staged.push({ a, p, tmp });
     }
+  } catch (err) {
+    for (const s of staged) rmSync(s.tmp, { force: true });
+    throw err;
   }
-  return { ...install, actions };
+  for (const { a, p, tmp } of staged) {
+    if (a.op === 'replace') { const b = backupPath(p); copyFileSync(p, b, fsConstants.COPYFILE_EXCL); a.backup = b; }
+    renameSync(tmp, p);
+  }
+  for (const a of actions) {
+    if (a.op !== 'remove') continue;
+    const p = join(dir, a.rel);
+    rmSync(p);
+    removeEmptyDirs(dirname(p), dir);
+  }
+  return { ...plan, applied: true };
+}
+
+export function updateInstall(install, { dryRun = false, ...opts } = {}) {
+  const plan = planInstall(install, opts);
+  const { want, ...result } = dryRun ? { ...plan, applied: false } : applyPlan(plan);
+  return result;
 }
 
 export function update(roots, opts = {}) {
