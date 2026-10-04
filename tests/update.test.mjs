@@ -929,7 +929,7 @@ test('a cleanup failure after a finished update is reported, not thrown', async 
   const plan = mod.planInstall(install, { known });
   let calls = 0;
   // The first removal is the staging file; fail the cleanup of the original.
-  mod.fsOps.rm = (p, o) => { if (String(p).endsWith('.old')) { calls++; throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); } return real.rm(p, o); };
+  mod.fsOps.rm = (p, o) => { if (/\.old(\.[^.]+\.rm)?$/.test(String(p))) { calls++; throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); } return real.rm(p, o); };
   let result;
   try { result = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
   assert.equal(calls, 1);
@@ -970,7 +970,7 @@ test('an original that cannot be read at cleanup is reported as kept', async () 
   const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
   const [install] = findInstalls([root]);
   const plan = mod.planInstall(install, { known });
-  mod.fsOps.read = (p, o) => { if (String(p).endsWith('.old')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); return real.read(p, o); };
+  mod.fsOps.read = (p, o) => { if (/\.old(\.[^.]+\.rm)?$/.test(String(p))) throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); return real.read(p, o); };
   let result;
   try { result = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
   assert.equal(result.applied, true);
@@ -1165,4 +1165,81 @@ test('two runs in the same millisecond never share a run name', async () => {
     assert.equal(readFileSync(join(dir, kept), 'utf8'), 'old shipped version');
   } finally { Date.now = now; Object.assign(mod.fsOps, real); }
   rmSync(root, { recursive: true });
+});
+
+test('cleanup deletes only the file it verified, never one that appears at the name meanwhile', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let oldName;
+  // While the original is being read for verification, a new file takes its name.
+  mod.fsOps.read = (p, o) => {
+    const bytes = real.read(p, o);
+    const m = String(p).match(/^(.*\.old)(\.[^.]+\.rm)?$/);
+    if (m && !oldName) { oldName = m[1]; writeFileSync(`${oldName}.x`, 'someone else'); renameSync(`${oldName}.x`, oldName); }
+    return bytes;
+  };
+  let result;
+  try { result = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(result.applied, true);
+  assert.ok(oldName);
+  assert.equal(readFileSync(oldName, 'utf8'), 'someone else');
+  rmSync(root, { recursive: true });
+});
+
+test('a skills folder that can be listed but not searched is a discovery error', async () => {
+  const root = project(['dybs-prd']);
+  chmodSync(root, 0o755);
+  chmodSync(join(root, '.agents'), 0o755);
+  chmodSync(join(root, '.agents/skills'), 0o444);
+  const cli = join(PKG_ROOT, 'bin/dybs-skills.mjs');
+  const cmd = process.getuid?.() === 0 ? ['runuser', ['-u', 'nobody', '--', process.execPath, cli, 'status', root, '--json']] : [process.execPath, [cli, 'status', root, '--json']];
+  let out; let code = 0;
+  try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { out = e.stdout; code = e.status; }
+  chmodSync(join(root, '.agents/skills'), 0o755);
+  assert.equal(code, 1);
+  assert.match(JSON.parse(out).error, /EACCES/);
+  rmSync(root, { recursive: true });
+});
+
+test('a --force backup edited before commit stops the update and is kept', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own edit');
+  const plan = planInstall(findInstalls([root])[0], { force: true });
+  let backup;
+  assert.throws(() => applyPlan(plan, {
+    beforeCommit: () => { backup = plan.actions.find((a) => a.rel === SKILL).backup; writeFileSync(backup, 'edited the backup'); },
+  }), /backup .* changed during the update/);
+  assert.equal(readFileSync(backup, 'utf8'), 'edited the backup');
+  assert.equal(readFileSync(prd(root), 'utf8'), 'my own edit');
+  rmSync(root, { recursive: true });
+});
+
+test('the post-placement read refuses a skill folder swapped for a link', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const { renameSync, cpSync: cp } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = false;
+  const beforePlacedCheck = (s) => {
+    if (swapped || s.a.rel !== SKILL) return;
+    // An outside copy with the same shipped bytes, behind a link.
+    cp(dir, join(outside, 'copy'), { recursive: true });
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(join(outside, 'copy'), dir);
+    swapped = true;
+  };
+  assert.throws(() => applyPlan(plan, { beforePlacedCheck }), /changed/);
+  assert.ok(swapped);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });
