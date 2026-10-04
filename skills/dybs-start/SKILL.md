@@ -17,7 +17,12 @@ names another.
 
 ## 0. Resume or start
 
-If `dybs/` already exists, the kickoff is done: go to **5. Status and route**.
+If `dybs/` already exists, read `dybs/project.md`. With `kickoff: parked`
+in its frontmatter, the kickoff was parked before a route was chosen: read
+the brief and the `kickoff` lines in `dybs/log.md`, ask only what is still
+open, and continue at **3. Advise**. After their choice, remove
+`kickoff: parked`, fill in the frontmatter (step 4.3) and go on. Otherwise
+the kickoff is done: go to **5. Status and route**.
 
 ## 1. Listen
 
@@ -107,8 +112,9 @@ Wait for their choice. Their word decides; do not start drafting before it.
 4. Start `dybs/log.md` with a `kickoff` line for every answer and choice,
    and one line listing the sources they shared. Later skills read this
    instead of asking again.
-5. With **D. Park it**, stop here: show the project.md and say how to resume
-   ("say dybs start").
+5. With **D. Park it**, add `kickoff: parked` to the frontmatter, leave the
+   route fields you do not know yet as they are, and stop here: show the
+   project.md and say how to resume ("say dybs start").
 
 ## 5. Status and route
 

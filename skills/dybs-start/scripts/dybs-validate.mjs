@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, chmodSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -186,7 +186,8 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
     warnings.push(`${words} words, close to the ${depth} cap of ${cap}`);
   }
 
-  if (PLACEHOLDER.test(body.replace(/<!--[\s\S]*?-->/g, ''))) {
+  const frontmatterValues = Object.values(data || {}).join('\n');
+  if (PLACEHOLDER.test(body.replace(/<!--[\s\S]*?-->/g, '')) || PLACEHOLDER.test(frontmatterValues)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);
@@ -215,7 +216,9 @@ export function validateProject(root, only) {
   const skip = skipped(projectData);
 
   for (const name of ORDER) {
-    if (only && name !== only) continue;
+    // project.md holds the settings every doc is checked against, so it is
+    // validated with any single doc too.
+    if (only && name !== only && name !== 'project') continue;
     const spec = DOCS[name];
     const path = join(dir, spec.file);
     // project.md holds the settings, so it can never skip itself.
@@ -241,7 +244,10 @@ export function validateProject(root, only) {
   const accepted = complete && docs.every((r) => r.status === 'accepted');
   const deepen = docs.filter((r) => r.needsDeepening && r.status !== 'missing').map((r) => r.name);
   const checkins = CHECKINS.includes(projectData?.checkins) ? projectData.checkins : 'each-doc';
-  return { ok, complete, atRequestedDepth, accepted, deepen, checkins, results };
+  // `kickoff: parked` means the human parked the kickoff before choosing a
+  // route: nothing is routed until they choose (dybs-start, step 3).
+  const parked = projectData?.kickoff === 'parked';
+  return { ok, complete, atRequestedDepth, accepted, deepen, checkins, parked, results };
 }
 
 // With `checkins: end` or `none` a draft waits for the review point the
@@ -305,9 +311,11 @@ export function acceptDoc(root, name, today = new Date().toISOString().slice(0, 
   if (check.errors.length) return { ok: false, errors: check.errors };
   // Write beside it and rename into place: rename replaces whatever is at
   // the path, it never follows a link that appeared in the meantime.
+  // Keep the doc's permissions: a 0600 doc must not come back as 0644.
   const tmp = `${path}.dybs-${process.pid}.tmp`;
-  writeFileSync(tmp, next, { flag: 'wx' });
-  try { renameSync(tmp, path); } catch (err) { rmSync(tmp, { force: true }); throw err; }
+  const mode = lstatSync(path).mode & 0o7777;
+  writeFileSync(tmp, next, { flag: 'wx', mode });
+  try { chmodSync(tmp, mode); renameSync(tmp, path); } catch (err) { rmSync(tmp, { force: true }); throw err; }
   return { ok: true };
 }
 
@@ -346,7 +354,7 @@ export function main(argv) {
 
   if (json) {
     // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
-    console.log(JSON.stringify({ schema: 2, ...report, next: nextStep(report.results, report.checkins) }, null, 2));
+    console.log(JSON.stringify({ schema: 2, ...report, next: report.parked ? 'kickoff' : nextStep(report.results, report.checkins) }, null, 2));
     return report.ok ? 0 : 1;
   }
   if (report.fatal) {
@@ -362,10 +370,11 @@ export function main(argv) {
     for (const e of r.errors) console.log(`          error: ${e}`);
     for (const w of r.warnings) console.log(`          warn:  ${w}`);
   }
-  const next = nextStep(report.results, report.checkins);
+  const next = report.parked ? 'kickoff' : nextStep(report.results, report.checkins);
   const docs = report.results.filter((r) => r.status !== 'skipped' && r.name !== 'readme');
   const waiting = docs.filter((r) => r.status === 'draft').map((r) => r.name);
-  if (next) console.log(`\nNext: ${next}`);
+  if (report.parked) console.log('\nKickoff parked: say "dybs start" to choose a route.');
+  else if (next) console.log(`\nNext: ${next}`);
   else if (report.accepted && report.atRequestedDepth) console.log('\nAll Getting Started docs accepted at the requested depth.');
   else {
     console.log(`\nAll docs written (checkins: ${report.checkins}), not all accepted yet.`);
