@@ -371,7 +371,7 @@ test('a file that appears after the plan is never overwritten', async () => {
   const plan = planInstall(install);
   assert.equal(plan.actions.find((a) => a.rel === 'template.md').op, 'add');
   writeFileSync(tpl, 'mine, written meanwhile');
-  assert.throws(() => applyPlan(plan), /appeared since the update was planned/);
+  assert.throws(() => applyPlan(plan), /since the update was planned/);
   assert.equal(readFileSync(tpl, 'utf8'), 'mine, written meanwhile');
   rmSync(root, { recursive: true });
 });
@@ -426,4 +426,20 @@ test('rollback never deletes a file someone changed after the update wrote it', 
     /changed after the update wrote it/);
   assert.equal(readFileSync(join(dir, first), 'utf8'), 'edited after placement');
   rmSync(root, { recursive: true });
+});
+
+test('a folder swapped for a link after the plan stops the update before anything is written', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  rmSync(join(dir, 'scripts'), { recursive: true });
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install);
+  assert.ok(plan.actions.some((a) => a.rel.startsWith('scripts/') && a.op === 'add'));
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  symlinkSync(outside, join(dir, 'scripts'));
+  assert.throws(() => applyPlan(plan), /changed since the update was planned/);
+  assert.deepEqual(readdirSync(outside), []);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });
