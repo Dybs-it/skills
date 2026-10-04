@@ -18,10 +18,36 @@ const LOCATION = /\S+:[1-9]\d*/;
 // The risk categories quality.md defines.
 export const CATEGORIES = ['security', 'data', 'business', 'performance', 'technical', 'operations'];
 
-// What a reader of the rendered gate.md sees: HTML comments and fenced
-// examples are dropped, so a commented-out table never counts.
+// What a reader of the rendered gate.md sees: HTML comments and fenced code
+// are blanked out, so a hidden or example table never counts. Follows
+// Markdown's rules rather than guessing: a comment or fence that is never
+// closed runs to the end of the file, and a fence may be indented up to three
+// spaces and closes only with the same character, at least as long.
 export function visible(text) {
-  return text.replace(/<!--[\s\S]*?-->/g, '').replace(/^(```|~~~)[\s\S]*?^\1[^\n]*$/gm, '');
+  const noComments = text.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  const out = [];
+  let fence = null;
+  for (const line of noComments.split(/\r?\n/)) {
+    const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
+      out.push('');
+      continue;
+    }
+    // A backtick fence's info string may not contain a backtick.
+    if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
+      fence = { ch: m[1][0], len: m[1].length };
+      out.push('');
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+// How often "## <heading>" appears in what a reader sees.
+export function headingCount(text, heading) {
+  return visible(text).split(/\r?\n/).filter((l) => l.trim().toLowerCase() === `## ${heading.toLowerCase()}`).length;
 }
 
 // The first Markdown table under "## <heading>": its lower-cased column
@@ -69,10 +95,17 @@ export const COLUMNS = {
   Waivers: ['item', 'reason', 'approved by', 'approved', 'expires'],
 };
 
-function schemaProblems(table, heading) {
-  if (!table) return [];
+// A section that appears twice, or a column that appears twice, would let
+// one copy silently override the other, so both are format problems.
+function schemaProblems(text, table, heading) {
+  const problems = [];
+  if (headingCount(text, heading) > 1) problems.push(`"## ${heading}" appears more than once; keep one`);
+  if (!table) return problems;
   const missing = COLUMNS[heading].filter((c) => !table.columns.includes(c));
-  return missing.length ? [`the ${heading} table lacks column(s): ${missing.join(', ')}`] : [];
+  if (missing.length) problems.push(`the ${heading} table lacks column(s): ${missing.join(', ')}`);
+  const twice = table.columns.filter((c, i) => c && table.columns.indexOf(c) !== i);
+  if (twice.length) problems.push(`the ${heading} table has the column(s) ${[...new Set(twice)].join(', ')} more than once`);
+  return problems;
 }
 
 // Security must be stated explicitly: a blank, a typo or an unfilled
@@ -93,7 +126,7 @@ export function isDate(v) {
 export function parseGate(text) {
   const problems = [];
   const itemTable = tableAt(text, 'Items');
-  problems.push(...schemaProblems(itemTable, 'Items'));
+  problems.push(...schemaProblems(text, itemTable, 'Items'));
   const itemRows = itemTable?.rows ?? null;
   if (!itemRows) problems.push('missing "## Items" table');
   else if (!itemRows.length) problems.push('the Items table is empty: a gate with nothing traced proves nothing');
@@ -116,7 +149,7 @@ export function parseGate(text) {
   // The Risks table must be there, even when the analysis found no risks:
   // a missing table means the analysis is missing, not that risk is zero.
   const riskTable = tableAt(text, 'Risks');
-  problems.push(...schemaProblems(riskTable, 'Risks'));
+  problems.push(...schemaProblems(text, riskTable, 'Risks'));
   const riskRows = riskTable?.rows ?? null;
   if (!riskRows) problems.push('missing "## Risks" table (keep it, with no rows, when there are no risks)');
   const risks = (riskRows || []).map((r) => {
@@ -143,7 +176,7 @@ export function parseGate(text) {
     seen.add(id);
   }
   const waiverTable = tableAt(text, 'Waivers');
-  problems.push(...schemaProblems(waiverTable, 'Waivers'));
+  problems.push(...schemaProblems(text, waiverTable, 'Waivers'));
   const waivers = (waiverTable?.rows || []).map((r) => ({
     id: r.item, reason: r.reason || '', by: r['approved by'] || '', approved: r.approved || '', expires: r.expires || '',
   }));

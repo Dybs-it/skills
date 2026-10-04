@@ -266,3 +266,33 @@ test('a table without the expected columns, or without a separator, is not a tab
   const noSeparator = gate({ items: [full('a', 'P0')] }).replace(/## Risks\n\n[\s\S]*?\n\n## Waivers/, '## Risks\n\n| There are no risks |\n\n## Waivers');
   assert.match(parseGate(noSeparator).problems.join(' '), /missing "## Risks" table/);
 });
+
+// --- Codex review round 4 on PR #3 ---
+
+const waiverRows = '| Item | Reason | Approved by | Approved | Expires |\n|---|---|---|---|---|\n| a | demo | Jos | 2026-10-01 | 2026-11-01 |';
+const withWaiverBlock = (block) => gate({ items: [gap('a', 'P0')] }).replace(/## Waivers\n\n[\s\S]*?\n\n## Decision/, `## Waivers\n\n${block}\n\n## Decision`);
+
+test('fences indented up to three spaces, or never closed, hide their tables', () => {
+  for (const block of [
+    '   ```\n' + waiverRows + '\n   ```',
+    '~~~~\n' + waiverRows + '\n~~~~',
+    '```\n' + waiverRows,
+    '<!--\n' + waiverRows,
+  ]) {
+    assert.equal(decide(parseGate(withWaiverBlock(block)), TODAY).decision, 'FAIL', block);
+  }
+  // a real table after a closed fence still counts
+  const after = withWaiverBlock('```\nexample\n```\n\n' + waiverRows);
+  assert.equal(decide(parseGate(after), TODAY).decision, 'WAIVED');
+});
+
+test('a column that appears twice is a format problem', () => {
+  const text = gate({ items: [] }).replace(/## Items\n\n[\s\S]*?\n\n## Risks/,
+    '## Items\n\n| Item | Priority | Coverage | Evidence | Security | Security |\n|---|---|---|---|---|---|\n| a | P0 | NONE |  | yes | no |\n\n## Risks');
+  assert.match(parseGate(text).problems.join(' '), /Items table has the column\(s\) security more than once/);
+});
+
+test('a section that appears twice is a format problem', () => {
+  const text = gate({ items: [full('a', 'P0')] }) + '\n## Risks\n\n| Risk | Category | P | I | Score | Status |\n|---|---|---|---|---|---|\n| r | data | 3 | 3 | 9 | open |\n';
+  assert.match(parseGate(text).problems.join(' '), /"## Risks" appears more than once/);
+});
