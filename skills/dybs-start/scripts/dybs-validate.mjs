@@ -153,6 +153,9 @@ export function visibleText(body, { keepCode = false } = {}) {
   let fence = null;
   let indented = false;
   let inList = false;
+  // Where a list item's content starts (2 under `- `, 4 under `10. `): an
+  // indented code block inside it sits four columns past that.
+  let listIndent = 0;
   let prevBlank = true;
   let inComment = false;
   const st = { span: null };
@@ -199,12 +202,23 @@ export function visibleText(body, { keepCode = false } = {}) {
       if (keepCode) out.push(line);
       continue;
     }
-    if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; if (keepCode) out.push(line); continue; }
+    const lead = line.match(/^ */)[0].length;
+    const codeAt = inList ? listIndent + 4 : 4;
+    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && prevBlank) {
+      indented = true;
+      prevBlank = false;
+      if (keepCode) out.push(line);
+      continue;
+    }
     const stripped = stripComments(line, st, closesLater);
     inComment = stripped.open;
     line = stripped.text;
     const nowBlank = line.trim() === '';
-    if (!nowBlank && !/^( {4}|\t)/.test(line)) inList = /^ {0,3}([-*+]|\d{1,9}[.)])(\s|$)/.test(line) || (inList && !prevBlank);
+    if (!nowBlank && !/^( {4}|\t)/.test(line)) {
+      const item = line.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
+      if (item) listIndent = item[0].length;
+      inList = Boolean(item) || (inList && !prevBlank);
+    }
     prevBlank = nowBlank;
     out.push(line);
   }
@@ -253,7 +267,9 @@ export function validateDoc(name, text) {
   // heading), so they are refused rather than interpreted.
   // Every CommonMark raw-block opener: a tag, a processing instruction
   // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
-  const html = visibleText(body).split('\n').find((l) => /^ {0,3}(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
+  // A block quote or list item does not hide one (`> <div>`, `- <pre>`), and
+  // neither does the indentation of a list item's content.
+  const html = visibleText(body).split('\n').find((l) => /^\s*(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);

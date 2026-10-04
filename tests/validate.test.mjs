@@ -309,3 +309,19 @@ test('processing instructions, declarations and CDATA are raw HTML too', () => {
     rmSync(dir, { recursive: true });
   }
 });
+
+test('an indented code block inside a list item is code', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('- item\n\n      code one two three\n\nafter'), 2);
+  // At the item's own content indent it is a paragraph of the item.
+  assert.equal(wordCount('- item\n\n  more words\n'), 3);
+});
+
+test('raw HTML in a block quote or list item is refused too', () => {
+  for (const line of ['> <div>', '- <pre>', '> > <?x']) {
+    const dir = copySample();
+    edit(dir, 'project.md', (t) => t + `\n${line}\n`);
+    assert.ok(validateProject(dir).results.find((x) => x.name === 'project').rules.includes('html'), line);
+    rmSync(dir, { recursive: true });
+  }
+});
