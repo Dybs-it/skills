@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { unprivileged, UNPRIVILEGED_SKIP } from './unprivileged.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -427,7 +428,7 @@ test('an indented code block may follow a heading inside a block quote', async (
   assert.equal(wordCount('> ## Example\n>     generated words here\n'), 1);
 });
 
-test('a dybs/README.md that cannot be read is an error', async () => {
+test('a dybs/README.md that cannot be read is an error', async (t) => {
   const { chmodSync: chmod, mkdtempSync: mk, cpSync: cp } = await import('node:fs');
   const { execFileSync: run } = await import('node:child_process');
   // Root reads anything, so the check runs as an unprivileged user there.
@@ -436,7 +437,8 @@ test('a dybs/README.md that cannot be read is an error', async () => {
   chmod(dir, 0o755);
   chmod(join(dir, 'dybs/README.md'), 0o000);
   const script = join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs');
-  const cmd = process.getuid?.() === 0 ? ['runuser', ['-u', 'nobody', '--', process.execPath, script, dir, '--json']] : [process.execPath, [script, dir, '--json']];
+  const cmd = unprivileged([script, dir, '--json']);
+  if (!cmd) return t.skip(UNPRIVILEGED_SKIP);
   let out;
   try { out = run(cmd[0], cmd[1], { encoding: 'utf8' }); } catch (e) { out = e.stdout; }
   const r = JSON.parse(out);
@@ -535,4 +537,10 @@ test('an indented code block in a list item ends at its own code column', async 
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   assert.equal(wordCount('- item\n\n      code\n    ordinary prose\n'), 3);
   assert.equal(wordCount('- item\n\n      code\n      more code\n'), 1);
+});
+
+test('indented code inside a nested list item starts four past the innermost item', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('10. outer\n    - nested\n\n        visible prose here\n'), 6);
+  assert.equal(wordCount('10. outer\n    - nested\n\n          code here\n'), 3);
 });

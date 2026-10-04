@@ -274,7 +274,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     }
     // Measured after the `>` markers, where a quoted list item's content is.
     const lead = inner.match(/^ */)[0].length;
-    const codeAt = inList ? listIndent + 4 : 4;
+    const codeAt = inList ? (items.at(-1) ?? listIndent) + 4 : 4;
     if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock || quoteDepth(line) > (n ? quoteDepth(lines[n - 1]) : 0))) {
       indented = codeAt;
       prevBlank = false;

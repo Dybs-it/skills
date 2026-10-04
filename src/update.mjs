@@ -171,7 +171,20 @@ function backupPath(p) {
 
 function removeEmptyDirs(dir, stopAt) {
   let d = dir;
+  // Every folder from `stopAt` down to `d` must be a real folder right
+  // before it is removed: an ancestor swapped for a link would make rmdir
+  // reach (and delete) an empty folder somewhere else.
+  const real = (to) => {
+    let p = stopAt;
+    for (const part of relative(stopAt, to).split(sep).filter(Boolean)) {
+      p = join(p, part);
+      try { const st = lstatSync(p); if (st.isSymbolicLink() || !st.isDirectory()) return false; } catch { return false; }
+    }
+    return true;
+  };
   while (d !== stopAt && d.startsWith(stopAt) && existsSync(d) && readdirSync(d).length === 0) {
+    testHooks.beforeRmdir?.(d);
+    if (!real(d)) return;
     rmdirSync(d);
     d = dirname(d);
   }
@@ -218,7 +231,7 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterLook: null };
+export const testHooks = { afterLook: null, beforeRmdir: null };
 
 function rmIfOurs(p, id) {
   if (idOf(p) === null) return;
@@ -369,7 +382,7 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeReserved, beforeStageRm, beforePlacedCheck, beforeCommit, beforeCleanup } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeAside, beforeStageRm, beforePlacedCheck, beforeCommit, beforeCleanup } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   // Unique to this run: two runs in the same millisecond (or a reused pid)
@@ -469,29 +482,27 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
           if (s.old || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-          // No hard links here: reserve the name first with an exclusive,
-          // empty file of our own, so nothing else can be created there.
-          // The rename then replaces only that reservation, and only while
-          // it is still ours and still empty.
-          let resId;
+          // No hard links here: an exclusive copy (COPYFILE_EXCL never
+          // replaces anything), then the original name is moved to a name
+          // only this run knows and dropped only while it is the same file
+          // with the same bytes as the copy. No rename ever targets a name
+          // someone else could use.
+          const origId = idOf(s.p);
           try {
-            writeOwnFile(old, '', 0o600, (id) => { resId = id; });
+            fsOps.copyFile(s.p, old, fsConstants.COPYFILE_EXCL);
           } catch (e) {
             if (e.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
             throw e;
           }
-          beforeReserved?.(old);
-          const st = (() => { try { return lstatSync(old); } catch { return null; } })();
-          if (!st || idOfStat(st) !== resId || st.size !== 0) {
-            throw new Error(`something changed ${basename(old)} during the update; nothing was changed, run update again`);
-          }
-          try { renameSync(s.p, old); } catch (e) {
-            // Our own empty reservation is all there is to remove.
-            try { if (idOf(old) === resId && lstatSync(old).size === 0) rmSync(old); } catch { /* reported by the throw */ }
-            throw e;
-          }
           s.old = old;
           done.push(s);
+          beforeAside?.(s);
+          const aside = `${s.p}.${randomUUID()}.rm`;
+          renameSync(s.p, aside);
+          let same = false;
+          try { same = idOf(aside) === origId && sha(fsOps.read(aside)) === sha(fsOps.read(old)); } catch { same = false; }
+          if (!same) throw new Error(`${s.a.rel} changed while it was being moved aside; your version is kept at ${aside}`);
+          rmSync(aside);
         }
         pinned(s);
         s.oldId = idOf(s.old);

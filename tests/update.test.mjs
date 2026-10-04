@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { unprivileged, UNPRIVILEGED_SKIP } from './unprivileged.mjs';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, cpSync, symlinkSync,
@@ -972,13 +973,14 @@ test('staging refuses a folder that became a link before it was pinned', async (
   rmSync(outside, { recursive: true });
 });
 
-test('a skills folder that cannot be entered is a discovery error, not an empty install', async () => {
+test('a skills folder that cannot be entered is a discovery error, not an empty install', async (t) => {
   const root = project(['dybs-prd']);
   chmodSync(root, 0o755);
   chmodSync(join(root, '.agents'), 0o000);
   // Root enters anything, so the CLI runs as an unprivileged user there.
   const cli = join(PKG_ROOT, 'bin/dybs-skills.mjs');
-  const cmd = process.getuid?.() === 0 ? ['runuser', ['-u', 'nobody', '--', process.execPath, cli, 'status', root, '--json']] : [process.execPath, [cli, 'status', root, '--json']];
+  const cmd = unprivileged([cli, 'status', root, '--json']);
+  if (!cmd) return t.skip(UNPRIVILEGED_SKIP);
   let out; let code = 0;
   try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { out = e.stdout; code = e.status; }
   chmodSync(join(root, '.agents'), 0o755);
@@ -1025,22 +1027,34 @@ test('an update that stops partway names the installs it already committed', asy
   rmSync(root, { recursive: true });
 });
 
-test('without hard links, the .old name is reserved and never replaced if someone writes to it', async () => {
+test('without hard links, moving aside never replaces anything and never loses an edit', async () => {
   const mod = await import('../src/update.mjs');
   const real = { ...mod.fsOps };
-  const root = project(['dybs-prd']);
-  writeFileSync(prd(root), 'old shipped version');
-  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
-  const [install] = findInstalls([root]);
-  const plan = mod.planInstall(install, { known });
+  const setup = () => {
+    const root = project(['dybs-prd']);
+    writeFileSync(prd(root), 'old shipped version');
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    return { root, plan: mod.planInstall(findInstalls([root])[0], { known }) };
+  };
   mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
-  let reserved;
   try {
-    assert.throws(() => mod.applyPlan(plan, { beforeReserved: (p) => { reserved = p; writeFileSync(p, 'someone else'); } }), /something changed/);
+    // A file already at the .old name is refused, never replaced.
+    let r = setup();
+    let foreign;
+    const beforePin = (st) => { if (!foreign && st.a.rel === SKILL && st.tmp) { foreign = st.tmp.replace(/\.new$/, '.old'); writeFileSync(foreign, 'someone else'); } };
+    assert.throws(() => mod.applyPlan(r.plan, { beforePin }), /something appeared at/);
+    assert.equal(readFileSync(foreign, 'utf8'), 'someone else');
+    assert.equal(readFileSync(prd(r.root), 'utf8'), 'old shipped version');
+    rmSync(r.root, { recursive: true });
+    // An edit made after the copy is never lost: the update stops and says where it is.
+    r = setup();
+    let err;
+    try { mod.applyPlan(r.plan, { beforeAside: (st) => { if (st.a.rel === SKILL) writeFileSync(st.p, 'edited after the copy'); } }); } catch (e) { err = e; }
+    assert.match(err.message, /your version is kept at (\S+)/);
+    const kept = err.message.match(/your version is kept at (\S+?)(;|$)/)[1];
+    assert.equal(readFileSync(kept, 'utf8'), 'edited after the copy');
+    rmSync(r.root, { recursive: true });
   } finally { Object.assign(mod.fsOps, real); }
-  assert.equal(readFileSync(reserved, 'utf8'), 'someone else');
-  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
-  rmSync(root, { recursive: true });
 });
 
 test('two runs in the same millisecond never share a run name', async () => {
@@ -1091,13 +1105,14 @@ test('cleanup deletes only the file it verified, never one that appears at the n
   rmSync(root, { recursive: true });
 });
 
-test('a skills folder that can be listed but not searched is a discovery error', async () => {
+test('a skills folder that can be listed but not searched is a discovery error', async (t) => {
   const root = project(['dybs-prd']);
   chmodSync(root, 0o755);
   chmodSync(join(root, '.agents'), 0o755);
   chmodSync(join(root, '.agents/skills'), 0o444);
   const cli = join(PKG_ROOT, 'bin/dybs-skills.mjs');
-  const cmd = process.getuid?.() === 0 ? ['runuser', ['-u', 'nobody', '--', process.execPath, cli, 'status', root, '--json']] : [process.execPath, [cli, 'status', root, '--json']];
+  const cmd = unprivileged([cli, 'status', root, '--json']);
+  if (!cmd) return t.skip(UNPRIVILEGED_SKIP);
   let out; let code = 0;
   try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { out = e.stdout; code = e.status; }
   chmodSync(join(root, '.agents/skills'), 0o755);
@@ -1183,13 +1198,14 @@ test('removing "our" file never deletes a replacement that appears after the loo
   rmSync(root, { recursive: true });
 });
 
-test('a project root below an unsearchable folder is a discovery error', () => {
+test('a project root below an unsearchable folder is a discovery error', (t) => {
   const outer = mkdtempSync(join(tmpdir(), 'dybs-locked-'));
   const root = join(outer, 'proj');
   mkdirSync(root);
   chmodSync(outer, 0o000);
   const cli = join(PKG_ROOT, 'bin/dybs-skills.mjs');
-  const cmd = process.getuid?.() === 0 ? ['runuser', ['-u', 'nobody', '--', process.execPath, cli, 'status', root, '--json']] : [process.execPath, [cli, 'status', root, '--json']];
+  const cmd = unprivileged([cli, 'status', root, '--json']);
+  if (!cmd) return t.skip(UNPRIVILEGED_SKIP);
   let out; let code = 0;
   try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe', cwd: tmpdir() }); } catch (e) { out = e.stdout; code = e.status; }
   chmodSync(outer, 0o755);
@@ -1211,4 +1227,30 @@ test('installs outside the folder are left alone, never reported as "no skills i
   }
   rmSync(root, { recursive: true });
   rmSync(shared, { recursive: true });
+});
+
+test('pruning empty folders never follows an ancestor swapped for a link', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  mkdirSync(join(dir, 'old/deep'), { recursive: true });
+  writeFileSync(join(dir, 'old/deep/retired.md'), 'as shipped');
+  const known = { ...knownHashes(), 'dybs-prd/old/deep/retired.md': [sha('as shipped')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  assert.equal(ops(plan)['old/deep/retired.md'], 'remove');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'deep'));
+  let swapped = false;
+  mod.testHooks.beforeRmdir = (d) => {
+    if (swapped || d !== join(dir, 'old/deep')) return;
+    swapped = true;
+    renameSync(join(dir, 'old'), join(dir, 'old.moved'));
+    symlinkSync(outside, join(dir, 'old'));
+  };
+  try { mod.applyPlan(plan); } finally { mod.testHooks.beforeRmdir = null; }
+  assert.ok(swapped);
+  assert.ok(existsSync(join(outside, 'deep')), 'the outside folder must survive');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });
