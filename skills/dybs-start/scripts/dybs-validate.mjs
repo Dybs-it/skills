@@ -120,7 +120,10 @@ const closer = (run) => new RegExp(`(?<!\`)${run}(?!\`)`);
 // the opener of an HTML block (`block`, a line that starts with it), or as
 // an inline comment that a later line of the same paragraph closes
 // (`commentClosesLater`). Anywhere else it is literal text.
-function stripComments(line, st, closesLater, block = false, commentClosesLater = () => false) {
+// With `hideUnclosed`, every unclosed opener hides the rest (the reading
+// that can only hide more): used where showing too much is the unsafe error,
+// such as finding the required headings.
+function stripComments(line, st, closesLater, block = false, commentClosesLater = () => false, hideUnclosed = false) {
   let out = '';
   let i = 0;
   if (st.span) {
@@ -156,8 +159,9 @@ function stripComments(line, st, closesLater, block = false, commentClosesLater 
     if (line.startsWith('<!--', i)) {
       const end = line.indexOf('-->', i + 4);
       if (end < 0) {
-        const opensBlock = block && out.replace(/^(?: {0,3}>[ \t]?)+/, '').trim() === '';
-        if (opensBlock || commentClosesLater()) return { text: out, open: true };
+        // Only container markers (`>`, `-`, `1.`) may precede a block opener.
+        const opensBlock = block && /^(?:[ \t]|>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))*$/.test(out);
+        if (opensBlock || hideUnclosed || commentClosesLater()) return { text: out, open: true };
         out += '<!--';
         i += 4;
         continue;
@@ -191,7 +195,7 @@ function quoteDepth(line) {
 // continues a paragraph or a list item instead.
 // With `keepCode`, code stays in (only comments are dropped): placeholders in
 // code still count, as the rule exempts HTML comments alone.
-export function visibleText(body, { keepCode = false, hideSpanLines = false } = {}) {
+export function visibleText(body, { keepCode = false, hideSpanLines = false, hideUnclosed = false } = {}) {
   const out = [];
   let fence = null;
   let indented = false;
@@ -324,11 +328,15 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     // is code at its start: with `hideSpanLines` it is left out, so a tag
     // there is never read as raw HTML.
     const inSpan = Boolean(st.span);
-    // A line that starts with a comment is an HTML block to its end.
-    const blockComment = !st.span && /^ {0,3}<!--/.test(line.replace(/^(?: {0,3}>[ \t]?)+/, ''));
+    // A line that starts with a comment is an HTML block to its end, also
+    // as the first block of a list item (`- <!--`) or at a list item's
+    // content column.
+    const afterMarkers = line.replace(/^(?:(?: {0,3}>[ \t]?)|(?: {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+))+/, '');
+    const markerLead = afterMarkers.match(/^ */)[0].length;
+    const blockComment = !st.span && /^ *<!--/.test(afterMarkers) && (afterMarkers !== line.replace(/^(?: {0,3}>[ \t]?)+/, '') || markerLead < (inList ? codeAt : 4));
     const commentLead = line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length;
     if (blockComment) htmlTail = true;
-    const stripped = stripComments(line, st, closesLater, blockComment, commentClosesLater);
+    const stripped = stripComments(line, st, closesLater, blockComment, commentClosesLater, hideUnclosed);
     // Remember the container the comment opened in (see above).
     if (stripped.open) {
       const q = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
@@ -385,7 +393,8 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
 // Headings a reader sees: none inside HTML comments or fenced examples.
 // An optional closing run of `#` (`## Goals ##`) is not part of the text.
 export function headings(body) {
-  return [...visibleText(body).matchAll(/^ {0,3}##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/gm)].map((h) => h.at(1));
+  // A heading counts only if no reading of an unclosed comment hides it.
+  return [...visibleText(body, { hideUnclosed: true }).matchAll(/^ {0,3}##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/gm)].map((h) => h.at(1));
 }
 
 export function wordCount(body) {

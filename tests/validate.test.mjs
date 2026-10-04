@@ -1569,3 +1569,11 @@ test('--accept reports a previous version it could not remove instead of claimin
   assert.match((r.warnings || []).join(' '), /kept at \S+\.old/);
   rmSync(dir, { recursive: true });
 });
+
+test('a heading inside an unclosed comment in a list item never counts as present', async () => {
+  const { headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // CommonMark: `- <!--` opens an HTML block in the item, to the end (checked against commonmark.js).
+  assert.deepEqual(headings('- <!--\n  ## Problem\n'), []);
+  assert.deepEqual(headings('10. <!--\n    ## Problem\n'), []);
+  assert.deepEqual(headings('## Goal\n'), ['Goal']);
+});
