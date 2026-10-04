@@ -1879,3 +1879,34 @@ test('--doc on a doc under skip: is not reported as passing', () => {
   assert.match(r.results.find((x) => x.name === 'ui').errors.join(' '), /under skip/);
   rmSync(dir, { recursive: true });
 });
+
+test('a tag on the opening line of a multi-line code span is code, not raw HTML', () => {
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nSee `<span>\ncontinued` here.\n').rules.includes('html'));
+  // Prose before the opening run is still judged.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n<div> see `<span>\ncontinued` here.\n').rules.includes('html'));
+});
+
+test('a folder swapped during the --accept move-aside link leaves no name outside the project', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync, readdirSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'context'));
+  writeFileSync(join(outside, 'context/ui.md'), 'theirs');
+  let swapped = false;
+  mod.fsOps.link = (from, to) => {
+    if (!swapped && to.endsWith('.old')) {
+      swapped = true;
+      renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+      symlinkSync(outside, join(dir, 'dybs'));
+    }
+    return real.link(from, to);
+  };
+  try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.deepEqual(readdirSync(join(outside, 'context')).filter((n) => n.endsWith('.old')), []);
+  assert.equal(readFileSync(join(outside, 'context/ui.md'), 'utf8'), 'theirs');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

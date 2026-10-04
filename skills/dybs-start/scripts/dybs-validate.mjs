@@ -191,6 +191,7 @@ function stripComments(line, st, closesLater, block = false, commentClosesLater 
         i = endAt;
       } else if (closesLater(run)) {
         st.span = run;
+        st.spanAt = out.length;
         return { text: out + line.slice(i), open: false };
       } else {
         out += run;
@@ -437,6 +438,9 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
       inComment = { quote, col: mk ? mk[0].length : itemCol };
     } else inComment = false;
     line = stripped.text;
+    // A span that opens here and continues: with `hideSpanLines`, only the
+    // text before its opening run is judged (what follows is code).
+    if (hideSpanLines && !inSpan && st.span) line = line.slice(0, st.spanAt);
     // Marked so it is still counted as text but never read as a heading,
     // a list item or a fence. U+0001 is not a word character.
     // Placed after any list markers too, so `- <!--` still opens its item.
@@ -1031,6 +1035,14 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // a folder swapped for a link, either would act outside the project.
       pinned();
       fsOps.link(path, old);
+      // A folder swapped in the instant of the link would put the new name
+      // outside the project: the name just created there is removed again
+      // (only a second name, the file itself is untouched) and acceptance
+      // stops with nothing changed.
+      if (folderChain(root, rel) !== dirs) {
+        try { rmIfOurs(old, pathId(old)); } catch { /* reported below */ }
+        throw new Error(`a folder on the way to ${rel} changed while it was being accepted; nothing was changed, run --accept again`);
+      }
       if (!isRegularFile(old)) {
         try { rmIfOurs(old, pathId(old), pinned); } catch { /* reported below */ }
         throw notRegular();
