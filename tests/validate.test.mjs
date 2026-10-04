@@ -544,3 +544,17 @@ test('indented code inside a nested list item starts four past the innermost ite
   assert.equal(wordCount('10. outer\n    - nested\n\n        visible prose here\n'), 6);
   assert.equal(wordCount('10. outer\n    - nested\n\n          code here\n'), 3);
 });
+
+test('fence closers measured from the container; quotes inside list items; quotes ending lists', async () => {
+  const { wordCount, headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // A closer may be indented at most three past its container, so this fence never closes.
+  assert.deepEqual(headings('  ```\n     ```\n## Hidden\n'), []);
+  // A quote inside a list item keeps its fence across continuation lines.
+  assert.equal(wordCount('- > ```\n  > code words\n  > ```\n'), 0);
+  assert.equal(wordCount('10. > ```\n    > code words\n    > ```\n'), 0);
+  // A top-level quote ends the list, so a later indented block is code.
+  assert.equal(wordCount('- item\n> quote\n\n    code here\n'), 2);
+  // Unchanged: fences in a list item and in a quoted list item still close.
+  assert.deepEqual(headings('- ```\n  x\n  ```\n## Shown\n'), ['Shown']);
+  assert.deepEqual(headings('> - ```\n>   x\n>   ```\n## Shown\n'), ['Shown']);
+});
