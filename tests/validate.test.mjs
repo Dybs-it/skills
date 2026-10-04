@@ -829,10 +829,13 @@ test('a failure removing the temporary copy after placement is rolled back', asy
 });
 
 test('dybs-start carries the generated manual contract for checking without Node', async () => {
-  const { rulesBlock, checklistsBlock } = await import('../scripts/sync-rules.mjs');
+  const { rulesBlock, checklistsBlock, contractBlock } = await import('../scripts/sync-rules.mjs');
   const skill = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8');
   assert.ok(skill.includes(rulesBlock()));
   assert.ok(skill.includes(checklistsBlock()));
+  // The sections and caps the rules refer to, for every doc.
+  assert.ok(skill.includes(contractBlock()));
+  for (const n of ORDER) assert.ok(skill.includes(`| \`${n}\` | \`dybs/${DOCS[n].file}\` | ${DOCS[n].sections.join(', ')} |`), n);
   assert.match(skill, /without\s+Node, check every doc against \*\*Checking by hand\*\*/);
 });
 
@@ -1225,4 +1228,11 @@ test('a dybs/README.md that cannot be read is an error', async () => {
   assert.equal(r.ok, false);
   assert.match(r.results.find((x) => x.name === 'readme').errors[0], /cannot be read/);
   rmSync(dir, { recursive: true });
+});
+
+test('a tag on a line inside a multiline code span is code, not raw HTML', () => {
+  const r = validateDoc('project', VALID_PROJECT + '\nSee `\n<span>\n` example.\n');
+  assert.ok(!r.rules.includes('html'));
+  const bad = validateDoc('project', VALID_PROJECT + '\nSee this.\n<span>\nnot code.\n');
+  assert.ok(bad.rules.includes('html'));
 });
