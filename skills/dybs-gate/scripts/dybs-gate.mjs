@@ -36,31 +36,59 @@ export function tableUnder(text, heading) {
   return rows;
 }
 
-const yes = (v) => /^(yes|y|true)$/i.test((v || '').trim());
+// Security must be stated explicitly: a blank, a typo or an unfilled
+// placeholder is a format problem, never a silent "no".
+const SECURITY = { yes: true, y: true, true: true, no: false, n: false, false: false };
+// For display only. Decisions compare whole counts, never rounded values.
 const pct = (part, all) => (all === 0 ? 100 : Math.round((part / all) * 1000) / 10);
+// part/all >= percent/100, in integers, so 79.95% never rounds up to 80%.
+const atLeast = (part, all, percent) => part * 100 >= percent * all;
+
+// A real calendar date in YYYY-MM-DD, not just the right shape.
+export function isDate(v) {
+  if (!DATE.test(v || '')) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
 
 export function parseGate(text) {
   const problems = [];
   const itemRows = tableUnder(text, 'Items');
   if (!itemRows) problems.push('missing "## Items" table');
+  else if (!itemRows.length) problems.push('the Items table is empty: a gate with nothing traced proves nothing');
   const items = (itemRows || []).map((r) => {
     const priority = (r.priority || '').toUpperCase();
     let coverage = (r.coverage || '').toUpperCase();
     const evidence = r.evidence || '';
     const notes = [];
+    if (!r.item) problems.push('an item has no id');
     if (!PRIORITIES.includes(priority)) problems.push(`item ${r.item}: priority must be one of ${PRIORITIES.join('|')}`);
     if (!COVERAGE.includes(coverage)) problems.push(`item ${r.item}: coverage must be one of ${COVERAGE.join('|')}`);
+    const sec = SECURITY[(r.security || '').trim().toLowerCase()];
+    if (sec === undefined) problems.push(`item ${r.item}: security must be yes or no`);
     if (coverage === 'FULL' && !LOCATION.test(evidence)) {
       coverage = 'PARTIAL';
       notes.push('FULL without a test location (path:line) counts as PARTIAL');
     }
-    return { id: r.item, priority, coverage, evidence, security: yes(r.security), notes };
+    return { id: r.item, priority, coverage, evidence, security: sec !== false, notes };
   });
-  const risks = (tableUnder(text, 'Risks') || []).map((r) => {
+  // The Risks table must be there, even when the analysis found no risks:
+  // a missing table means the analysis is missing, not that risk is zero.
+  const riskRows = tableUnder(text, 'Risks');
+  if (!riskRows) problems.push('missing "## Risks" table (keep it, with no rows, when there are no risks)');
+  const risks = (riskRows || []).map((r) => {
     const score = Number(r.score);
+    if (!r.risk) problems.push('a risk has no id');
     if (!Number.isInteger(score) || score < 1 || score > 9) problems.push(`risk ${r.risk}: score must be 1 to 9`);
     return { id: r.risk, category: (r.category || '').toLowerCase(), score, open: !/^mitigated$/i.test(r.status || '') };
   });
+  // Waivers are matched by id, so every id must name exactly one thing.
+  const seen = new Set();
+  for (const id of [...items.map((i) => i.id), ...risks.map((r) => r.id)]) {
+    if (!id) continue;
+    if (seen.has(id)) problems.push(`id ${id} is used more than once across items and risks; ids must be unique`);
+    seen.add(id);
+  }
   const waivers = (tableUnder(text, 'Waivers') || []).map((r) => ({
     id: r.item, reason: r.reason || '', by: r['approved by'] || '', approved: r.approved || '', expires: r.expires || '',
   }));
@@ -70,7 +98,7 @@ export function parseGate(text) {
 export function waiverIssue(w, today) {
   if (!w) return 'no waiver';
   if (!w.reason || !w.by) return 'waiver needs a reason and the name of the human who approved it';
-  if (!DATE.test(w.approved) || !DATE.test(w.expires)) return 'waiver needs approved and expires dates (YYYY-MM-DD)';
+  if (!isDate(w.approved) || !isDate(w.expires)) return 'waiver needs real approved and expires dates (YYYY-MM-DD)';
   if (w.expires < today) return `waiver expired on ${w.expires}`;
   return null;
 }
@@ -89,7 +117,12 @@ export function decide({ items, risks, waivers }, today = new Date().toISOString
   const fail = [];
   const concerns = [];
   const blocking = new Map(); // id -> { kind, security }
-  const block = (x, kind) => blocking.set(x.id, { kind, security: x.security || x.category === 'security' });
+  // Security can only be added, never lost, if an id were ever blocked twice.
+  const block = (x, kind) => {
+    const security = x.security || x.category === 'security';
+    const prev = blocking.get(x.id);
+    blocking.set(x.id, { kind, security: security || Boolean(prev?.security) });
+  };
 
   const p0Gaps = p0.filter((i) => i.coverage !== 'FULL');
   if (p0Gaps.length) {
@@ -101,15 +134,15 @@ export function decide({ items, risks, waivers }, today = new Date().toISOString
     fail.push(`open risk scored 9: ${blockers.map((r) => r.id).join(', ')}`);
     blockers.forEach((r) => block(r, 'risk'));
   }
-  if (stats.overall < 80) {
+  if (!atLeast(full(items), items.length, 80)) {
     fail.push(`only ${stats.overall}% of items fully covered (needs 80%)`);
     items.filter((i) => i.coverage !== 'FULL').forEach((i) => block(i, 'item'));
   }
-  if (p1.length && stats.p1 < 80) {
+  if (p1.length && !atLeast(full(p1), p1.length, 80)) {
     fail.push(`only ${stats.p1}% of P1 items fully covered (needs 80% to pass the floor)`);
     p1.filter((i) => i.coverage !== 'FULL').forEach((i) => block(i, 'item'));
   }
-  if (p1.length && stats.p1 >= 80 && stats.p1 < 90) concerns.push(`${stats.p1}% of P1 items fully covered (90% expected)`);
+  if (p1.length && atLeast(full(p1), p1.length, 80) && !atLeast(full(p1), p1.length, 90)) concerns.push(`${stats.p1}% of P1 items fully covered (90% expected)`);
   const watch = risks.filter((r) => r.open && r.score >= 6 && r.score <= 8);
   if (watch.length) concerns.push(`open risk scored 6 to 8: ${watch.map((r) => r.id).join(', ')}`);
 
@@ -134,7 +167,17 @@ export function main(argv) {
   const today = t >= 0 ? args[t + 1] : new Date().toISOString().slice(0, 10);
   const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--today');
   if (!file) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--today YYYY-MM-DD] [--json]'); return 2; }
-  const parsed = parseGate(readFileSync(resolve(file), 'utf8'));
+  let text;
+  try {
+    text = readFileSync(resolve(file), 'utf8');
+  } catch (err) {
+    // Exit 1 means a computed FAIL; a gate that could not be read is not one.
+    const problem = `cannot read ${file}: ${err.code || err.message}`;
+    if (json) console.log(JSON.stringify({ schema: 1, decision: null, problems: [problem] }, null, 2));
+    else console.error(problem);
+    return 2;
+  }
+  const parsed = parseGate(text);
   if (parsed.problems.length) {
     if (json) console.log(JSON.stringify({ schema: 1, decision: null, problems: parsed.problems }, null, 2));
     else console.error(`gate.md has problems:\n  ${parsed.problems.join('\n  ')}`);

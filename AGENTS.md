@@ -8,8 +8,10 @@
   Claude plugin marketplace). `bin/dybs-skills.mjs` only validates and
   safely updates; `src/update.mjs` owns the rule that a file the user
   changed is never overwritten or deleted without `--force`.
-- Every skill must work when installed alone. Skills other than
-  `dybs-start` carry the identical "If something is not installed" section.
+- Every skill must work when installed alone, and every skill except
+  `dybs-start` has an "If something is not installed" section: one identical
+  text for the Getting Started skills, another identical text for the
+  quality skills (each group has different dependencies). Tests enforce both.
 - Generated text: the manual validation rules in each skill (from the
   validator's `MANUAL_RULES`) and the readiness checklists in `dybs-check`
   (from each doc skill). After changing either source run

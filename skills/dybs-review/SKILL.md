@@ -89,3 +89,19 @@ findings per axis and the most serious one within each axis.
 Brief: the summary line, then what needs the human (findings that are
 design questions rather than fixes). Hand fixes to the person or agent doing
 the work; with the human's go, fix them and run `dybs-review` again.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/context/`:** work without it. Say in the check-in which context
+  was missing (requirements, domain rules, architecture boundaries, UX
+  rules), because findings that depend on it could not be made.
+- **No test plan** in `dybs/work/<task>/`: suggest `dybs-test-plan`. If it is
+  not installed, agree the acceptance criteria, risks and seams with the
+  human in one round and write them to `dybs/work/<task>/test-plan.md`, using
+  the sections `quality.md` describes.
+- **No gate script, or no Node:** apply the gate rules in `quality.md` by
+  hand, step by step, and write "computed by hand" next to the decision.
+- **No `dybs/team.md`:** work without a persona; the rules here still apply.

@@ -76,3 +76,28 @@ code beyond the files it would change, the context works.
 On the existing project, note how long the same ground took with BMad
 (product brief, PRD, architecture, UX) and how many words it produced.
 Words and minutes are crude, but they are the complaint we are testing.
+
+## Quality skills
+
+Run on one real task in a real codebase, ideally one with a known bug or a
+recent change, so you can judge whether the skills find what you know is
+there.
+
+1. `dybs-test-plan` on the task or code area.
+2. `dybs-tests` for the P0 and P1 scenarios.
+3. `dybs-review` against the base branch.
+4. `dybs-gate`, then `dybs-pr`.
+
+| Check | Pass when |
+|---|---|
+| **Edge cases** | The hunt names real unhandled paths, including the ones you already knew about. Count false alarms. |
+| **Seams** | It asked you to confirm the seams before writing any test. |
+| **Proof** | Every new test was seen failing (new code) or proven by breaking the code (existing code). No test that cannot fail. |
+| **Review axes** | Findings sit under their axis and are not ranked across axes. The context axis cites your `dybs/context` rules. |
+| **Gate** | The script computed the decision; nothing was waived without your words. |
+| **PR** | The picture explains the change faster than the diff; "not verified" is honest. |
+
+Record it as `tests/runs/<date>-<project>-quality.md`: the task, minutes per
+step, false alarms, missed issues you know about, and one or two concrete
+edits to a skill. The quality skills count as verified only after this run.
+

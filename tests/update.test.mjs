@@ -358,3 +358,13 @@ test('docs/sources.md describes every skill', () => {
     assert.match(body, /\*\*Our own:\*\*/, `${s}: say what is our own`);
   }
 });
+
+test('every quality skill carries the same standalone section', () => {
+  const block = (s) => {
+    const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
+    const i = t.indexOf('## If something is not installed');
+    assert.ok(i >= 0, `${s} lacks the standalone section`);
+    return t.slice(i);
+  };
+  for (const s of QUALITY) assert.equal(block(s), block(QUALITY[0]), s);
+});

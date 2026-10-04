@@ -55,3 +55,19 @@ Say plainly what was **not** verified.
 
 Show the human the PR text before opening or updating the PR. Opening a PR
 is outward-facing: do it only on their word.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/context/`:** work without it. Say in the check-in which context
+  was missing (requirements, domain rules, architecture boundaries, UX
+  rules), because findings that depend on it could not be made.
+- **No test plan** in `dybs/work/<task>/`: suggest `dybs-test-plan`. If it is
+  not installed, agree the acceptance criteria, risks and seams with the
+  human in one round and write them to `dybs/work/<task>/test-plan.md`, using
+  the sections `quality.md` describes.
+- **No gate script, or no Node:** apply the gate rules in `quality.md` by
+  hand, step by step, and write "computed by hand" next to the decision.
+- **No `dybs/team.md`:** work without a persona; the rules here still apply.

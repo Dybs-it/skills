@@ -68,22 +68,24 @@ there and call them; a task is a folder, not a single file. See decision
 
 
 ```
-dybs/work/<id>.md       one file per task; status lives in its frontmatter
+dybs/work/<task>/       one folder per task
+  task.md               what is asked; status lives in its frontmatter
+  test-plan.md, review.md, gate.md, pr.md   written by the quality skills
 ```
 
 - `dybs-to-tasks`: split an accepted idea into tasks. Each task cites its
   idea, the requirements and domain rules it touches, and acceptance checks.
   Vertical slices that can each be verified alone.
 - `dybs-build`: implement one task test-first against the context.
-- `dybs-review`: check the change against the task's acceptance, the domain
-  rules and the quality bars. Findings, then fixes.
+- `dybs-review` (built): check the change against the task's spec, the
+  repo's standards, the domain rules and boundaries, and verification gaps.
 - `dybs-checkin`: the one-screen brief at the moments the human chose.
 
 Rules decided now, from lessons in the Dybs repo:
 
-- **One file per task, never one shared board file.** A shared status file
-  lost every row three times when parallel agents rewrote it. The board is
-  derived by reading task frontmatter.
+- **One folder per task, never one shared board file.** A shared status
+  file lost every row three times when parallel agents rewrote it. The board
+  is derived by reading each task's `task.md` frontmatter.
 - **Check-ins are configured per idea**, with per-task overrides:
   `after-grill`, `after-tasks`, `before-build`, `after-review`, `none`.
 - **Safety stops are fixed and few:** destructive or outward actions,

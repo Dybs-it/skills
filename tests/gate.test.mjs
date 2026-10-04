@@ -104,7 +104,10 @@ test('a waiver does not turn CONCERNS into anything', () => {
 test('format problems are reported, not guessed', () => {
   const p = parseGate(gate({ items: [['a', 'P5', 'MOSTLY', '', 'no']], risks: [['r', 'x', '12', 'open']] }));
   assert.equal(p.problems.length, 3);
-  assert.deepEqual(parseGate('# nothing here').problems, ['missing "## Items" table']);
+  assert.deepEqual(parseGate('# nothing here').problems, [
+    'missing "## Items" table',
+    'missing "## Risks" table (keep it, with no rows, when there are no risks)',
+  ]);
 });
 
 test('tableUnder stops at the next heading and skips the separator', () => {
@@ -122,4 +125,68 @@ test('CLI: exit 1 on FAIL, 0 on PASS, 2 on a malformed file; dybs-skills gate is
   assert.equal(code(write('bad.md', '# no tables')), 2);
   assert.equal(code(join(dir, 'fail.md'), join(ROOT, 'bin/dybs-skills.mjs')), 1);
   rmSync(dir, { recursive: true });
+});
+
+// --- Codex review findings on PR #3 ---
+
+test('an empty Items table is a format problem, not a PASS', () => {
+  const p = parseGate(gate({ items: [] }));
+  assert.ok(p.problems.some((x) => /Items table is empty/.test(x)));
+});
+
+test('a missing Risks table is a format problem; an empty one is fine', () => {
+  const noRisks = gate({ items: [full('a', 'P0')] }).replace(/## Risks[\s\S]*?(?=## Waivers)/, '');
+  assert.ok(parseGate(noRisks).problems.some((x) => /missing "## Risks"/.test(x)));
+  assert.deepEqual(parseGate(gate({ items: [full('a', 'P0')], risks: [] })).problems, []);
+});
+
+test('the Security column must say yes or no; anything else is a problem and treated as security', () => {
+  for (const bad of ['', 'yse', '{{no}}', 'maybe']) {
+    const p = parseGate(gate({ items: [['auth', 'P0', 'NONE', '', bad]] }));
+    assert.ok(p.problems.some((x) => /security must be yes or no/.test(x)), `"${bad}"`);
+    assert.equal(p.items[0].security, true, `"${bad}" must not silently become "not security"`);
+  }
+  for (const ok of ['yes', 'no', 'Y', 'n', 'true', 'FALSE']) {
+    assert.deepEqual(parseGate(gate({ items: [['a', 'P0', 'NONE', '', ok]] })).problems, [], ok);
+  }
+});
+
+test('ids must be unique across items and risks, so a waiver names one thing', () => {
+  const p = parseGate(gate({ items: [gap('x', 'P0', 'NONE', 'yes')], risks: [['x', 'ops', '9', 'open']] }));
+  assert.ok(p.problems.some((x) => /id x is used more than once/.test(x)));
+  const dupItems = parseGate(gate({ items: [full('a'), full('a')] }));
+  assert.ok(dupItems.problems.some((x) => /id a is used more than once/.test(x)));
+});
+
+test('security is never lost when one id is blocked twice', () => {
+  // decide() on hand-built input, bypassing parseGate's uniqueness check
+  const items = [{ id: 'x', priority: 'P0', coverage: 'NONE', security: true, notes: [] }, ...Array.from({ length: 4 }, (_, i) => ({ id: `f${i}`, priority: 'P2', coverage: 'FULL', security: false, notes: [] }))];
+  const risks = [{ id: 'x', category: 'ops', score: 9, open: true }];
+  const waivers = [{ id: 'x', reason: 'demo', by: 'Jos', approved: '2026-10-01', expires: '2026-11-01' }];
+  assert.equal(decide({ items, risks, waivers }, TODAY).decision, 'FAIL');
+});
+
+test('waiver dates must be real calendar dates', () => {
+  const items = [gap('p0', 'P0'), full('b')];
+  for (const bad of ['2026-99-99', '2026-02-30', '2026-13-01']) {
+    assert.equal(run({ items, waivers: [waiver('p0', { expires: bad })] }).decision, 'FAIL', bad);
+  }
+  assert.equal(run({ items, waivers: [waiver('p0', { expires: '2028-02-29' })] }).decision, 'WAIVED');
+});
+
+test('thresholds compare exact counts, not rounded percentages', () => {
+  const many = (fullCount, total, p = 'P2') => Array.from({ length: total }, (_, i) => (i < fullCount ? full(`i${i}`, p) : gap(`i${i}`, p)));
+  assert.equal(run({ items: many(323, 404) }).decision, 'FAIL'); // 79.95%, displayed as 80
+  assert.equal(run({ items: many(320, 400) }).decision, 'PASS'); // exactly 80%
+  const pad = Array.from({ length: 200 }, (_, i) => full(`p${i}`, 'P3'));
+  assert.equal(run({ items: [...many(899, 1000, 'P1'), ...pad] }).decision, 'CONCERNS'); // P1 89.9%
+});
+
+test('CLI: an unreadable gate file exits 2, not the FAIL code', () => {
+  const bin = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
+  for (const target of [join(tmpdir(), 'dybs-no-such-gate.md'), tmpdir()]) {
+    let status = 0;
+    try { execFileSync('node', [bin, target], { stdio: 'pipe' }); } catch (e) { status = e.status; }
+    assert.equal(status, 2, target);
+  }
 });
