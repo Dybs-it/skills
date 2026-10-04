@@ -1937,3 +1937,58 @@ test('--accept accepts only real doc names', async () => {
     }
   } finally { console.error = err; console.log = log; }
 });
+
+test('--accept refuses a doc the project skips', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: ui'));
+  const path = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(path, 'utf8');
+  const r = acceptDoc(dir, 'ui', '2026-10-04');
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(' '), /under skip/);
+  assert.equal(readFileSync(path, 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
+
+test('without hard links, --accept keeps the doc mode whatever the umask', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  chmodSync(path, 0o644);
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  const old = process.umask(0o077);
+  try { assert.equal(mod.acceptDoc(dir, 'ui', '2026-10-04').ok, true); } finally { process.umask(old); Object.assign(mod.fsOps, real); }
+  assert.equal(statSync(path).mode & 0o777, 0o644);
+  rmSync(dir, { recursive: true });
+});
+
+test('a folder swapped during the --accept placement leaves no new name outside the project', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync, readdirSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'context'));
+  let swapped = null;
+  mod.fsOps.link = (from, to) => {
+    if (!swapped && from.endsWith('.tmp') && to.endsWith('ui.md')) {
+      swapped = from.split('/').at(-1);
+      writeFileSync(join(outside, 'context', swapped), 'theirs');
+      renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+      symlinkSync(outside, join(dir, 'dybs'));
+    }
+    return real.link(from, to);
+  };
+  try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.ok(!existsSync(join(outside, 'context/ui.md')), 'the placed name is removed again');
+  assert.equal(readFileSync(join(outside, 'context', swapped), 'utf8'), 'theirs');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('dybs-start has a recovery step for a method README that cannot be read', () => {
+  const t = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /is a file that cannot be read \(its permissions\), stop and ask the human to fix its permissions or move it aside/);
+});

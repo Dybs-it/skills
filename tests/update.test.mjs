@@ -2034,3 +2034,32 @@ test('cleanup recovery removes its trash name by identity, never a replacement',
   assert.equal(readFileSync(replaced, 'utf8'), 'someone else');
   rmSync(root, { recursive: true });
 });
+
+test('a folder swapped during the placement link leaves no new name outside the install', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  rmSync(join(dir, 'template.md'));
+  const plan = mod.planInstall(findInstalls([root])[0]);
+  assert.ok(plan.actions.some((a) => a.rel === 'template.md' && a.op === 'add'));
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = null;
+  mod.fsOps.link = (from, to) => {
+    if (!swapped && from.endsWith('.new') && to.endsWith('template.md')) {
+      swapped = from.split('/').at(-1);
+      // The outside folder offers a file at the visible staging name.
+      writeFileSync(join(outside, swapped), 'theirs');
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    }
+    return real.link(from, to);
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.ok(!existsSync(join(outside, 'template.md')), 'the placed name is removed again');
+  assert.equal(readFileSync(join(outside, swapped), 'utf8'), 'theirs', 'their file is untouched');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
