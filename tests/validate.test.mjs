@@ -666,11 +666,8 @@ test('--accept puts the doc back when the final placement fails', async () => {
 
 test('without hard links, accept places the doc with an exclusive copy and refuses a target that appeared', async () => {
   const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
-  const { constants } = await import('node:fs');
   const real = { ...mod.fsOps };
-  const calls = [];
   mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
-  mod.fsOps.copyFile = (from, to, flags) => { calls.push(flags); return real.copyFile(from, to, flags); };
   const dir = mkdtempSync(join(tmpdir(), 'dybs-place-'));
   try {
     writeFileSync(join(dir, 'from'), 'new');
@@ -679,8 +676,6 @@ test('without hard links, accept places the doc with an exclusive copy and refus
     // The source stays until the caller has recorded the placement.
     assert.equal(readFileSync(join(dir, 'from'), 'utf8'), 'new');
     rmSync(join(dir, 'from'));
-    assert.equal(calls.length, 1);
-    assert.ok(calls[0] & constants.COPYFILE_EXCL);
     writeFileSync(join(dir, 'from'), 'newer');
     assert.throws(() => mod.placeNoClobber(join(dir, 'from'), join(dir, 'to')), (e) => e.code === 'EEXIST');
     assert.equal(readFileSync(join(dir, 'to'), 'utf8'), 'new');
@@ -1713,4 +1708,39 @@ test('2. followed by a heading after paragraph text is more of that paragraph', 
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   // commonmark.js: one paragraph, so the indented line is prose.
   assert.equal(wordCount('ordinary\n2. ## fake\n    many words\n'), 5);
+});
+
+test('without hard links, a placement copy that fails halfway leaves nothing behind', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.write = (fd) => { real.write(fd, 'partial'); throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }); };
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-place-'));
+  try {
+    writeFileSync(join(dir, 'from'), 'new');
+    assert.throws(() => mod.placeNoClobber(join(dir, 'from'), join(dir, 'to')), (e) => e.code === 'ENOSPC');
+    assert.ok(!existsSync(join(dir, 'to')), 'the partial copy is removed');
+  } finally { Object.assign(mod.fsOps, real); rmSync(dir, { recursive: true }); }
+});
+
+test('--accept names the real place of a previous version it could not remove', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  // The final unlink of the old version fails after its private move.
+  mod.fsOps.rm = (p, ...rest) => {
+    if (/\.old\.[0-9a-f-]{36}\.rm$/.test(p)) throw Object.assign(new Error('locked'), { code: 'EPERM' });
+    return real.rm(p, ...rest);
+  };
+  let r;
+  try { r = mod.acceptDoc(dir, 'ui', '2026-10-04'); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(r.ok, true);
+  const kept = (r.warnings || []).join(' ').match(/kept at (\S+)$/)?.[1];
+  assert.ok(kept && existsSync(kept), `reported ${kept}`);
+  rmSync(dir, { recursive: true });
+});
+
+test('HTML right after a code span that closes on a later line is still refused', () => {
+  assert.ok(validateDoc('prd', VALID_PRD + '\ntext `code\nstill code` <div>\n').rules.includes('html'));
+  assert.ok(!validateDoc('prd', VALID_PRD + '\ntext `code\nstill <div> code` after\n').rules.includes('html'));
 });

@@ -1653,3 +1653,47 @@ test('the staging name is removed by identity, never a file that replaced it', a
   assert.equal(readFileSync(kept, 'utf8'), 'someone else');
   rmSync(root, { recursive: true });
 });
+
+test('rollback re-checks the folders right before removing the placed file', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let hit = false;
+  // After rollback's own check, the skill folder becomes a link to an
+  // outside folder holding another name for the very placed file.
+  mod.testHooks.beforeUndoRm = (s) => {
+    if (hit || s.a.rel !== SKILL) return;
+    hit = true;
+    linkSync(s.p, join(outside, SKILL));
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  const beforeCommit = () => { throw new Error('injected failure'); };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /injected failure/); } finally { mod.testHooks.beforeUndoRm = null; }
+  assert.ok(hit);
+  assert.ok(existsSync(join(outside, SKILL)), 'the outside name must survive');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a removal that fails after the private move says where the file is', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  mod.fsOps.rm = () => { throw Object.assign(new Error('locked'), { code: 'EPERM' }); };
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(err);
+  const kept = [...err.message.matchAll(/is kept at (\S+?\.rm)\b/g)].map((m) => m[1]);
+  assert.ok(kept.length, err.message);
+  for (const k of kept) assert.ok(existsSync(k), `${k} exists`);
+  rmSync(root, { recursive: true });
+});
