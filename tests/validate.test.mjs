@@ -2032,3 +2032,20 @@ test('a missing method README routes to dybs-start, never to a "readme" phase', 
   assert.ok(!logs.join('\n').includes('Next: readme'));
   rmSync(dir, { recursive: true });
 });
+
+test('--accept project refuses checkins: none while a doc it governs is thorough', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: none'));
+  edit(dir, 'context/prd.md', (t) => t.replace('doc: prd\n', 'doc: prd\ndepth: thorough\n'));
+  // Whole-project validation already says so; acceptance must agree.
+  assert.equal(validateProject(dir).ok, false);
+  const before = readFileSync(join(dir, 'dybs/project.md'), 'utf8');
+  const r = acceptDoc(dir, 'project', '2026-10-04');
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(' '), /prd\.md: "checkins: none"/);
+  assert.equal(readFileSync(join(dir, 'dybs/project.md'), 'utf8'), before);
+  // Skipped, the doc no longer binds it.
+  edit(dir, 'project.md', (t) => t.replace('skip:\n', 'skip: prd, scope, domain, architecture, ux, ui\n'));
+  assert.equal(acceptDoc(dir, 'project', '2026-10-04').ok, true);
+  rmSync(dir, { recursive: true });
+});
