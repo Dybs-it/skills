@@ -160,7 +160,9 @@ export function visibleText(body, { keepCode = false } = {}) {
       if (blank || isIndented) { prevBlank = blank; if (keepCode) out.push(line); continue; }
       indented = false;
     }
-    const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    // A fence may sit in a block quote or start a list item (`> ```` or
+    // `- ```js`); the container prefix does not hide it.
+    const m = line.match(/^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(`{3,}|~{3,})(.*)$/);
     if (fence) {
       if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
       if (keepCode) out.push(line);

@@ -800,3 +800,14 @@ test('dybs-start carries the generated manual contract for checking without Node
   assert.ok(skill.includes(checklistsBlock()));
   assert.match(skill, /without\s+Node, check every doc against \*\*Checking by hand\*\*/);
 });
+
+test('fences in a block quote or a list item are code; an unclosed comment hides its placeholder', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('one two\n\n> ```\n> three four five\n> ```\n'), 2);
+  assert.equal(wordCount('one two\n\n- ```js\n  three four five\n  ```\n'), 2);
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t + '\n<!-- TODO never closed\n');
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(!r.rules.includes('placeholder'));
+  rmSync(dir, { recursive: true });
+});

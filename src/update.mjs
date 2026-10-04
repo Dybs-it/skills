@@ -17,7 +17,7 @@ import {
   rmSync, rmdirSync, copyFileSync, realpathSync, lstatSync, renameSync, linkSync, chmodSync,
   constants as fsConstants,
 } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -79,6 +79,7 @@ export function discover(roots) {
   const realRoots = roots.filter((r) => existsSync(r)).map((r) => realpathSync(r));
   const byReal = new Map();
   const skipped = [];
+  const clash = new Set();
   for (const root of roots) {
     for (const folder of skillFolders(root)) {
       for (const skill of skillNames()) {
@@ -92,11 +93,26 @@ export function discover(roots) {
           skipped.push({ skill, dir: real, via: dir, why: 'resolves outside the requested folder' });
           continue;
         }
+        // One folder answering to two skill names (a link named dybs-prd
+        // pointing at dybs-scope) is unsafe: updating it as either would
+        // overwrite the other. It is reported for every name, never updated.
+        if (basename(real) !== skill) {
+          skipped.push({ skill, dir: real, via: dir, why: `resolves to a folder named ${basename(real)}, not ${skill}` });
+          clash.add(real);
+          continue;
+        }
+        // A folder whose name is its skill's can answer to no other name.
         const seen = byReal.get(real);
-        if (seen) seen.via.push(dir);
+        if (seen) { if (!seen.via.includes(dir)) seen.via.push(dir); }
         else byReal.set(real, { skill, dir: real, via: [dir] });
       }
     }
+  }
+  for (const real of clash) {
+    const seen = byReal.get(real);
+    if (!seen) continue;
+    byReal.delete(real);
+    skipped.push({ skill: seen.skill, dir: real, via: seen.via[0], why: 'the same folder is claimed by more than one skill name' });
   }
   return {
     installs: [...byReal.values()].sort((a, b) => a.dir.localeCompare(b.dir)),
@@ -109,7 +125,11 @@ export function findInstalls(roots) {
 }
 
 export function rootsFor(projectRoot, { global = false } = {}) {
-  return global ? [projectRoot, homedir()] : [projectRoot];
+  // The same folder twice (the home folder with --global) would list every
+  // install twice, so roots are deduplicated by their real path.
+  const roots = global ? [projectRoot, homedir()] : [projectRoot];
+  const real = (r) => { try { return realpathSync(r); } catch { return r; } };
+  return roots.filter((r, i) => roots.findIndex((o) => real(o) === real(r)) === i);
 }
 
 // lstat, not exists: a dangling link at the backup name counts as taken.
@@ -145,6 +165,22 @@ function sameRoot(dir, root) {
     const now = rootIdentity(dir);
     return Boolean(root && now && now.dev === root.dev && now.ino === root.ino);
   } catch { return false; }
+}
+
+// The identity (device and inode) of the skill folder and of every folder
+// between it and `rel`, all real directories, never links. null when any
+// is missing or is not a real directory.
+export function chainOf(dir, rel) {
+  const ids = [];
+  let p = dir;
+  for (const part of ['', ...rel.split('/').slice(0, -1)]) {
+    p = part ? join(p, part) : p;
+    let st;
+    try { st = lstatSync(p); } catch { return null; }
+    if (!st.isDirectory()) return null;
+    ids.push(`${st.dev}:${st.ino}`);
+  }
+  return ids.join('/');
 }
 
 // What is at `dir/rel`, judged without following any link below `dir`
@@ -266,7 +302,7 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   const tag = `dybs-${process.pid}-${Date.now()}`;
@@ -289,12 +325,24 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
       throw new Error(`${a.rel} changed since the update was planned (${at.why || at.state}); nothing was changed, run update again`);
     }
   };
+  // Node has no openat(), so a folder can still be swapped for a link
+  // between a check and the rename that follows it. Every folder on each
+  // path is pinned by identity once staged, and checked again before and
+  // after every rename: a swap that lands is detected and rolled back
+  // (the rollback works through the same path, so it undoes the move
+  // wherever it went) instead of being trusted.
+  const pinned = (s) => {
+    beforePin?.(s);
+    if (!s.chain || !sameRoot(dir, plan.root) || chainOf(dir, s.a.rel) !== s.chain) {
+      throw new Error(`a folder on the way to ${s.a.rel} changed during the update; nothing was kept, run update again`);
+    }
+  };
   try {
     for (const a of actions) if (['add', 'update', 'replace', 'remove'].includes(a.op)) recheck(a);
     for (const a of actions) {
       if (!['add', 'update', 'replace', 'remove'].includes(a.op)) continue;
       const p = join(dir, a.rel);
-      if (a.op === 'remove') { staged.push({ a, p }); continue; }
+      if (a.op === 'remove') { staged.push({ a, p, chain: chainOf(dir, a.rel) }); continue; }
       beforeMkdir?.();
       const made = mkdirNoFollow(dir, dirname(a.rel));
       if (made) createdDirs.push({ deepest: dirname(p), stop: dirname(made) });
@@ -304,7 +352,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
       const mode = a.op === 'add' ? undefined : lstatSync(p).mode & 0o7777;
       writeFileSync(tmp, want[a.rel], { flag: 'wx', mode });
       if (mode !== undefined) chmodSync(tmp, mode);
-      staged.push({ a, p, tmp });
+      staged.push({ a, p, tmp, chain: chainOf(dir, a.rel) });
       if (a.op === 'replace') {
         const b = backupPath(p);
         copyFileSync(p, b, fsConstants.COPYFILE_EXCL);
@@ -318,13 +366,16 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
     for (const s of staged) {
       if (s.a.op !== 'add') {
         tick();
+        pinned(s);
         s.old = `${s.p}.${tag}.old`;
         renameSync(s.p, s.old);
         done.push(s);
+        pinned(s);
         if (sha(readFileSync(s.old)) !== s.a.hash) throw new Error(`${s.a.rel} changed since the update was planned; nothing was changed, run update again`);
       }
       if (s.tmp) {
         tick();
+        pinned(s);
         try {
           placeNoClobber(s.tmp, s.p);
         } catch (err) {
@@ -333,6 +384,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
         }
         s.placed = true;
         if (s.a.op === 'add') done.push(s);
+        pinned(s);
         fsOps.rm(s.tmp);
       }
     }
