@@ -925,9 +925,19 @@ test('the validator runs when called through a linked skill folder', async () =>
 
 test('a code span across lines keeps <!-- literal, so a TODO in it still counts', () => {
   const dir = copySample();
-  edit(dir, 'context/prd.md', (t) => t + '\nSee `example\n<!-- TODO -->\ncontinued` here.\n');
+  edit(dir, 'context/prd.md', (t) => t + '\nSee `example <!-- TODO -->\ncontinued` here.\n');
   const r = validateProject(dir).results.find((x) => x.name === 'prd');
   assert.ok(r.rules.includes('placeholder'));
+  rmSync(dir, { recursive: true });
+});
+
+test('a comment that starts a line ends the paragraph, so a code span cannot reach past it', () => {
+  // CommonMark (and GitHub): an HTML comment block interrupts a paragraph,
+  // so this renders `See \`example`, a comment, then `continued\` here.`.
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t + '\nSee `example\n<!-- TODO -->\ncontinued` here.\n');
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(!r.rules.includes('placeholder'));
   rmSync(dir, { recursive: true });
 });
 
@@ -1235,4 +1245,16 @@ test('a tag on a line inside a multiline code span is code, not raw HTML', () =>
   assert.ok(!r.rules.includes('html'));
   const bad = validateDoc('project', VALID_PROJECT + '\nSee this.\n<span>\nnot code.\n');
   assert.ok(bad.rules.includes('html'));
+});
+
+test('quotes and lists: nested quote closers, quote exits, quoted ordered lists, headings that end a list', async () => {
+  const { wordCount, visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('> > ```\n> > code\n>  > ```\n> > after words\n'), 2);
+  assert.equal(visibleText('> unmatched `\n<!-- TODO -->\nclose `\n', { keepCode: true }), '> unmatched `\n\nclose `\n');
+  assert.equal(wordCount('> 10. item\n>\n>     continuation prose\n'), 4);
+  assert.equal(wordCount('- item\n# Heading\n    example code\n'), 2);
+  // A lazy continuation line keeps the quoted paragraph, and the span, open.
+  assert.equal(visibleText('> a `x\nb <!-- c --> d`\n', { keepCode: true }), '> a `x\nb <!-- c --> d`\n');
+  // Inside a quoted list item, code sits four past the item's content.
+  assert.equal(wordCount('> - item\n>\n>       code here\n'), 1);
 });
