@@ -97,7 +97,8 @@ export function run(argv, deps = {}) {
       console.log(JSON.stringify({ schema: JSON_SCHEMA, installs, skipped }, null, 2));
       return 0;
     }
-    if (!installs.length) console.log(`No Dybs skills installed. Install with: ${INSTALL_HINT}`);
+    // Installs left alone (outside the folder) exist: never call that empty.
+    if (!installs.length) console.log(skipped.length ? 'No Dybs skills installed in this folder; the ones below were left alone.' : `No Dybs skills installed. Install with: ${INSTALL_HINT}`);
     for (const i of installs) console.log(`${i.skill.padEnd(18)} ${i.dir}${i.via.length > 1 ? `  (also via ${i.via.length - 1} link)` : ''}`);
     printSkipped(skipped);
     return 0;
@@ -124,7 +125,7 @@ export function run(argv, deps = {}) {
       return blocked.length ? 1 : 0;
     }
     if (!results.length) {
-      console.log(`No Dybs skills installed. Install with: ${INSTALL_HINT}`);
+      console.log(skipped.length ? 'No Dybs skills installed in this folder; the ones below were left alone.' : `No Dybs skills installed. Install with: ${INSTALL_HINT}`);
       printSkipped(skipped);
       return 0;
     }

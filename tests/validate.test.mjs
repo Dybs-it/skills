@@ -1383,3 +1383,9 @@ test('--accept never deletes a file that replaces its temporary name after the l
   assert.equal(readFileSync(replaced, 'utf8'), 'someone else');
   rmSync(dir, { recursive: true });
 });
+
+test('an indented code block in a list item ends at its own code column', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('- item\n\n      code\n    ordinary prose\n'), 3);
+  assert.equal(wordCount('- item\n\n      code\n      more code\n'), 1);
+});
