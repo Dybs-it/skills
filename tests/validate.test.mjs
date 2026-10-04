@@ -1085,3 +1085,10 @@ test('--accept cleanup never deletes through a folder swapped for a link', async
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a fence indented inside a block quote is code', async () => {
+  const { wordCount, headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const text = '## A\n\n>  ```\n>  ## Hidden\n>  code words\n>  ```\n\n## B\n';
+  assert.deepEqual(headings(text), ['A', 'B']);
+  assert.equal(wordCount(text), 2);
+});
