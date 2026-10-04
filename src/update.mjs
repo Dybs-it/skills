@@ -247,7 +247,11 @@ function rmIfOurs(p, id, check) {
   check?.();
   const aside = `${p}.${randomUUID()}.rm`;
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
-  if (idOf(aside) === id) { fsOps.rm(aside); return; }
+  if (idOf(aside) === id) {
+    // A failed unlink leaves the file under its private name: say where.
+    try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; throw e; }
+    return;
+  }
   try { fsOps.link(aside, p); fsOps.rm(aside); } catch {
     throw new Error(`${p} is not the file the update wrote; it is kept at ${aside}`);
   }
@@ -645,7 +649,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         testHooks.beforeUndoRm?.(s);
         // Removed only as the very file checked above (verify-then-delete
         // under a private name): a file that replaced it meanwhile stays.
-        undo(s.a.rel, () => rmIfOurs(s.p, s.placedId));
+        // The folders are re-checked inside the removal, right before its
+        // move: a swap after the check above is never acted through.
+        undo(s.a.rel, () => rmIfOurs(s.p, s.placedId, () => {
+          if (chainOf(dir, s.a.rel) !== s.chain) throw new Error('a folder on the way changed; the file the update wrote was kept');
+        }));
       }
       // Put the original back without overwriting anything that appeared,
       // and only while the name still leads, through the pinned folders, to
