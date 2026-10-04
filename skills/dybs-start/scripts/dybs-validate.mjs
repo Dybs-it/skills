@@ -598,7 +598,10 @@ export function validateProject(root, only) {
   for (const name of ORDER) {
     // project.md holds the settings every doc is checked against, so it is
     // validated with any single doc too.
-    if (only && name !== only && name !== 'project') continue;
+    // So are the docs it cannot be written without: `--doc ui` must not pass
+    // a doc that `--accept ui` would then refuse for a missing ux.md.
+    const required = only && (REQUIRES[only] || []).includes(name);
+    if (only && name !== only && name !== 'project' && !required) continue;
     const spec = DOCS[name];
     const path = join(dir, spec.file);
     // project.md holds the settings, so it can never skip itself.
@@ -609,7 +612,8 @@ export function validateProject(root, only) {
     if (!existsSync(path)) {
       // A doc asked for by name must exist: `--doc` passing is the check
       // before a check-in, and "it is not there" is not a pass.
-      const errors = only && (only === name || name === 'project') ? [`${spec.file} does not exist yet`] : [];
+      const errors = only && (only === name || name === 'project') ? [`${spec.file} does not exist yet`]
+        : required ? [`${spec.file} does not exist yet: ${only} cannot be written without it`] : [];
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
@@ -708,9 +712,10 @@ function pathId(p) {
 // verified is exactly what gets deleted, even if something replaces `p` in
 // between. One that is not ours goes back, never over anything.
 export const testHooks = { afterLook: null };
-function rmIfOurs(p, id) {
+function rmIfOurs(p, id, check) {
   if (!id || pathId(p) !== id) return;
   testHooks.afterLook?.(p);
+  check?.();
   const aside = `${p}.${randomUUID()}.rm`;
   // Only a name that is already gone counts as removed; any other failure
   // (permissions, a lock) is the caller's to report or roll back.
@@ -856,9 +861,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // still the same file. Without hard links the name is reserved first
     // with an exclusive empty file, and only that reservation is replaced.
     try {
+      // Pinned right before the link and again inside the removal: through
+      // a folder swapped for a link, either would act outside the project.
+      pinned();
       fsOps.link(path, old);
       moved = true;
-      rmIfOurs(path, oldId);
+      rmIfOurs(path, oldId, pinned);
     } catch (e) {
       if (e.code === 'EEXIST') throw new Error(`something appeared at ${old} during the accept; nothing was changed, run --accept again`);
       if (moved || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(e.code)) throw e;
