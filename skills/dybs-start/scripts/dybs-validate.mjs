@@ -874,6 +874,9 @@ function lookup(p) {
   }
 }
 
+// Test seam: runs right after project.md is read for its settings.
+export const validateHooks = { afterSettings: null };
+
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
   const results = [];
@@ -900,6 +903,7 @@ export function validateProject(root, only) {
   const projectPath = join(dir, DOCS.project.file);
   const projectText = lookup(projectPath) === 'present' ? readRegular(projectPath) : null;
   const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
+  validateHooks.afterSettings?.();
   const skip = skipped(projectData);
 
   for (const name of ORDER) {
@@ -927,7 +931,9 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
-    const text = readRegular(path);
+    // project.md is validated from the very bytes its settings came from:
+    // a save in between would otherwise mix two versions in one result.
+    const text = name === 'project' && projectText !== null ? projectText : readRegular(path);
     if (text === null) {
       results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });
       continue;

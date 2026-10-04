@@ -939,3 +939,16 @@ test('a heading in a quote inside a list item counts', () => {
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '- > ## Goals')).rules.includes('sections'));
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '> - > ## Goals')).rules.includes('sections'));
 });
+
+test('project.md is validated from the same snapshot its settings came from', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const projectPath = join(dir, 'dybs/project.md');
+  // Saved between the settings read and its own validation: this run judges
+  // the old project.md, never a mix of the two.
+  mod.validateHooks.afterSettings = () => writeFileSync(projectPath, readFileSync(projectPath, 'utf8').replace(/^doc: project$/m, 'doc: wrong'));
+  let r;
+  try { r = validateProject(dir); } finally { mod.validateHooks.afterSettings = null; }
+  assert.deepEqual(r.results.find((x) => x.name === 'project').errors, []);
+  rmSync(dir, { recursive: true });
+});
