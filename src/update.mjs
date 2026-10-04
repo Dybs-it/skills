@@ -182,9 +182,23 @@ function removeEmptyDirs(dir, stopAt) {
     }
     return true;
   };
-  while (d !== stopAt && d.startsWith(stopAt) && existsSync(d) && readdirSync(d).length === 0) {
+  // The folders' identities are recorded before the folder is listed and
+  // required again right before rmdir: an empty folder that replaced the
+  // one this update emptied is someone else's, never removed.
+  const ids = (to) => {
+    const out = [];
+    let p = stopAt;
+    for (const part of relative(stopAt, to).split(sep).filter(Boolean)) {
+      p = join(p, part);
+      try { const st = lstatSync(p, BIG); if (st.isSymbolicLink() || !st.isDirectory()) return null; out.push(idOfStat(st)); } catch { return null; }
+    }
+    return out.join('/');
+  };
+  while (d !== stopAt && d.startsWith(stopAt) && existsSync(d)) {
+    const before = ids(d);
+    if (!before || readdirSync(d).length !== 0) return;
     testHooks.beforeRmdir?.(d);
-    if (!real(d)) return;
+    if (!real(d) || ids(d) !== before) return;
     rmdirSync(d);
     d = dirname(d);
   }
@@ -193,16 +207,18 @@ function removeEmptyDirs(dir, stopAt) {
 // The skill folder as planned: a real directory (not a link) at its own
 // real path, identified by device and inode, so a folder renamed away and
 // replaced by a link or another folder is noticed before anything is written.
+// Birth time included: a folder deleted and recreated can get the same
+// device and inode at once.
 function rootIdentity(dir) {
-  const st = lstatSync(dir);
+  const st = lstatSync(dir, BIG);
   if (!st.isDirectory() || realpathSync(dir) !== dir) return null;
-  return { dev: st.dev, ino: st.ino };
+  return idOfStat(st);
 }
 
 function sameRoot(dir, root) {
   try {
     const now = rootIdentity(dir);
-    return Boolean(root && now && now.dev === root.dev && now.ino === root.ino);
+    return Boolean(root && now && now === root);
   } catch { return false; }
 }
 
@@ -272,7 +288,9 @@ export const testHooks = { afterLook: null, beforeRmdir: null, beforeUndoRm: nul
 // on the way are still the pinned ones), so nothing is moved through a
 // folder that changed after an earlier check.
 function rmIfOurs(p, id, check) {
-  if (idOf(p) === null) return;
+  // Gone is gone; a lookup that fails for another reason (a folder that
+  // became unsearchable, I/O) is an error, never "already removed".
+  try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
   testHooks.afterLook?.(p);
   check?.();
   const aside = `${p}.${randomUUID()}.rm`;
@@ -425,7 +443,7 @@ function mkdirNoFollow(root, relDir) {
 // `link` to act like a filesystem without hard links.
 // `open` is the one way a file is opened for reading: never through a link
 // at its own name.
-export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)) };
+export const fsOps = { lstat: lstatSync, link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)) };
 
 // Puts a copy of `from` at `to` without overwriting anything there, and
 // leaves `from` for the caller to remove once it has recorded the placement:
@@ -860,7 +878,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     for (const b of backups) {
       undo(b.path, () => {
         let same = false;
-        try { same = sha(readFileSync(b.path)) === b.hash; } catch { same = false; }
+        try { const x = readById(b.path, b.id); same = Boolean(x) && sha(x) === b.hash; } catch { same = false; }
         if (same) rmIfOurs(b.path, b.id, chainCheck(b.entry));
         else if (idOf(b.path) !== null) throw new Error(`${b.path} changed during the update; kept`);
       });
