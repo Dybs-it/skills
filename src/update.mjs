@@ -679,7 +679,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       const mode = a.op === 'add' ? undefined : lstatSync(p).mode & 0o7777;
       // Registered as soon as it exists, before any write that can fail
       // (disk full, quota), so the rollback always knows to remove it.
-      const entry = { a, p, tmp, chain };
+      const entry = { a, p, tmp, chain, mode };
       writeOwnFile(tmp, want[a.rel], mode, (id) => { entry.tmpId = id; staged.push(entry); });
       beforeStageCheck?.(entry);
       if (!chain || chainOf(dir, a.rel) !== chain || idOf(tmp) !== entry.tmpId) {
@@ -847,6 +847,16 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         try { staged = readById(s.tmp, s.tmpId); } catch { staged = null; }
         if (!staged || sha(staged) !== sha(want[s.a.rel])) {
           throw new Error(`the staged copy of ${s.a.rel} changed before it was installed; nothing was kept, run update again`);
+        }
+        // The staged file carries the original's permissions as seen when it
+        // was written: one tightened since (0644 to 0600) must not be undone,
+        // so the very original, moved aside, is asked again right before.
+        if (s.mode !== undefined && (s.orig || s.old)) {
+          const src = s.orig ?? s.old;
+          const srcId = s.orig ? s.origId : s.oldId;
+          let now = null;
+          try { const st = fsOps.lstat(src, BIG); if (idOfStat(st) === srcId) now = Number(st.mode) & 0o7777; } catch { now = null; }
+          if (now !== null && now !== s.mode) throw new Error(`${s.a.rel} had its permissions changed during the update; nothing was changed, run update again`);
         }
         let how;
         const copied = {};

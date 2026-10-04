@@ -2817,3 +2817,22 @@ test('a removed file whose name cannot be checked at the commit point stops the 
   try { assert.throws(() => mod.applyPlan(plan, { beforeCommit: () => { committing = true; } }), /could not be checked/); } finally { Object.assign(mod.fsOps, real); }
   rmSync(root, { recursive: true });
 });
+
+test('a permission change made during an update is never undone', async () => {
+  const mod = await import('../src/update.mjs');
+  for (const links of [true, false]) {
+    const real = { ...mod.fsOps };
+    const root = project(['dybs-prd']);
+    writeFileSync(prd(root), 'old shipped version');
+    chmodSync(prd(root), 0o644);
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const plan = mod.planInstall(findInstalls([root])[0], { known });
+    // The owner tightens the file after the update captured its mode.
+    const beforeStageCheck = () => chmodSync(prd(root), 0o600);
+    if (!links) mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+    try { assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /permissions changed/, `links: ${links}`); } finally { Object.assign(mod.fsOps, real); }
+    assert.equal(statSync(prd(root)).mode & 0o777, 0o600, `links: ${links}`);
+    assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+    rmSync(root, { recursive: true });
+  }
+});
