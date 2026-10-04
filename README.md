@@ -60,6 +60,15 @@ The kickoff recommends a depth and you choose:
 | Check | consistency across docs | plus an agent-ready test by fresh sub-agents |
 
 Both write the same docs, so agents and tools never care which you chose.
+Each doc records the depth it was really written at; the validator reports
+`needs thorough` for a doc below the requested depth, and never promotes a
+doc because a setting changed. Changing an accepted doc makes it a draft
+again; `--accept` fingerprints the accepted version so a later edit is caught.
+
+Depth decides which questions get asked; check-ins decide when you review.
+`each-doc` and `end` both ask interview questions (`end` saves the reviews
+for the final check); `none` asks nothing and leaves every doc a draft, so it
+only combines with quick.
 Single docs can differ (`thorough: architecture` in a quick project), and a
 quick doc can be deepened later without starting over.
 
@@ -78,6 +87,7 @@ For what a package manager can't do. Until it is on npm, run it from GitHub:
 ```
 npx github:Dybs-it/skills validate                # check the project's dybs/ context
 npx github:Dybs-it/skills validate --doc prd --json
+npx github:Dybs-it/skills validate . --accept prd      # on your word: accepted, dated, fingerprinted
 npx github:Dybs-it/skills update --dry-run        # what a safe update would change
 npx github:Dybs-it/skills update                  # update installed Dybs skills
 npx github:Dybs-it/skills status                  # where they are installed
@@ -108,7 +118,7 @@ home with `--global`), not every place a package manager or plugin can live.
 
 ```
 npm test                 # validator contract, safe update, CLI, skill consistency
-npm run sync-rules       # after changing the validator's MANUAL_RULES
+npm run sync-rules       # after changing MANUAL_RULES or any readiness checklist
 npm run record-hashes    # after changing any file under skills/ (tests fail until you do)
 claude plugin validate . # plugin and marketplace manifests
 ```

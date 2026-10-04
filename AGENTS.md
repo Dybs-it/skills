@@ -10,8 +10,11 @@
   changed is never overwritten or deleted without `--force`.
 - Every skill must work when installed alone. Skills other than
   `dybs-start` carry the identical "If something is not installed" section.
-- The manual validation rules in each skill are generated from the
-  validator's `MANUAL_RULES`: after changing them run `npm run sync-rules`.
+- Generated text: the manual validation rules in each skill (from the
+  validator's `MANUAL_RULES`) and the readiness checklists in `dybs-check`
+  (from each doc skill). After changing either source run
+  `npm run sync-rules`.
+- `interview.md` is edited in `dybs-start` and copied to every skill.
 - After changing anything under `skills/`, run `npm run record-hashes`.
   `src/known-hashes.json` is append-only. `npm test` must pass.
 - Practise what the skills preach: short, plain, no invented facts.

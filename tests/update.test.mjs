@@ -10,7 +10,7 @@ import {
   PKG_ROOT, SKILLS_SRC, findInstalls, update, updateInstall, skillNames, shippedFiles, knownHashes, sha,
 } from '../src/update.mjs';
 import { DOCS, ORDER } from '../skills/dybs-start/scripts/dybs-validate.mjs';
-import { rulesBlock } from '../scripts/sync-rules.mjs';
+import { rulesBlock, checklistsBlock, checklistOf } from '../scripts/sync-rules.mjs';
 
 const SKILL = 'SKILL.md';
 
@@ -297,4 +297,24 @@ test('--force never writes its backup through a dangling link', () => {
   assert.equal(readFileSync(a.backup, 'utf8'), 'my own version');
   assert.equal(existsSync(join(root, 'trap.md')), false);
   rmSync(root, { recursive: true });
+});
+
+test('dybs-check ships every readiness checklist, so it works installed alone', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dybs-check-alone-'));
+  cpSync(join(SKILLS_SRC, 'dybs-check'), join(root, 'dybs-check'), { recursive: true });
+  const alone = readFileSync(join(root, 'dybs-check', SKILL), 'utf8');
+  assert.ok(alone.includes(checklistsBlock()), 'run node scripts/sync-rules.mjs');
+  for (const s of skillNames().filter((n) => !['dybs-start', 'dybs-check'].includes(n))) {
+    const items = checklistOf(s).split('\n').filter((l) => l.startsWith('- [ ]'));
+    assert.ok(items.length > 0, s);
+    for (const item of items) assert.ok(alone.includes(item), `${s}: ${item}`);
+  }
+  rmSync(root, { recursive: true });
+});
+
+test('interview.md defines how depth and check-ins combine', () => {
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-start', 'interview.md'), 'utf8');
+  for (const setting of ['each-doc', 'end', 'none']) assert.match(t, new RegExp(`\\| \`${setting}\` \\|`));
+  assert.match(t, /Thorough needs the human's answers, so it does not combine with `none`/);
+  assert.match(t, /## Changing an accepted doc/);
 });

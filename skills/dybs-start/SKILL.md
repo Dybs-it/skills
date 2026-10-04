@@ -86,7 +86,10 @@ Tailor the route to the type of project, and say what you would leave out:
 
 Also ask, with a recommendation, **when they want to be asked** (check-ins
 from `dybs/README.md`): after each doc (`each-doc`, recommended for a first
-project), once at the end (`end`), or not at all (`none`).
+project), once at the end (`end`), or not at all (`none`). Interview
+questions are asked with `each-doc` and `end`; `none` asks nothing and
+leaves every doc as a draft. Thorough needs answers, so offer `none` only
+with a quick start, and say why.
 
 Wait for their choice. Their word decides; do not start drafting before it.
 
@@ -110,8 +113,9 @@ Wait for their choice. Their word decides; do not start drafting before it.
 Validate (`node <this skill's folder>/scripts/dybs-validate.mjs .`; without
 Node, check by hand against `dybs/README.md`). Show a compact table: doc,
 depth, status (missing / draft / accepted / skipped / failing), and the next
-step. If a doc was written at quick depth while the project is now thorough,
-offer to deepen it.
+step. A doc whose written depth is below the requested depth needs
+deepening (the validator reports `needs thorough`); offer it, and say that
+deepening makes an accepted doc a draft again.
 
 The order is fixed: project, prd, scope, domain, architecture, ux, ui, check.
 The next step is the first doc that is missing, failing, or still `draft`.
@@ -122,8 +126,11 @@ The next step is the first doc that is missing, failing, or still `draft`.
   `dybs-domain`, `dybs-architecture`, `dybs-ux`, `dybs-ui`, `dybs-check`.
   Skills install one by one, so if the next one is not installed, say so and
   give the command: `npx skills add Dybs-it/skills --skill <name>`.
-- With `checkins: end` or `none`, run the remaining skills one after another
-  without stopping, then finish with `dybs-check`. Safety stops still apply.
+- With `checkins: end`, run the remaining skills one after another, asking
+  their interview questions but no reviews, then finish with `dybs-check`.
+- With `checkins: none`, run them without asking anything, leave every doc
+  as a draft, and end with a report of what awaits acceptance.
+- Safety stops apply at every setting.
 
 ## Don'ts
 

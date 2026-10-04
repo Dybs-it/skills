@@ -1,6 +1,6 @@
 ---
 method: dybs
-method-version: 0.2.0
+method-version: 0.3.0
 ---
 
 # dybs/
@@ -47,7 +47,9 @@ written empty.
    once accepted.
 3. **Agents write drafts. Only the human accepts.** An agent sets
    `status: accepted` only when the human says so in their own words, and
-   records the date in `accepted:`. Silence is not acceptance.
+   records the date in `accepted:` (the validator's `--accept` also records
+   `accepted-hash`). Silence is not acceptance. Changing an accepted doc makes
+   it a draft again: the acceptance was for the old version.
 4. **Edit in place.** Change the section you mean to change. Never rewrite a
    whole doc from memory; another session may have edited it since.
 5. **No invented facts.** Anything the agent assumed rather than heard or
@@ -57,11 +59,12 @@ written empty.
 
 ## Depth
 
-`project.md` sets how deep the interviews go: `depth: quick` (core
+`project.md` sets how deep the interviews should go: `depth: quick` (core
 questions, about 5 to 10 minutes per doc) or `depth: thorough` (every
 question until nothing is open, about 10 to 20 minutes per doc). The lists
-`quick:` and `thorough:` name docs that differ. Both depths write the same
-docs; a quick doc can be deepened later.
+`quick:` and `thorough:` name docs that differ. Each doc records the depth
+it was really written at in its own `depth:`; a doc below the requested
+depth needs deepening. Both depths write the same docs.
 
 ## How a Getting Started skill runs
 
@@ -81,9 +84,12 @@ docs; a quick doc can be deepened later.
 
 The human chooses when they want to be asked. `project.md` holds the choice:
 
-- `checkins: each-doc` stop after every doc for review (default)
-- `checkins: end` draft everything in order, stop once at the check
-- `checkins: none` draft everything, report at the end, ask nothing
+- `checkins: each-doc` interview questions, and a review after every doc
+  (default)
+- `checkins: end` interview questions, but no reviews until the final check
+- `checkins: none` no questions at all: draft from what exists, mark gaps as
+  assumptions, leave every doc as a draft and list what awaits acceptance.
+  Quick depth only, since thorough needs answers.
 
 Whatever the setting, an agent always stops for a **safety stop**:
 

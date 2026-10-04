@@ -4,13 +4,24 @@ The unit tests prove the validator. They cannot prove the skills are good.
 That takes real projects. Run each step on real work and record the result
 in `tests/runs/<date>-<project>.md` (copy the record below).
 
-## Pick two projects, one per depth
+## Pick projects, one per combination that matters
 
 1. **Greenfield, quick:** an idea you actually want to build. Small is fine.
    Target: under 30 minutes for all docs.
-2. **Existing, thorough:** a real codebase you know well (Dybs itself is a
-   good hard case), so you can judge whether extraction is accurate.
-   Target: 1 to 2 hours, then the agent-ready test in `dybs-check`.
+2. **Existing, thorough, `checkins: each-doc`:** a real codebase you know
+   well (Dybs itself is a good hard case), so you can judge whether
+   extraction is accurate. Target: 1 to 2 hours, then the agent-ready test
+   in `dybs-check` with a genuinely fresh sub-agent.
+3. **Thorough, `checkins: end`:** it asks interview questions but no
+   reviews, and puts the summaries in the final check.
+4. **Quick, `checkins: none`:** it asks nothing, every doc stays a draft,
+   and the final report lists what awaits acceptance.
+5. **Deepen one doc:** accept a quick doc, then deepen it. It must become a
+   draft again, `--accept` must stamp it, and editing it afterwards must
+   fail validation until it is a draft again.
+
+The workflow counts as verified only after these runs are recorded. Unit
+tests prove consistency, not interview quality or timing.
 
 Use a fresh branch or a copy. Nothing here should touch code, only `dybs/`.
 
@@ -21,7 +32,8 @@ For each skill in order, run it, then answer:
 | Check | Pass when |
 |---|---|
 | **Questions** | Numbered rounds, each question with a recommendation you could accept with "yes". Nothing asked that it could have looked up. |
-| **Depth respected** | quick: at most two rounds, core items only. thorough: kept going until nothing was open. |
+| **Depth respected** | quick: at most two rounds, core items only. thorough: kept going until nothing was open. The doc's `depth:` says what really happened. |
+| **Check-ins respected** | `each-doc` reviewed per doc; `end` asked questions but no reviews; `none` asked nothing and left drafts. |
 | **Log** | Every decision you made is in `dybs/log.md`. |
 | **Accuracy** (existing) | No claim about the code that you know is false. Count the false ones. |
 | **Assumptions marked** | Inferred facts say *(assumption)* or are open questions. |

@@ -11,9 +11,16 @@ log are ideas from the BMad Method (MIT).
 
 ## Depth
 
-The human chooses how deep to go. Read it from `dybs/project.md`:
-`depth: quick | thorough` for every doc, and the lists `quick:` and
-`thorough:` for docs that differ. Unset means quick.
+The human chooses how deep to go. Two things are recorded, and they are not
+the same:
+
+- **Requested depth**, in `dybs/project.md`: `depth: quick | thorough` for
+  every doc, and the lists `quick:` and `thorough:` for docs that differ.
+  Unset means quick.
+- **Written depth**, in each doc's own frontmatter `depth:`: how deep the
+  interview behind that doc really went. Write it honestly. A doc without it,
+  or written at quick where thorough is requested, **needs deepening**; it is
+  never thorough because a setting changed.
 
 | | quick | thorough |
 |---|---|---|
@@ -22,10 +29,27 @@ The human chooses how deep to go. Read it from `dybs/project.md`:
 | Covers | checklist items marked **core** | every checklist item |
 | Rounds | at most two | until nothing is open |
 | Gaps | written as *(assumption)* plus an open question | each answered, or parked by the human with a reason |
-| Before drafting | summary folded into the check-in | summary confirmed by the human |
+| Before drafting | summary folded into the check-in | summary confirmed by the human (with `checkins: each-doc`) |
 
 Both depths write the same doc with the same sections. Thorough allows a
 longer doc, but the reasoning belongs in `dybs/log.md`, not in the doc.
+
+## Depth and check-ins
+
+Depth decides **which questions** need an answer. Check-ins (`checkins:` in
+`project.md`) decide **when the human reviews**. Interview questions are not
+check-ins: they are the work itself. Safety stops (see `dybs/README.md`)
+apply at every setting.
+
+| `checkins` | Interview rounds | Summary before drafting | Review |
+|---|---|---|---|
+| `each-doc` | asked | thorough: confirmed before drafting; quick: in the check-in | after every doc |
+| `end` | asked | collected for the final check | once, at `dybs-check` |
+| `none` | not asked: open items become *(assumption)* plus an open question | none | none: docs stay `draft`, the final report lists what awaits acceptance |
+
+Thorough needs the human's answers, so it does not combine with `none`. If
+`project.md` says both anyway, interview at quick depth, write
+`depth: quick` in the doc, and say so in the final report.
 
 ## 1. Collect first
 
@@ -96,12 +120,14 @@ While asking, **sharpen**:
 
 Summarise what you understood in at most ten bullets.
 
-- **thorough:** ask "Is anything wrong or missing?" and wait. Draft only after
-  the human confirms.
-- **quick:** draft straight away and put the summary in the check-in.
+- **thorough with `each-doc`:** ask "Is anything wrong or missing?" and
+  wait. Draft only after the human confirms.
+- **otherwise:** draft straight away; the summary goes into the check-in, or
+  into the final check with `end`.
 
-Record the depth in the doc's frontmatter (`depth: quick` or
-`depth: thorough`).
+Record the depth the interview really reached in the doc's frontmatter
+(`depth: quick` or `depth: thorough`). Write `thorough` only when every
+checklist item is answered or parked by the human.
 
 ## Decision log
 
@@ -117,7 +143,17 @@ remove earlier lines:
 
 ## Going deeper later
 
-A quick doc can be deepened at any time: run the skill again at thorough
-depth. Start from the existing doc and its log lines, mark what they cover as
-settled, and ask only about what is still open. Then update the doc and set
-`depth: thorough`.
+A quick doc can be deepened at any time:
+
+1. If the project is quick overall, add the doc to `thorough:` in
+   `dybs/project.md`, so the requested depth says so too.
+2. Run the skill again. Start from the existing doc and its log lines, mark
+   what they cover as settled, and ask only about what is still open.
+3. Update the doc, set `depth: thorough`, and make it a draft again (below).
+
+## Changing an accepted doc
+
+An accepted doc means the human accepted **that version**. Any real change,
+deepening included, makes it a draft again: set `status: draft` and remove
+`accepted` and `accepted-hash`. The human then accepts the new version.
+Fixing a typo is not a real change; anything that changes meaning is.

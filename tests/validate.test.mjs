@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync } 
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor } from '../skills/dybs-start/scripts/dybs-validate.mjs';
+import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, bodyHash } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
@@ -151,7 +151,7 @@ test('thorough depth allows a longer doc than quick', () => {
   assert.ok(quick.errors.some((e) => e.includes('quick cap')));
   edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip:\nthorough: scope'));
   const thorough = validateProject(dir).results.find((x) => x.name === 'scope');
-  assert.equal(thorough.depth, 'thorough');
+  assert.equal(thorough.requestedDepth, 'thorough');
   assert.deepEqual(thorough.errors, []);
   rmSync(dir, { recursive: true });
 });
@@ -177,6 +177,7 @@ const BREAK = {
   'sections': (t) => t.replace('## Goals', '## Aims'),
   'depth': (t) => t.replace('status: accepted', 'status: accepted\ndepth: deep'),
   'cap': (t) => t + '\n' + 'word '.repeat(DOCS.prd.maxWords.quick),
+  'accepted-hash': (t) => t.replace('status: accepted', 'status: accepted\naccepted-hash: 000000000000'),
   'placeholder': (t) => t + '\nTODO\n',
 };
 
@@ -204,4 +205,78 @@ test('validate reports ok, complete and accepted separately', () => {
   assert.equal(partial.ok, true);
   assert.equal(partial.complete, false);
   rmSync(dir, { recursive: true });
+});
+
+// --- review findings on PR #2 ---
+
+test('a quick doc in a thorough project needs deepening and is not reported as thorough', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip:\ndepth: thorough'));
+  edit(dir, 'context/prd.md', (t) => t.replace('status: accepted', 'status: accepted\ndepth: quick'));
+  const report = validateProject(dir);
+  const prd = report.results.find((x) => x.name === 'prd');
+  assert.equal(prd.requestedDepth, 'thorough');
+  assert.equal(prd.documentDepth, 'quick');
+  assert.equal(prd.needsDeepening, true);
+  assert.equal(report.atRequestedDepth, false);
+  assert.ok(report.deepen.includes('prd'));
+  // project.md's own depth key is the setting, never a doc to deepen
+  assert.equal(report.results.find((x) => x.name === 'project').needsDeepening, false);
+  rmSync(dir, { recursive: true });
+});
+
+test('a doc without a written depth is not assumed thorough', () => {
+  const r = validateDoc('prd', readFileSync(join(SAMPLE, 'dybs/context/prd.md'), 'utf8'), 'thorough');
+  assert.equal(r.documentDepth, null);
+  assert.equal(r.needsDeepening, true);
+});
+
+test('the word cap follows the depth the doc was written at', () => {
+  const long = (depth) => readFileSync(join(SAMPLE, 'dybs/context/scope.md'), 'utf8')
+    .replace('status: accepted', `status: accepted\ndepth: ${depth}`) + '\n' + 'word '.repeat(DOCS.scope.maxWords.quick);
+  // deepened doc in a quick project: thorough cap applies, no error
+  assert.deepEqual(validateDoc('scope', long('thorough'), 'quick').rules, []);
+  // quick doc in a thorough project: quick cap still applies
+  assert.deepEqual(validateDoc('scope', long('quick'), 'thorough').rules, ['cap']);
+});
+
+test('deepening a single doc: listed under thorough, written thorough, nothing left to deepen', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip:\nthorough: prd'));
+  edit(dir, 'context/prd.md', (t) => t.replace('status: accepted', 'status: draft\ndepth: thorough'));
+  const prd = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.equal(prd.requestedDepth, 'thorough');
+  assert.equal(prd.needsDeepening, false);
+  rmSync(dir, { recursive: true });
+});
+
+test('acceptance lifecycle: accepted, changed, back to draft, accepted again', () => {
+  const dir = copySample();
+  const read = () => readFileSync(join(dir, 'dybs/context/prd.md'), 'utf8');
+  const result = () => validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.equal(acceptDoc(dir, 'prd', '2026-10-04').ok, true);
+  assert.match(read(), /^accepted-hash: [0-9a-f]{12}$/m);
+  assert.deepEqual(result().errors, []);
+  edit(dir, 'context/prd.md', (t) => t.replace('without having to nag', 'and get reminded'));
+  assert.deepEqual(result().rules, ['accepted-hash']);
+  edit(dir, 'context/prd.md', (t) => t.replace('status: accepted', 'status: draft').replace(/^accepted.*\n/gm, ''));
+  assert.equal(result().status, 'draft');
+  assert.deepEqual(result().errors, []);
+  assert.equal(acceptDoc(dir, 'prd', '2026-10-05').ok, true);
+  assert.equal(result().status, 'accepted');
+  assert.deepEqual(result().errors, []);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept refuses a doc that would not validate as accepted', () => {
+  const dir = copySample();
+  edit(dir, 'context/ui.md', (t) => t + '\nTODO pick a font\n');
+  const r = acceptDoc(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
+  rmSync(dir, { recursive: true });
+});
+
+test('bodyHash ignores frontmatter and line endings', () => {
+  assert.equal(bodyHash('a\r\nb\n'), bodyHash('a\nb'));
 });

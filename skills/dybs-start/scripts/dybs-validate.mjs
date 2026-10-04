@@ -6,7 +6,8 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -63,6 +64,7 @@ export const MANUAL_RULES = [
   { id: 'sections', text: 'Every required `##` section is present (see the template or the doc contract).' },
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
   { id: 'cap', text: 'The doc is under the word cap for its depth (quick or thorough), not counting HTML comments and code blocks.' },
+  { id: 'accepted-hash', text: 'An accepted doc is not changed. Any real change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change.)' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 
@@ -106,7 +108,17 @@ function skipped(projectData) {
   return list(projectData?.skip);
 }
 
-export function validateDoc(name, text, depth = 'quick') {
+// Fingerprint of a doc's content (not its frontmatter), stored as
+// `accepted-hash` when the human accepts, so a later edit is detectable.
+export function bodyHash(body) {
+  return createHash('sha256').update(body.replace(/\r\n/g, '\n').trim()).digest('hex').slice(0, 12);
+}
+
+// requestedDepth is what project.md asks for this doc; documentDepth is what
+// the doc says it was written at. The cap follows the doc. A doc written at
+// quick depth where thorough is requested needs deepening; it is never
+// reported as thorough just because the project setting changed.
+export function validateDoc(name, text, requestedDepth = 'quick') {
   const spec = DOCS[name];
   const errors = [];
   const warnings = [];
@@ -126,7 +138,15 @@ export function validateDoc(name, text, depth = 'quick') {
     if (data.status === 'accepted' && !/^\d{4}-\d{2}-\d{2}$/.test(data.accepted || '')) {
       fail('accepted-date', 'accepted docs need frontmatter "accepted: YYYY-MM-DD" (set only on the human\'s word)');
     }
+    if (data.status === 'accepted' && data['accepted-hash'] && data['accepted-hash'] !== bodyHash(body)) {
+      fail('accepted-hash', 'changed after it was accepted: set status: draft, remove accepted and accepted-hash, and ask the human to accept again');
+    }
   }
+  // In project.md, `depth` is the project's setting, not how deep project.md
+  // itself was written, so project.md never needs deepening.
+  const documentDepth = name !== 'project' && DEPTHS.includes(data?.depth) ? data.depth : null;
+  const depth = documentDepth ?? requestedDepth;
+  const needsDeepening = name !== 'project' && requestedDepth === 'thorough' && documentDepth !== 'thorough';
 
   const found = headings(body);
   const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase()));
@@ -146,7 +166,11 @@ export function validateDoc(name, text, depth = 'quick') {
     else warnings.push(msg);
   }
 
-  return { name, file: spec.file, status: data?.status ?? null, depth, words, errors, warnings, rules: [...rules] };
+  return {
+    name, file: spec.file, status: data?.status ?? null,
+    requestedDepth, documentDepth, needsDeepening,
+    words, errors, warnings, rules: [...rules],
+  };
 }
 
 export function validateProject(root, only) {
@@ -180,17 +204,51 @@ export function validateProject(root, only) {
   }
   // ok: no rule is broken (missing and draft docs are allowed).
   // complete: every doc that is not skipped exists and is ok.
+  // atRequestedDepth: no doc still needs deepening.
   // accepted: complete, and the human accepted every doc.
+  // None of these says the interview was good; only a human can judge that.
   const ok = results.every((r) => r.errors.length === 0);
   const docs = results.filter((r) => r.status !== 'skipped' && r.name !== 'readme');
   const complete = ok && !only && docs.every((r) => r.status !== 'missing');
+  const atRequestedDepth = docs.every((r) => !r.needsDeepening);
   const accepted = complete && docs.every((r) => r.status === 'accepted');
-  return { ok, complete, accepted, results };
+  const deepen = docs.filter((r) => r.needsDeepening && r.status !== 'missing').map((r) => r.name);
+  return { ok, complete, atRequestedDepth, accepted, deepen, results };
 }
 
 function nextStep(results) {
-  const pending = results.find((r) => r.status === 'missing' || r.status === 'draft' || r.errors.length);
+  const pending = results.find((r) => r.status === 'missing' || r.status === 'draft' || r.errors.length || r.needsDeepening);
   return pending ? pending.name : null;
+}
+
+// Sets frontmatter keys in place (null removes a key), leaving every other
+// line as it was.
+export function setFrontmatter(text, updates) {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) throw new Error('no frontmatter');
+  const lines = m[1].split(/\r?\n/);
+  for (const [key, value] of Object.entries(updates)) {
+    const i = lines.findIndex((l) => l.startsWith(`${key}:`));
+    if (value === null) { if (i >= 0) lines.splice(i, 1); continue; }
+    if (i >= 0) lines[i] = `${key}: ${value}`;
+    else lines.push(`${key}: ${value}`);
+  }
+  return `---\n${lines.join('\n')}\n---` + text.slice(m[0].length);
+}
+
+// Marks a doc accepted on the human's word: status, date and a fingerprint of
+// its content. Refuses a doc that would not validate as accepted.
+export function acceptDoc(root, name, today = new Date().toISOString().slice(0, 10)) {
+  const path = join(root, 'dybs', DOCS[name].file);
+  const text = readFileSync(path, 'utf8');
+  const { body } = parseFrontmatter(text);
+  const next = setFrontmatter(text, { status: 'accepted', updated: today, accepted: today, 'accepted-hash': bodyHash(body) });
+  const projectPath = join(root, 'dybs', DOCS.project.file);
+  const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
+  const check = validateDoc(name, next, depthFor(name, projectData));
+  if (check.errors.length) return { ok: false, errors: check.errors };
+  writeFileSync(path, next);
+  return { ok: true };
 }
 
 export function main(argv) {
@@ -202,12 +260,22 @@ export function main(argv) {
     console.error(`unknown doc "${only}". Known: ${ORDER.join(', ')}`);
     return 2;
   }
-  const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--doc');
+  const acceptIdx = args.indexOf('--accept');
+  const accept = acceptIdx >= 0 ? args[acceptIdx + 1] : undefined;
+  const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--doc' && args[i - 1] !== '--accept');
   const root = resolve(positional[0] || '.');
+  if (accept) {
+    if (!DOCS[accept]) { console.error(`unknown doc "${accept}". Known: ${ORDER.join(', ')}`); return 2; }
+    const r = acceptDoc(root, accept);
+    if (!r.ok) { console.error(`not accepted, fix first:\n  ${r.errors.join('\n  ')}`); return 1; }
+    console.log(`${accept} accepted.`);
+    return 0;
+  }
   const report = validateProject(root, only);
 
   if (json) {
-    console.log(JSON.stringify({ schema: 1, ...report, next: nextStep(report.results) }, null, 2));
+    // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
+    console.log(JSON.stringify({ schema: 2, ...report, next: nextStep(report.results) }, null, 2));
     return report.ok ? 0 : 1;
   }
   if (report.fatal) {
@@ -216,12 +284,15 @@ export function main(argv) {
   }
   for (const r of report.results) {
     const tag = r.errors.length ? 'FAIL' : r.status === 'missing' || r.status === 'skipped' ? r.status.toUpperCase() : r.status?.toUpperCase();
-    console.log(`${tag.padEnd(9)} ${r.file}${r.words ? `  (${r.words} words)` : ''}`);
+    const depthNote = r.name === 'project' ? `, project depth ${r.requestedDepth}`
+      : r.requestedDepth ? `, ${r.documentDepth ?? 'depth not set'}${r.needsDeepening ? `, needs ${r.requestedDepth}` : ''}`
+      : '';
+    console.log(`${tag.padEnd(9)} ${r.file}${r.words ? `  (${r.words} words${depthNote})` : ''}`);
     for (const e of r.errors) console.log(`          error: ${e}`);
     for (const w of r.warnings) console.log(`          warn:  ${w}`);
   }
   const next = nextStep(report.results);
-  console.log(next ? `\nNext: ${next}` : '\nAll Getting Started docs accepted.');
+  console.log(next ? `\nNext: ${next}` : '\nAll Getting Started docs accepted at the requested depth.');
   return report.ok ? 0 : 1;
 }
 

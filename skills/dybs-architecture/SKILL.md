@@ -91,5 +91,6 @@ so do not assume the others are present.
 6. Every required `##` section is present (see the template or the doc contract).
 7. Frontmatter `depth`, when present, is `quick` or `thorough`.
 8. The doc is under the word cap for its depth (quick or thorough), not counting HTML comments and code blocks.
-9. No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.
+9. An accepted doc is not changed. Any real change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change.)
+10. No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.
 <!-- rules:end -->

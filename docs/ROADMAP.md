@@ -21,6 +21,16 @@ on skills.sh.
 thorough, share one interview method (`interview.md`) and one doc format.
 See decision 0003.
 
+### Follow-ups for Getting Started
+
+- **Interview state with stable ids.** Give every checklist item an id
+  (`prd.core.3`) and persist the interview's open, blocked, answered and
+  parked items, with sources and supersession, in a machine-readable file.
+  Today `log.md` records decisions in prose and resuming relies on the agent
+  rebuilding the frontier.
+- **Acceptance bound to content.** `--accept` writes `accepted-hash`; the
+  Dybs app should accept through it rather than by editing frontmatter.
+
 ## 2. Ideas (next)
 
 ```
