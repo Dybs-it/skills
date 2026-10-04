@@ -261,11 +261,11 @@ function rmIfOurs(p, id, check) {
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   if (idOf(aside) === id) {
     // A failed unlink leaves the file under its private name: say where.
-    try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; throw e; }
+    try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
     return;
   }
   try { fsOps.link(aside, p); fsOps.rm(aside); } catch {
-    throw new Error(`${p} is not the file the update wrote; it is kept at ${aside}`);
+    throw Object.assign(new Error(`${p} is not the file the update wrote; it is kept at ${aside}`), { keptAt: aside });
   }
   throw new Error(`${p} is not the file the update wrote; left in place`);
 }
@@ -783,7 +783,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           let ours = false;
           try { ours = idOf(trash) === s.oldId && sha(fsOps.read(trash)) === s.a.hash; } catch { ours = false; }
           if (ours) {
-            try { fsOps.rm(trash); } catch { s.a.kept = trash; }
+            // Deleted by identity under yet another private name: a file
+            // that replaced `trash` since the check is kept, never deleted.
+            try { rmIfOurs(trash, s.oldId, chainCheck(s)); } catch (e) { s.a.kept = e.keptAt ?? trash; }
           } else {
             // Not ours after all (edited, or replaced before the move): put
             // it back without overwriting anything, else report where it is.
