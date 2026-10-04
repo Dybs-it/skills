@@ -541,7 +541,7 @@ test('--accept with --json answers in JSON', () => {
   const dir = copySample();
   const ok = capture(() => main(['node', 'v', dir, '--accept', 'prd', '--json']));
   assert.equal(ok.code, 0);
-  assert.deepEqual(JSON.parse(ok.out), { schema: 2, accept: 'prd', ok: true, errors: [] });
+  assert.deepEqual(JSON.parse(ok.out), { schema: 2, accept: 'prd', ok: true, errors: [], warnings: [] });
   edit(dir, 'context/ui.md', (t) => t + '\nTODO\n');
   const bad = capture(() => main(['node', 'v', dir, '--accept', 'ui', '--json']));
   assert.equal(bad.code, 1);
@@ -919,4 +919,28 @@ test('a fence in a multi-digit list item closes at the item indent', async () =>
   assert.equal(wordCount(text), 4);
   // At the top level a closing fence indented four spaces is code, not a close.
   assert.deepEqual(headings('```\nx\n    ```\n## Hidden\n'), []);
+});
+
+test('processing instructions, declarations and CDATA are raw HTML too', () => {
+  for (const opener of ['<?hidden', '<!DOCTYPE x', '<![CDATA[']) {
+    const dir = copySample();
+    edit(dir, 'project.md', (t) => t + `\n${opener}\n## Why\n`);
+    assert.ok(validateProject(dir).results.find((x) => x.name === 'project').rules.includes('html'), opener);
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('--accept never writes through a folder swapped for a link after its checks', () => {
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  cpSync(join(dir, 'dybs/context'), outside, { recursive: true });
+  const before = readFileSync(join(outside, 'ui.md'), 'utf8');
+  const beforeReplace = () => {
+    rmSync(join(dir, 'dybs/context'), { recursive: true });
+    symlinkSync(outside, join(dir, 'dybs/context'));
+  };
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', { beforeReplace }), /changed while it was being accepted/);
+  assert.equal(readFileSync(join(outside, 'ui.md'), 'utf8'), before);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
 });

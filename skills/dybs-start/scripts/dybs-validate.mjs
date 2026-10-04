@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, chmodSync, realpathSync, linkSync, copyFileSync, constants as fsConstants } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, constants as fsConstants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,7 +68,7 @@ export const MANUAL_RULES = [
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
   { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
-  { id: 'html', text: 'No raw HTML blocks (a line outside code that starts with an HTML tag such as `<pre>` or `<div>`): they change what renders in ways a reader of the source cannot see. HTML comments are fine.' },
+  { id: 'html', text: 'No raw HTML blocks (a line outside code that starts with an HTML tag such as `<pre>` or `<div>`, or with `<?`, `<!` or `<![CDATA[`): they change what renders in ways a reader of the source cannot see. HTML comments are fine.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 
@@ -349,7 +349,9 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
 
   // Raw HTML blocks hide or show Markdown (a heading inside <pre> is not a
   // heading), so they are refused rather than interpreted.
-  const html = visibleText(body).split('\n').find((l) => /^ {0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)/.test(l));
+  // Every CommonMark raw-block opener: a tag, a processing instruction
+  // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
+  const html = visibleText(body).split('\n').find((l) => /^ {0,3}(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
@@ -474,6 +476,31 @@ export function unsafePath(root, rel) {
   return null;
 }
 
+// Device and inode of each folder from the project root down to `rel`'s
+// folder, all real folders (not links); null when one is not.
+function folderChain(root, rel) {
+  const ids = [];
+  let p = root;
+  for (const part of ['', ...rel.split('/').slice(0, -1)]) {
+    p = part ? join(p, part) : p;
+    let st;
+    try { st = part ? lstatSync(p) : statSync(p); } catch { return null; }
+    if (!st.isDirectory()) return null;
+    ids.push(idOf(st));
+  }
+  return ids.join('/');
+}
+
+const idOf = (st) => `${st.dev}:${st.ino}`;
+function pathId(p) {
+  try { return idOf(lstatSync(p)); } catch { return null; }
+}
+
+// Removes `p` only while it is still the file we created.
+function rmIfOurs(p, id) {
+  if (id && pathId(p) === id) rmSync(p);
+}
+
 // Today as the person running the command sees it (local time, not UTC), so
 // an acceptance at 23:30 is not stamped with tomorrow's date.
 export function localDate(d = new Date()) {
@@ -546,25 +573,56 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
   // Keep the doc's permissions: a 0600 doc must not come back as 0644.
   // The doc is moved aside first and compared with what was validated: an
   // edit saved meanwhile is never replaced by the stale accepted version.
+  // The folders on the way are pinned by identity and checked again around
+  // every write and rename, so a folder swapped for a link after the checks
+  // above is noticed and undone rather than written through. (Node has no
+  // directory-relative calls, so this detects a swap; it cannot prevent one.)
+  const dirs = folderChain(root, rel);
+  const pinned = () => {
+    if (!dirs || folderChain(root, rel) !== dirs) throw new Error(`a folder on the way to ${rel} changed while it was being accepted; run --accept again`);
+  };
   const tmp = `${path}.dybs-${process.pid}.tmp`;
   const old = `${path}.dybs-${process.pid}.old`;
   const mode = lstatSync(path).mode & 0o7777;
-  writeFileSync(tmp, next, { flag: 'wx', mode });
+  let tmpId = null;
+  let moved = false;
+  let placed = false;
   try {
-    chmodSync(tmp, mode);
+    const fd = openSync(tmp, 'wx', mode);
+    try {
+      tmpId = idOf(fstatSync(fd));
+      writeFileSync(fd, next);
+      fchmodSync(fd, mode);
+    } finally { closeSync(fd); }
     beforeReplace?.();
+    pinned();
+    if (pathId(tmp) !== tmpId) throw new Error(`the temporary copy of ${rel} is not where it was written; run --accept again`);
     renameSync(path, old);
+    moved = true;
+    pinned();
     if (readFileSync(old, 'utf8') !== text) {
       placeNoClobber(old, path);
-      rmSync(tmp, { force: true });
+      moved = false;
+      rmIfOurs(tmp, tmpId);
       return { ok: false, errors: ['the doc changed while it was being accepted; nothing was written, run --accept again'] };
     }
     placeNoClobber(tmp, path);
-    rmSync(old);
+    placed = true;
+    pinned();
+    // The original is deleted only while it still holds what was validated.
+    if (readFileSync(old, 'utf8') === text) rmSync(old);
+    else return { ok: true, warnings: [`the previous version changed during acceptance; kept at ${old}`] };
   } catch (err) {
-    rmSync(tmp, { force: true });
+    // Undo through the same paths: a file that went through a swapped link
+    // comes back the same way. Only what is provably ours is removed.
+    if (placed) {
+      let ours = false;
+      try { ours = readFileSync(path, 'utf8') === next; } catch { ours = false; }
+      if (ours) { try { rmSync(path); } catch { /* reported below */ } }
+    }
+    try { rmIfOurs(tmp, tmpId); } catch { /* reported below */ }
     // Never leave the doc stranded under its temporary name.
-    if (existsSync(old) && !existsSync(path)) renameSync(old, path);
+    if (moved && existsSync(old) && !existsSync(path)) renameSync(old, path);
     throw err;
   }
   return { ok: true };
@@ -628,11 +686,12 @@ export function main(argv) {
       r = { ok: false, errors: [err.message] };
     }
     if (json) {
-      console.log(JSON.stringify({ schema: 2, accept, ok: r.ok, errors: r.errors || [] }, null, 2));
+      console.log(JSON.stringify({ schema: 2, accept, ok: r.ok, errors: r.errors || [], warnings: r.warnings || [] }, null, 2));
       return r.ok ? 0 : 1;
     }
     if (!r.ok) { console.error(`not accepted, fix first:\n  ${r.errors.join('\n  ')}`); return 1; }
     console.log(`${accept} accepted.`);
+    for (const w of r.warnings || []) console.log(`warn: ${w}`);
     return 0;
   }
   let report;
