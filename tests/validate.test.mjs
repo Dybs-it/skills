@@ -2720,3 +2720,29 @@ test('only the outermost ordered marker must start at 1 to interrupt a paragraph
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n- 2. ## Goals')).rules.includes('sections'));
   assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n2. 1. ## Goals')).rules.includes('sections'));
 });
+
+test('--accept never undoes a permission change made during acceptance', () => {
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  chmodSync(path, 0o644);
+  // Tightened after acceptance captured the mode, before the copy is placed.
+  const beforePlace = () => chmodSync(path.replace(/ui\.md$/, readdirSync(dirname(path)).find((n) => n.startsWith('ui.md.dybs-') && n.endsWith('.old'))), 0o600);
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', { beforePlace }), /permissions changed/);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept reports a temporary name that another file replaced', () => {
+  const dir = copySample();
+  let tmpAt = null;
+  const afterPlace = (tmp) => {
+    tmpAt = tmp;
+    writeFileSync(`${tmp}.x`, 'someone else');
+    renameSync(`${tmp}.x`, tmp);
+  };
+  const r = acceptDoc(dir, 'ui', '2026-10-04', { afterPlace });
+  assert.equal(r.ok, true);
+  assert.match(r.warnings.join(' '), /replaced by another file/);
+  assert.equal(readFileSync(tmpAt, 'utf8'), 'someone else');
+  rmSync(dir, { recursive: true });
+});
