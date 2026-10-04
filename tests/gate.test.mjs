@@ -438,3 +438,18 @@ test('a table row without a leading pipe is refused, never left uncounted', () =
   const ok = gate({ items: [full('a', 'P0')] }) + '\nA reason with an escaped \\| pipe.\n';
   assert.deepEqual(parseGate(ok).problems, []);
 });
+
+test('a level-1 heading ends a section: a table under it never counts', () => {
+  const real = gate({ items: [full('a', 'P0')] });
+  const table = real.match(/## Items\n\n([\s\S]*?)\n\n## Risks/)[1];
+  const moved = real.replace(`## Items\n\n${table}`, `## Items\n\n# Archived gate\n\n${table}`);
+  const parsed = parseGate(moved);
+  assert.match(parsed.problems.join(' '), /missing "## Items" table/);
+});
+
+test('raw HTML after a list marker or quote is refused', () => {
+  for (const opener of ['- <pre>', '> <div>', '1. <details>']) {
+    const text = gate({ items: [full('a', 'P0')] }) + `\n${opener}\n`;
+    assert.match(parseGate(text).problems.join(' '), /may not contain raw HTML/, opener);
+  }
+});

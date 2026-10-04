@@ -153,7 +153,9 @@ export function tableAt(text, heading) {
   for (let i = start + 1; i < lines.length; i++) {
     const raw = lines[i];
     const line = raw.trim();
-    if (/^ {0,3}##[ \t]/.test(raw)) break;
+    // A section ends at the next heading of level 1 or 2: a table under a
+    // new "# ..." is rendered in another section, not this one.
+    if (/^ {0,3}#{1,2}([ \t]|$)/.test(raw)) break;
     const tableLine = line.startsWith('|') && !isIndented(raw);
     if (!tableLine) { inTable = false; continue; }
     if (!inTable) {
@@ -227,7 +229,9 @@ export function parseGate(text) {
   const problems = [...markdownHazards(text)];
   // Raw HTML can hide or show content in ways this parser does not follow
   // (<pre>, <details>, <table>). gate.md needs none, so any is refused.
-  const html = visible(text).split(/\r?\n/).filter((l) => /^ {0,3}<[A-Za-z/!?]/.test(l));
+  // Also behind a list marker or a quote (`- <pre>`, `> <div>`): there it
+  // still starts an HTML block that swallows what follows.
+  const html = visible(text).split(/\r?\n/).filter((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*<[A-Za-z/!?]/.test(l));
   if (html.length) problems.push(`gate.md may not contain raw HTML (found: ${html[0].trim().slice(0, 40)})`);
   // GitHub also renders a table whose rows do not start with "|"; this parser
   // reads only rows that do. So any other visible line with an unescaped pipe
