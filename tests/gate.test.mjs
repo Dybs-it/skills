@@ -475,3 +475,18 @@ test('an underlined (Setext) heading is refused, so it cannot end a section unse
   // A thematic break after a blank line is fine.
   assert.deepEqual(parseGate(real + '\n---\n').problems, []);
 });
+
+test('a heading inside a list item or quote is refused', () => {
+  for (const h of ['- ## Archived', '> ## Archived', '1. # Old']) {
+    const text = gate({ items: [full('a', 'P0')] }) + `\n${h}\n`;
+    assert.match(parseGate(text).problems.join(' '), /headings may not sit inside a list item or a quote/, h);
+  }
+});
+
+test('a waiver with template placeholders is incomplete', async () => {
+  const { waiverIssue } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  const w = { id: 'a', reason: '{{reason}}', by: '{{name}}', approved: '2026-10-01', expires: '2026-11-01' };
+  assert.match(waiverIssue(w, TODAY), /real reason/);
+  assert.match(waiverIssue({ ...w, reason: 'legacy path', by: 'TBD' }, TODAY), /real reason/);
+  assert.equal(waiverIssue({ ...w, reason: 'legacy path', by: 'Jos' }, TODAY), null);
+});

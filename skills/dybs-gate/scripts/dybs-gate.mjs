@@ -106,6 +106,9 @@ export function markdownHazards(text) {
       continue;
     }
     if (line.includes('<!--')) problems.push('HTML comments must start a line of their own (no escaped or inline <!--)');
+    // A heading inside a list item or quote (`- ## Archived`) still ends a
+    // section on screen, so it is refused rather than modelled.
+    if (/^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}([ \t]|$)/.test(line)) problems.push('headings may not sit inside a list item or a quote');
     // An underlined (Setext) heading ends a section on screen, so it is
     // refused rather than modelled: gate.md uses "#" and "##" headings only.
     if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(\||#|`{3,}|~{3,}|<!--)/.test(prev) && !prev.includes('-->')) {
@@ -312,7 +315,10 @@ export function parseGate(text) {
 
 export function waiverIssue(w, today) {
   if (!w) return 'no waiver';
-  if (!w.reason || !w.by) return 'waiver needs a reason and the name of the human who approved it';
+  // An unfilled template value (`{{reason}}`, TODO, TBD) is no reason and no
+  // name: the waiver is incomplete, so the FAIL stands.
+  const unfilled = (v) => /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/i.test(v);
+  if (!w.reason || !w.by || unfilled(w.reason) || unfilled(w.by)) return 'waiver needs a real reason and the name of the human who approved it';
   if (!isDate(w.approved) || !isDate(w.expires)) return 'waiver needs real approved and expires dates (YYYY-MM-DD)';
   if (w.approved > today) return `waiver approval is dated ${w.approved}, after today`;
   if (w.expires < today) return `waiver expired on ${w.expires}`;
