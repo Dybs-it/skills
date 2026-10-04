@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, chmodSync, realpathSync, linkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, chmodSync, realpathSync, linkSync, copyFileSync, constants as fsConstants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -360,18 +360,21 @@ export function localDate(d = new Date()) {
 // its content. Refuses a doc that would not validate as accepted.
 // Filesystem calls acceptDoc uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync };
+export const fsOps = { link: linkSync, copyFile: copyFileSync };
 
 // Puts `from` at `to` without overwriting anything there: link() where the
-// filesystem has hard links, a check followed by rename() where it does not.
-function placeNoClobber(from, to) {
+// filesystem has hard links, an exclusive copy (COPYFILE_EXCL, O_EXCL) where
+// it does not. Either refuses a file or link that appears at `to` at any
+// moment; a check followed by rename() would replace one that appeared in
+// between.
+export function placeNoClobber(from, to) {
   try {
     fsOps.link(from, to);
     rmSync(from);
   } catch (err) {
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    if (existsSync(to)) throw Object.assign(new Error(`${to} exists`), { code: 'EEXIST' });
-    renameSync(from, to);
+    fsOps.copyFile(from, to, fsConstants.COPYFILE_EXCL);
+    rmSync(from);
   }
 }
 

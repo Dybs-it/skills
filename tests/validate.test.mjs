@@ -661,3 +661,27 @@ test('--accept puts the doc back when the final placement fails', async () => {
   assert.equal(readFileSync(path, 'utf8'), before);
   rmSync(dir, { recursive: true });
 });
+
+test('without hard links, accept places the doc with an exclusive copy and refuses a target that appeared', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { constants } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const calls = [];
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.copyFile = (from, to, flags) => { calls.push(flags); return real.copyFile(from, to, flags); };
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-place-'));
+  try {
+    writeFileSync(join(dir, 'from'), 'new');
+    mod.placeNoClobber(join(dir, 'from'), join(dir, 'to'));
+    assert.equal(readFileSync(join(dir, 'to'), 'utf8'), 'new');
+    assert.ok(!existsSync(join(dir, 'from')));
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0] & constants.COPYFILE_EXCL);
+    writeFileSync(join(dir, 'from'), 'newer');
+    assert.throws(() => mod.placeNoClobber(join(dir, 'from'), join(dir, 'to')), (e) => e.code === 'EEXIST');
+    assert.equal(readFileSync(join(dir, 'to'), 'utf8'), 'new');
+  } finally {
+    Object.assign(mod.fsOps, real);
+    rmSync(dir, { recursive: true });
+  }
+});

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, cpSync, symlinkSync,
-  readdirSync, lstatSync, chmodSync, statSync,
+  readdirSync, lstatSync, chmodSync, statSync, constants as fsConstants,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -677,4 +677,47 @@ test('CLI: update --json reports an update that stopped as JSON', async () => {
 test('standalone doc skills stop when project.md is missing, and skipped inputs are not read', () => {
   assert.match(readFileSync(join(SKILLS_SRC, 'dybs-prd', SKILL), 'utf8'), /No `dybs\/` folder, or no `dybs\/project\.md`/);
   assert.match(readFileSync(join(SKILLS_SRC, 'dybs-start', 'interview.md'), 'utf8').replace(/\s+/g, ' '), /listed under `skip:` in `project\.md` is not read/);
+});
+
+test('a skill folder that lost every file it ships is still found and repaired', () => {
+  const root = project(['dybs-check']);
+  const dir = join(root, '.agents/skills/dybs-check');
+  for (const rel of Object.keys(shippedFiles('dybs-check'))) rmSync(join(dir, rel));
+  const { results } = update([root]);
+  assert.equal(results.length, 1);
+  assert.equal(readFileSync(join(dir, SKILL), 'utf8'), shippedFiles('dybs-check')[SKILL].toString());
+  rmSync(root, { recursive: true });
+});
+
+test('a filesystem root contains every path under it', async () => {
+  const { within } = await import('../src/update.mjs');
+  const { sep } = await import('node:path');
+  assert.ok(within(`${sep}home${sep}x`, sep));
+  assert.ok(within(`${sep}a${sep}b`, `${sep}a`));
+  assert.ok(!within(`${sep}ab`, `${sep}a`));
+});
+
+test('without hard links, placement creates the target exclusively and keeps its mode', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const calls = [];
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.copyFile = (from, to, flags) => { calls.push(flags); return real.copyFile(from, to, flags); };
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-place-'));
+  try {
+    writeFileSync(join(dir, 'from'), 'new'); chmodSync(join(dir, 'from'), 0o755);
+    mod.placeNoClobber(join(dir, 'from'), join(dir, 'to'));
+    assert.equal(readFileSync(join(dir, 'to'), 'utf8'), 'new');
+    assert.equal(statSync(join(dir, 'to')).mode & 0o777, 0o755);
+    assert.ok(!existsSync(join(dir, 'from')));
+    assert.ok(calls.every((f) => f & fsConstants.COPYFILE_EXCL));
+    assert.equal(calls.length, 1);
+    // Something that appears at the target is refused, never replaced.
+    writeFileSync(join(dir, 'from'), 'newer');
+    assert.throws(() => mod.placeNoClobber(join(dir, 'from'), join(dir, 'to')), (e) => e.code === 'EEXIST');
+    assert.equal(readFileSync(join(dir, 'to'), 'utf8'), 'new');
+  } finally {
+    Object.assign(mod.fsOps, real);
+    rmSync(dir, { recursive: true });
+  }
 });
