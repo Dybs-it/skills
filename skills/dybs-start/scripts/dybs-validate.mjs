@@ -104,15 +104,16 @@ export function textOutsideCodeSpans(line) {
   return out;
 }
 
-// A line with its character references decoded where they render (`A &amp;
-// B` shows `A & B`): outside code spans and not after an escaped `&`. null
-// when a backtick run stays open: the span may go on to the next line, and
-// decoding inside code would count fewer words than a reader sees.
-function decodeOutsideCode(line) {
+// A line with `fn` applied only outside its code spans, which render as
+// written (`[a][b]`, `](url)` and `&amp;` inside code are text). Escaped
+// punctuation is protected from `fn` and comes back as written. null when a
+// backtick run stays open: the span may go on to the next line, so nothing
+// on it can be judged as outside code.
+function outsideCode(line, fn) {
   let out = '';
   let text = '';
   const flush = () => {
-    out += decodeReferences(text).replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
+    out += fn(text).replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
     text = '';
   };
   let i = 0;
@@ -676,7 +677,9 @@ export function headings(body) {
     const ordered = [...markers.matchAll(/(\d{1,9})[.)]/g)];
     // Inside the same block quotes: the line before, read without its `>`.
     const before = i === 0 ? '' : lines[i - 1].replace(/^(?: {0,3}>[ \t]?)*/, '');
-    const afterBlank = i === 0 || /^[ \t]*$/.test(before) || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(before);
+    // A blank line, a heading or a thematic break (`---`, `***`, `___`; as a
+    // setext underline it ends a paragraph just the same) ends the block.
+    const afterBlank = i === 0 || /^[ \t]*$/.test(before) || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(before) || /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/.test(before);
     if (ordered.some((o) => Number(o[1]) !== 1) && !afterBlank) return;
     found.push(text);
   });
@@ -694,16 +697,16 @@ export function wordCount(body) {
   // only its text; after an escaped opener the label is a link of its own.
   const labels = new Set([...defs.values()].filter(Boolean));
   const dropLabels = (l) => l.replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[([^\[\]\n]+)\]/g, (m, text, l2) => (labels.has(label(l2)) ? text : m));
-  // References are decoded as rendered, except in a paragraph where a code
-  // span may be open across lines: there the raw text is counted (more).
+  // Link targets, defined labels and references are read as rendered, but
+  // only outside code spans; in a paragraph where a code span may be open
+  // across lines the raw text is counted (more).
   let openSpan = false;
   const prose = lines.map((l, i) => {
     if (/^(?: {0,3}>[ \t]?)*[ \t]*$/.test(l)) openSpan = false;
     if (defs.has(i)) return '';
-    const shown = dropLabels(dropValidLinkTargets(l));
-    const decoded = openSpan ? null : decodeOutsideCode(shown);
-    if (decoded === null) { openSpan = true; return shown; }
-    return decoded;
+    const shown = openSpan ? null : outsideCode(l, (t) => decodeReferences(dropLabels(dropValidLinkTargets(t))));
+    if (shown === null) { openSpan = true; return l; }
+    return shown;
   }).join('\n');
   return (prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 }
@@ -939,7 +942,10 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // aside before the markup is removed and come back as the bare character.
   // Only a well-formed link loses its destination: `T[O](bad destination)DO`
   // is no link, and shows no TODO.
+  // A full or collapsed reference link with a defined label shows its text
+  // only: `T[O][r]DO` reads TODO.
   const flat = dropValidLinkTargets(shown)
+    .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[([^\[\]\n]*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? t : m))
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
     .replace(/[*_~`[\]]/g, '')
     .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));

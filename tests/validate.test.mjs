@@ -2606,3 +2606,15 @@ test('a malformed link is no placeholder, and an ordered item after a quoted hea
   assert.ok(!validateDoc('prd', quoted).rules.includes('sections'));
   assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', '> text\n> 2. ## Goals')).rules.includes('sections'));
 });
+
+test('code spans keep link syntax as text, defined references can split a placeholder, and a break ends a block', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // Inline code renders as written: all four words count.
+  assert.equal(wordCount('`[shown][three hidden words]`\n\n[three hidden words]: /u\n'), 4);
+  assert.equal(wordCount('`[a](http://x/y)` z\n'), 5);
+  // `T[O][r]DO` renders TODO when `r` is defined.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O][r]DO\n\n[r]: /url\n').rules.includes('placeholder'));
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O][]DO\n\n[o]: /url\n').rules.includes('placeholder'));
+  // A thematic break ends the block before it: `2.` may start a list.
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '***\n2. ## Goals')).rules.includes('sections'));
+});
