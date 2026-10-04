@@ -1862,3 +1862,20 @@ test('without hard links, --accept checks the folders before a fallback copy wri
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('compact comments <!--> and <!---> close at once', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // commonmark.js: a complete comment, then an ordinary paragraph.
+  assert.match(visibleText('<!-->\nTODO after\n', { keepCode: true }), /TODO after/);
+  assert.match(visibleText('<!--->\nTODO after\n', { keepCode: true }), /TODO after/);
+});
+
+test('--doc on a doc under skip: is not reported as passing', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: ui'));
+  rmSync(join(dir, 'dybs/context/ui.md'));
+  const r = validateProject(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.match(r.results.find((x) => x.name === 'ui').errors.join(' '), /under skip/);
+  rmSync(dir, { recursive: true });
+});

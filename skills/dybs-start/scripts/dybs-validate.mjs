@@ -204,6 +204,9 @@ function stripComments(line, st, closesLater, block = false, commentClosesLater 
       i += 2;
       continue;
     }
+    // `<!-->` and `<!--->` are complete comments in CommonMark.
+    if (line.startsWith('<!-->', i)) { i += 5; continue; }
+    if (line.startsWith('<!--->', i)) { i += 6; continue; }
     if (line.startsWith('<!--', i)) {
       const end = line.indexOf('-->', i + 4);
       if (end < 0) {
@@ -726,7 +729,9 @@ export function validateProject(root, only) {
     const path = join(dir, spec.file);
     // project.md holds the settings, so it can never skip itself.
     if (skip.has(name) && name !== 'project') {
-      results.push({ name, file: spec.file, status: 'skipped', words: 0, errors: [], warnings: [] });
+      // A doc asked for by name is never reported as passing unchecked.
+      const errors = only === name ? [`${spec.file} is under skip: in project.md, so it is not validated; remove it from skip: to check it`] : [];
+      results.push({ name, file: spec.file, status: 'skipped', words: 0, errors, warnings: [] });
       continue;
     }
     if (!existsSync(path)) {
