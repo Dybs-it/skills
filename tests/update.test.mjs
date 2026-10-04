@@ -348,3 +348,13 @@ test('the gate template parses and computes', () => {
   const r = execFileSync('node', [join(PKG_ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), join(PKG_ROOT, 'tests/fixtures/gate-pass.md'), '--json'], { encoding: 'utf8' });
   assert.equal(JSON.parse(r).decision, 'PASS');
 });
+
+test('docs/sources.md describes every skill', () => {
+  const t = readFileSync(join(PKG_ROOT, 'docs/sources.md'), 'utf8');
+  for (const s of skillNames()) {
+    const section = t.split(new RegExp(`^### \`${s}\`$`, 'm'))[1];
+    assert.ok(section, `docs/sources.md has no "### \`${s}\`" section`);
+    const body = section.split(/^##/m)[0];
+    assert.match(body, /\*\*Our own:\*\*/, `${s}: say what is our own`);
+  }
+});

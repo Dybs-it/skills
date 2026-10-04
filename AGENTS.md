@@ -27,5 +27,7 @@
   real work, recorded in `tests/runs/`.
 - New phases follow `docs/ROADMAP.md`; significant choices get a record in
   `docs/decisions/`.
-- Adapting text from another project: check its license first, keep its
-  notice, and add a row to `docs/sources.md` in the same commit.
+- Every skill has a section in `docs/sources.md`: what it does, what is our
+  own, what is adapted from where (a test enforces it). Adapting text from
+  another project: check its license first, keep its notice, and update that
+  section in the same commit.
