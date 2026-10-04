@@ -258,7 +258,9 @@ function containerPrefix(line) {
 // The content column of every list item a line opens, outermost first:
 // `- - item` opens two, at columns 2 and 4.
 function markerCols(line, first) {
-  const cols = [first[0].length];
+  // A marker with nothing after it (`-` alone) still takes its one space:
+  // its content column is two, as if the space were there.
+  const cols = [first[0].length + (/[ \t]$/.test(first[0]) ? 0 : 1)];
   let rest = line.slice(first[0].length);
   let m;
   while ((m = rest.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| )(?=\S)/))) {
@@ -290,6 +292,10 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
   // The quote depth the current list sits in: a line outside that quote
   // is measured from the margin, not from the list's items.
   let listQuote = 0;
+  // An item opened with nothing on its line (`-` alone) ends at a blank
+  // line that comes before any content: it can start with one blank line
+  // at most, so what follows is outside it.
+  let emptyItem = false;
   let prevBlank = true;
   // The deepest quote the open paragraph has reached: a line that drops out
   // of the quote lazily continues that paragraph, so re-entering the quote
@@ -489,6 +495,10 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     if (htmlTail && line.replace(/^(?: {0,3}>[ \t]?)+/, '').trim() !== '') line = line.replace(/^((?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+)*)/, '$1\u0001');
     // List markers are read after the `>` markers too (`> 10. item`).
     const qline = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
+    // An empty item (`-` alone) cannot interrupt a paragraph: right after
+    // paragraph text, in the same container, it is more of that paragraph
+    // or its setext underline. Left of a list item's content it is a new item.
+    const bareAfterText = para && !prevBlank && (!inList || inItemText) && /^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]*$/.test(qline);
     const nowBlank = qline.trim() === '' && !inlineTail;
     // The list item the previous line belonged to, before this line can end it.
     const itemColBefore = inList ? (items.at(-1) ?? listIndent) : 0;
@@ -502,7 +512,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
       || (inList && /^ {0,3}>/.test(line) && line.match(/^ */)[0].length < (items.at(-1) ?? listIndent));
     if (!nowBlank && !/^( {4}|\t)/.test(qline)) {
       // `2. x` after paragraph text continues the paragraph: no list starts.
-      const item = breaksList || !interrupts ? null : qline.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| |$)/);
+      const item = breaksList || !interrupts || bareAfterText ? null : qline.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| |$)/);
       if (item) listIndent = markerCols(qline, item).at(-1);
       // A line left of the item's content stays in it only as a lazy
       // continuation of a paragraph: after a comment block or code it is
@@ -515,11 +525,13 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     }
     if (!nowBlank) {
       const at = qline.match(/^ */)[0].length;
-      const marker = breaksList || !interrupts ? null : qline.match(/^ *(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| |$)/);
+      const marker = breaksList || !interrupts || bareAfterText ? null : qline.match(/^ *(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| |$)/);
       if (marker && at < (items.at(-1) ?? 0) + 4) {
         while (items.length && items.at(-1) > at) items.pop();
-        items.push(...markerCols(qline, marker));
+        const cols = markerCols(qline, marker);
+        items.push(...cols);
         listQuote = quoteDepth(line);
+        emptyItem = qline.slice(cols.at(-1)).trim() === '';
       } else if (prevBlank) {
         // After a blank line, a less indented line has left those items.
         while (items.length && items.at(-1) > at) items.pop();
@@ -528,6 +540,12 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     // A comment block left of the list's content ends the list (an HTML
     // block interrupts it, blank line or not).
     if (blockComment && inList && commentLead < listIndent) inList = false;
+    if (!nowBlank && !(inList && items.length && emptyItem && newItem)) emptyItem = false;
+    if (nowBlank && emptyItem && inList) {
+      emptyItem = false;
+      items.pop();
+      if (items.length) listIndent = items.at(-1); else inList = false;
+    }
     if (!inList) items.length = 0;
     const wasBlank = prevBlank;
     prevBlank = nowBlank;
@@ -557,12 +575,15 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
         // And under exactly the containers of the line above (list markers
         // read as their width): `  > more` / `> ===` are not one paragraph.
         // In doubt this is no underline, which can only count more words.
-        && containerPrefix(lines[n]) === paraPrefix
+        // (A bare `-` here is no marker: see bareAfterText.)
+        && (bareAfterText || containerPrefix(lines[n]) === paraPrefix)
         && !(inList && qline.match(/^ */)[0].length < (items.at(-1) ?? listIndent)));
     // The containers a paragraph opened in, from its first line: a lazy
     // line after it does not move the paragraph.
     const wasPara = para;
     para = !nowBlank && !afterBlock && (!htmlTail || inlineTail);
+    // A marker with nothing after it (`-` alone) opens no paragraph.
+    if (newItem && emptyItem) para = false;
     // A new list item starts a new paragraph too, in its own containers.
     if (para && (!wasPara || newItem)) {
       paraPrefix = containerPrefix(lines[n]);
@@ -632,6 +653,31 @@ export function acceptedHash(data, body) {
 // the doc says it was written at. The cap follows the doc. A doc written at
 // quick depth where thorough is requested needs deepening; it is never
 // reported as thorough just because the project setting changed.
+// Removes every `](destination)` and `][label]`, with the destination's
+// parentheses balanced (`](foo(bar))`), so only the text a reader sees is
+// left between the brackets.
+function dropLinkTargets(text) {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === ']' && text[i + 1] === '(') {
+      let depth = 0;
+      let j = i + 1;
+      for (; j < text.length && text[j] !== '\n'; j++) {
+        if (text[j] === '\\') { j++; continue; }
+        if (text[j] === '(') depth++;
+        else if (text[j] === ')' && --depth === 0) break;
+      }
+      if (depth === 0 && j < text.length && text[j] === ')') { i = j; continue; }
+    }
+    if (text[i] === ']' && text[i + 1] === '[') {
+      const end = text.indexOf(']', i + 2);
+      if (end > 0 && !text.slice(i + 2, end).includes('\n')) { i = end; continue; }
+    }
+    out += text[i];
+  }
+  return out;
+}
+
 export function validateDoc(name, text, requestedDepth = 'quick', checkins = undefined) {
   const spec = DOCS[name];
   const errors = [];
@@ -729,7 +775,7 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // (`T**O**DO`, `[TO](x)DO`), so it is also checked with emphasis, code
   // and link markup removed. That can only find more, never fewer.
   const shown = decodeReferences(visibleText(body, { keepCode: true }));
-  const flat = shown.replace(/\]\([^)\n]*\)|\]\[[^\]\n]*\]/g, '').replace(/[*_~`[\]]/g, '');
+  const flat = dropLinkTargets(shown).replace(/[*_~`[\]]/g, '');
   const frontmatterValues = Object.values(data || {}).join('\n');
   if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat) || PLACEHOLDER.test(decodeReferences(frontmatterValues))) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';

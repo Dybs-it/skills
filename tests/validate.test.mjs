@@ -2204,3 +2204,19 @@ test('--accept never puts a replacement back outside the project through a swapp
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('balanced link destinations and empty list items read as CommonMark does', async () => {
+  const { wordCount, visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // `](foo(bar))` is one destination: the link text and what follows read `TODO`.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O](foo(bar))DO\n').rules.includes('placeholder'));
+  // `-` alone takes its one space: content at column 2, so five spaces are
+  // three inside the item, a paragraph (commonmark.js: `<li>more words here</li>`).
+  assert.equal(wordCount('-\n     more words here\n'), 3);
+  // ...and `      <!--` under it is four past that, indented code, not a comment.
+  assert.match(visibleText('-\n      <!--\n   TODO\n-->\n', { keepCode: true }), /TODO/);
+  // An empty item ends at a blank line: what follows is read from the margin.
+  assert.match(visibleText('  - \n\n     <!-- x\n    code TODO\n', { keepCode: true }), /TODO/);
+  // A bare `-` right after paragraph text is its setext underline, no item:
+  // `     <!--` below the heading is indented code.
+  assert.match(visibleText('-->\n-\n     <!--\n   TODO\n', { keepCode: true }), /TODO/);
+});
