@@ -794,15 +794,11 @@ test('--accept --json reports an operational failure as JSON', async () => {
   assert.equal(out.ok, false);
   assert.equal(out.accept, 'ui');
   assert.match(out.errors.join(' '), /EIO/);
-  // The failed accept left the doc as it was. With links failing it was put
-  // back by copy, so the original itself is kept and named, nothing else.
+  // The failed accept left the doc as it was. With links failing, the
+  // original cannot even be moved aside, so nothing changed at all.
   assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
   const { readdirSync } = await import('node:fs');
-  const stray = readdirSync(join(dir, 'dybs/context')).filter((n) => n.includes('.dybs-'));
-  assert.equal(stray.length, 1);
-  assert.ok(stray[0].endsWith('.old'));
-  assert.match(out.errors.join(' '), new RegExp(`kept at .*${stray[0].replace(/[.]/g, '\\.')}`));
-  assert.match(readFileSync(join(dir, 'dybs/context', stray[0]), 'utf8'), /status: draft/);
+  assert.deepEqual(readdirSync(join(dir, 'dybs/context')).filter((n) => n.includes('.dybs-')), []);
   rmSync(dir, { recursive: true });
 });
 
@@ -1074,7 +1070,9 @@ test('--accept restores the original without overwriting a save that appeared', 
   let calls = 0;
   // The placement of the accepted copy fails after an editor saved a new
   // version at the path; the restore must not overwrite that save.
-  mod.fsOps.link = (from, to) => { if (++calls === 1) { writeFileSync(to, 'saved meanwhile'); throw Object.assign(new Error('EIO'), { code: 'EIO' }); } return real(from, to); };
+  // (The first link moves the original aside; the placement link is the one
+  // from the temporary copy.)
+  mod.fsOps.link = (from, to) => { if (String(from).endsWith('.tmp') && ++calls === 1) { writeFileSync(to, 'saved meanwhile'); throw Object.assign(new Error('EIO'), { code: 'EIO' }); } return real(from, to); };
   try {
     assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /original is kept at/);
   } finally { mod.fsOps.link = real; }
@@ -1388,4 +1386,34 @@ test('an indented code block in a list item ends at its own code column', async 
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   assert.equal(wordCount('- item\n\n      code\n    ordinary prose\n'), 3);
   assert.equal(wordCount('- item\n\n      code\n      more code\n'), 1);
+});
+
+test('--accept never replaces a file that appears at the .old name', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(path, 'utf8');
+  let foreign;
+  assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', {
+    beforeMoveAside: (old) => { foreign = old; writeFileSync(old, 'someone else'); },
+  }), /something appeared at/);
+  assert.equal(readFileSync(foreign, 'utf8'), 'someone else');
+  assert.equal(readFileSync(path, 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
+
+test('without hard links, --accept reserves the .old name and still works', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  const dir = copySample();
+  try { assert.equal(mod.acceptDoc(dir, 'ui', '2026-10-04').ok, true); } finally { Object.assign(mod.fsOps, real); }
+  assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: accepted/);
+  rmSync(dir, { recursive: true });
+});
+
+test('dybs-check checks readiness only for docs that are not skipped', () => {
+  const t = readFileSync(join(ROOT, 'skills/dybs-check/SKILL.md'), 'utf8');
+  const step = t.slice(t.indexOf('6. **Readiness.**'), t.indexOf('7. **Depth.**'));
+  assert.match(step, /does not list under `skip:`/);
 });
