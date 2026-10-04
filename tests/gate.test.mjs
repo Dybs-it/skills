@@ -453,3 +453,16 @@ test('raw HTML after a list marker or quote is refused', () => {
     assert.match(parseGate(text).problems.join(' '), /may not contain raw HTML/, opener);
   }
 });
+
+test('a closing run of # does not hide a duplicate gate section', () => {
+  const text = gate({ items: [full('a', 'P0')] }) + '\n## Items ##\n\n| Item | Priority | Coverage | Evidence | Security |\n|---|---|---|---|---|\n| b | P0 | NONE |  | no |\n';
+  assert.match(parseGate(text).problems.join(' '), /"## Items" appears more than once/);
+});
+
+test('a test location may start with a Windows drive', async () => {
+  const { hasLocation } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  assert.ok(hasLocation('C:\\repo\\tests\\invite.test.ts:14'));
+  assert.ok(hasLocation('C:/repo/tests/invite.test.ts:14'));
+  assert.ok(!hasLocation('C:/repo/tests/invite.test.ts'));
+  assert.ok(!hasLocation('C::14'));
+});

@@ -17,7 +17,8 @@ export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 // A test location: a whole token `path:line`, line from 1 up. Evidence may
 // list several, separated by spaces, commas or semicolons, in backticks or not.
-const LOCATION_TOKEN = /^[^\s:`]+:[1-9]\d*$/;
+// A Windows path may start with a drive (`C:\` or `C:/`).
+const LOCATION_TOKEN = /^(?:[A-Za-z]:[\\/])?[^\s:`]+:[1-9]\d*$/;
 export const hasLocation = (evidence) => (evidence || '').split(/[\s,;]+/)
   .map((t) => t.replace(/^`|`$/g, '')).some((t) => LOCATION_TOKEN.test(t));
 // The risk categories quality.md defines.
@@ -126,7 +127,8 @@ export function cellsOf(line) {
 // "## <heading>" as Markdown renders it: indented four spaces or a tab, it
 // is code, not a heading.
 function isHeading(line, heading) {
-  const m = line.match(/^ {0,3}##[ \t]+(.*?)[ \t]*$/);
+  // An optional closing run of `#` (`## Items ##`) is not part of the text.
+  const m = line.match(/^ {0,3}##[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/);
   return Boolean(m) && m[1].toLowerCase() === heading.toLowerCase();
 }
 
