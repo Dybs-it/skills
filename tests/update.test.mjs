@@ -724,3 +724,16 @@ test('status prints the real reason a folder was left alone', async () => {
   assert.doesNotMatch(out.join('\n'), /resolves outside the requested folder/);
   rmSync(root, { recursive: true });
 });
+
+test('a staged file edited before it is installed stops the update', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  const beforePin = (s) => { if (s.tmp && existsSync(s.tmp)) writeFileSync(s.tmp, 'tampered'); };
+  assert.throws(() => applyPlan(plan, { beforePin }), /staged copy of SKILL\.md changed/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});

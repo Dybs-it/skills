@@ -61,7 +61,7 @@ export const MANUAL_RULES = [
   { id: 'accepted-date', text: 'An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human\'s word.' },
   { id: 'sections', text: 'Every required `##` section is present (see the template or the doc contract).' },
   { id: 'cap', text: 'The doc is under its word cap, not counting HTML comments and code blocks.' },
-  { id: 'html', text: 'No raw HTML blocks (a line outside code that starts with an HTML tag such as `<pre>` or `<div>`): they change what renders in ways a reader of the source cannot see. HTML comments are fine.' },
+  { id: 'html', text: 'No raw HTML blocks (a line outside code that starts with an HTML tag such as `<pre>` or `<div>`, or with `<?`, `<!` or `<![CDATA[`): they change what renders in ways a reader of the source cannot see. HTML comments are fine.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 
@@ -251,7 +251,9 @@ export function validateDoc(name, text) {
 
   // Raw HTML blocks hide or show Markdown (a heading inside <pre> is not a
   // heading), so they are refused rather than interpreted.
-  const html = visibleText(body).split('\n').find((l) => /^ {0,3}<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)/.test(l));
+  // Every CommonMark raw-block opener: a tag, a processing instruction
+  // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
+  const html = visibleText(body).split('\n').find((l) => /^ {0,3}(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);

@@ -300,3 +300,12 @@ test('a fence in a multi-digit list item closes at the item indent', async () =>
   // At the top level a closing fence indented four spaces is code, not a close.
   assert.deepEqual(headings('```\nx\n    ```\n## Hidden\n'), []);
 });
+
+test('processing instructions, declarations and CDATA are raw HTML too', () => {
+  for (const opener of ['<?hidden', '<!DOCTYPE x', '<![CDATA[']) {
+    const dir = copySample();
+    edit(dir, 'project.md', (t) => t + `\n${opener}\n## Why\n`);
+    assert.ok(validateProject(dir).results.find((x) => x.name === 'project').rules.includes('html'), opener);
+    rmSync(dir, { recursive: true });
+  }
+});
