@@ -307,7 +307,7 @@ function mkdirNoFollow(root, relDir) {
 
 // Filesystem calls applyPlan uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync };
+export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, read: readFileSync };
 
 // Puts a copy of `from` at `to` without overwriting anything there, and
 // leaves `from` for the caller to remove once it has recorded the placement:
@@ -481,8 +481,19 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         }
         undo(s.a.rel, () => rmSync(s.p));
       }
-      // Put the original back without overwriting anything that appeared.
-      if (s.old) undo(s.a.rel, () => { placeNoClobber(s.old, s.p); rmSync(s.old); });
+      // Put the original back without overwriting anything that appeared,
+      // and only while the name still leads, through the pinned folders, to
+      // the very file we moved aside: a folder swapped for a link could show
+      // an outside file under the same name, which is never ours to move.
+      if (s.old) {
+        undo(s.a.rel, () => {
+          if (chainOf(dir, s.a.rel) !== s.chain || idOf(s.old) !== s.oldId) {
+            throw new Error(`a folder on the way changed; the original was not put back, it is at ${s.old}`);
+          }
+          placeNoClobber(s.old, s.p);
+          rmIfOurs(s.old, s.oldId);
+        });
+      }
     }
     // Remove only what is provably ours: the file at that name must be the
     // one we wrote, or a same-named file reached through a swapped link
@@ -512,15 +523,17 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // Deleted only when provably ours: reached through the pinned folders,
       // the very file we moved aside, and still holding the planned bytes.
       // Anything less is kept and reported.
-      const here = chainOf(dir, s.a.rel) === s.chain && idOf(s.old) === s.oldId;
+      const chainOk = chainOf(dir, s.a.rel) === s.chain;
+      const id = idOf(s.old);
       let bytes = null;
-      try { bytes = here ? readFileSync(s.old) : null; } catch { bytes = null; }
+      try { bytes = chainOk && id === s.oldId ? fsOps.read(s.old) : null; } catch { bytes = null; }
       // The update is committed by now: a cleanup that fails (a locked
-      // file, a permission change) leaves the original in place and is
-      // reported, it never turns a finished update into a failure.
-      if (here && bytes && sha(bytes) === s.a.hash) {
+      // file, a permission change, a file that cannot be read) leaves the
+      // original in place and is reported, it never turns a finished update
+      // into a failure. Only a name that is provably empty is "already gone".
+      if (bytes && sha(bytes) === s.a.hash) {
         try { fsOps.rm(s.old); } catch { s.a.kept = s.old; }
-      } else if (here && !bytes) { /* already gone */ } else s.a.kept = s.old;
+      } else if (chainOk && id === null) { /* already gone */ } else s.a.kept = s.old;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {
       try { removeEmptyDirs(dirname(s.p), dir); } catch { /* an empty folder left behind is harmless */ }

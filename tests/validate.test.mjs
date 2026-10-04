@@ -1118,3 +1118,18 @@ test('--doc also checks project.md, which holds the settings', () => {
   assert.ok(r.results.find((x) => x.name === 'project').errors.some((e) => e.includes('does not exist yet')));
   rmSync(dir, { recursive: true });
 });
+
+test('a fence ends with its block quote or list item; a bare ``` then opens a new one', async () => {
+  const { headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.deepEqual(headings('## A\n\n> ```\n> code\n```\n## Hidden\n```\n\n## B\n'), ['A', 'B']);
+  assert.deepEqual(headings('## A\n\n- ```\n  code\n```\n## Hidden\n```\n\n## B\n'), ['A', 'B']);
+  assert.deepEqual(headings('## A\n\n- item\n\n  ```\n  ## in code\n  ```\n\n## B\n'), ['A', 'B']);
+});
+
+test('a code span does not carry into a block quote or list item that interrupts it', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(visibleText('ordinary unmatched `\n> # quote <!-- TODO -->\n> close `\n', { keepCode: true }), 'ordinary unmatched `\n> # quote \n> close `\n');
+  assert.equal(visibleText('plain `\n> quoted <!-- TODO -->\n> close `\n', { keepCode: true }), 'plain `\n> quoted \n> close `\n');
+  assert.equal(visibleText('a `\n- item <!-- TODO -->\nclose `\n', { keepCode: true }), 'a `\n- item \nclose `\n');
+  assert.equal(visibleText('a `code\nstill <!-- x --> code` end\n', { keepCode: true }), 'a `code\nstill <!-- x --> code` end\n');
+});
