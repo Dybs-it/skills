@@ -516,3 +516,14 @@ test('--accept checks project.md at its own requested depth', () => {
   assert.equal(acceptDoc(dir, 'prd', '2026-10-04').ok, true);
   rmSync(dir, { recursive: true });
 });
+
+test('the validator runs when called through a linked skill folder', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-link-'));
+  symlinkSync(join(ROOT, 'skills/dybs-start'), join(dir, 'dybs-start'));
+  let out = '';
+  try {
+    out = execFileSync('node', [join(dir, 'dybs-start/scripts/dybs-validate.mjs'), SAMPLE], { encoding: 'utf8' });
+  } catch (e) { out = e.stdout; }
+  assert.match(out, /prd\.md/);
+  rmSync(dir, { recursive: true });
+});
