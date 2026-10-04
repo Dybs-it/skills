@@ -67,7 +67,8 @@ function skillFolders(root) {
     .filter((p) => existsSync(p) && statSync(p).isDirectory());
 }
 
-const within = (p, root) => p === root || p.startsWith(root + sep);
+// A root that already ends in a separator (`/`, `C:\\`) is its own prefix.
+export const within = (p, root) => p === root || p.startsWith(root.endsWith(sep) ? root : root + sep);
 
 // Installed Dybs skills, deduplicated by real path (symlinks followed).
 // A skill whose real folder lies outside every requested root is reported in
@@ -82,10 +83,10 @@ export function discover(roots) {
     for (const folder of skillFolders(root)) {
       for (const skill of skillNames()) {
         const dir = join(folder, skill);
-        // An install is recognised by any file we ship in it, not only by
-        // SKILL.md: an install that lost SKILL.md is damaged, and update
-        // repairs it instead of calling it "not installed".
-        if (!existsSync(dir) || !Object.keys(shippedFiles(skill)).some((rel) => existsSync(join(dir, rel)))) continue;
+        // An install is recognised by its folder, not by SKILL.md: an install
+        // that lost files (dybs-check ships SKILL.md alone) is damaged, and
+        // update repairs it instead of calling it "not installed".
+        if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
         const real = realpathSync(dir);
         if (!realRoots.some((r) => within(real, r))) {
           skipped.push({ skill, dir: real, via: dir, why: 'resolves outside the requested folder' });
@@ -220,20 +221,23 @@ function mkdirNoFollow(root, relDir) {
 
 // Filesystem calls applyPlan uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync };
+export const fsOps = { link: linkSync, copyFile: copyFileSync };
 
 // Puts `from` at `to` without overwriting anything there. link() does that
 // atomically; on a filesystem without hard links (exFAT, some network
-// mounts) it falls back to a check followed by rename().
-function placeNoClobber(from, to) {
+// mounts) it falls back to an exclusive copy: COPYFILE_EXCL creates `to`
+// with O_EXCL, so a file or link that appears there at any moment is
+// refused, never replaced. A check followed by rename() would overwrite
+// whatever appeared in between.
+export function placeNoClobber(from, to) {
   try {
     fsOps.link(from, to);
     rmSync(from);
   } catch (err) {
     if (err.code === 'EEXIST') throw err;
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    if (taken(to)) throw Object.assign(new Error(`${to} exists`), { code: 'EEXIST' });
-    renameSync(from, to);
+    fsOps.copyFile(from, to, fsConstants.COPYFILE_EXCL);
+    rmSync(from);
   }
 }
 
