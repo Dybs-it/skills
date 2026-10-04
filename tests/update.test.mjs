@@ -2748,3 +2748,54 @@ test('without hard links, an original that cannot be looked up at cleanup is rep
   assert.match(String(a.kept ?? ''), /\.rm$/);
   rmSync(root, { recursive: true });
 });
+
+test('empty folders are never pruned through a skill folder swapped for a link', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  mkdirSync(join(dir, 'old'));
+  writeFileSync(join(dir, 'old/retired.mjs'), 'as shipped');
+  const known = { ...knownHashes(), 'dybs-start/old/retired.mjs': [sha('as shipped')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  assert.equal(plan.actions.find((a) => a.rel === 'old/retired.mjs').op, 'remove');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'old'));
+  let swapped = false;
+  // Right before pruning, the skill folder becomes a link to a tree that
+  // holds an empty folder of the same name.
+  mod.testHooks.beforePrune = (d) => {
+    if (swapped || d !== join(dir, 'old')) return;
+    swapped = true;
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  try { mod.applyPlan(plan); } catch { /* reported */ } finally { mod.testHooks.beforePrune = null; }
+  assert.ok(swapped);
+  assert.ok(existsSync(join(outside, 'old')), 'the outside folder is never removed');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a --force backup that went outside through a folder swapped and restored is named in the error', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own version');
+  const plan = mod.planInstall(findInstalls([root])[0], { force: true });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let writing = false;
+  // As if the folder had been a link while the backup was created, and was
+  // restored since: the backup is out of reach by name.
+  const beforeBackup = (phase) => { if (phase === 'write') writing = true; };
+  mod.fsOps.write = (fd, data) => {
+    const r = real.write(fd, data);
+    if (writing) { writing = false; renameSync(`${prd(root)}.bak`, join(outside, 'SKILL.md.bak')); }
+    return r;
+  };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeBackup }), /written outside the install/); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(join(outside, 'SKILL.md.bak'), 'utf8'), 'my own version');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
