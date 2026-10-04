@@ -72,7 +72,9 @@ the project, so you will miss gaps a fresh reader would hit.
 ## 4. Check in
 
 Give one brief in the `dybs/README.md` format. Include every `needs-you` line
-that earlier skills wrote to `dybs/log.md` (with `checkins: end` or `none`).
+that earlier skills wrote to `dybs/log.md` (with `checkins: end` or `none`)
+and that has no `resolved` line with the same id yet; log the human's answers
+as `resolved` lines.
 Under **Needs you**, ask for
 acceptance of each doc that is still `draft`, and put any contradiction
 between two accepted docs first, since it is a safety stop. With

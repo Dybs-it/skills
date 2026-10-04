@@ -87,8 +87,10 @@ export function parseFrontmatter(text) {
   return { data, body: text.slice(m[0].length), duplicates };
 }
 
+// Headings a reader sees: none inside HTML comments or fenced examples.
 export function headings(body) {
-  return [...body.matchAll(/^##\s+(.+?)\s*$/gm)].map((h) => h.at(1));
+  const visible = body.replace(/<!--[\s\S]*?(?:-->|$)/g, '').replace(/^ {0,3}(```|~~~)[\s\S]*?(?:^ {0,3}\1[^\n]*$|(?![\s\S]))/gm, '');
+  return [...visible.matchAll(/^ {0,3}##\s+(.+?)\s*$/gm)].map((h) => h.at(1));
 }
 
 export function wordCount(body) {
@@ -270,6 +272,8 @@ export function validateProject(root, only) {
 export function nextStep(results, checkins = 'each-doc') {
   const draftsWait = checkins === 'end' || checkins === 'none';
   const deepeningWaits = checkins === 'none';
+  // A missing dybs/README.md is repaired by dybs-start, not by a doc skill.
+  if (results.some((r) => r.name === 'readme' && r.errors.length)) return 'dybs-start';
   const pending = results.find((r) => r.status === 'missing' || r.errors.length
     || (r.needsDeepening && !deepeningWaits)
     || (r.status === 'draft' && !draftsWait));
@@ -325,7 +329,8 @@ export function acceptDoc(root, name, today = localDate()) {
   // those settings must themselves be valid first.
   if (name !== 'project') {
     const projectPath = join(root, 'dybs', DOCS.project.file);
-    if (existsSync(projectPath)) {
+    if (!existsSync(projectPath)) return { ok: false, errors: ['dybs/project.md is missing: its depth and settings decide how this doc is accepted. Run dybs-start first.'] };
+    {
       const projectText = readFileSync(projectPath, 'utf8');
       const project = validateDoc('project', projectText, depthFor('project', parseFrontmatter(projectText).data));
       if (project.errors.length) return { ok: false, errors: project.errors.map((e) => `project.md: ${e}`) };
