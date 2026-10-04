@@ -1821,3 +1821,20 @@ test('placeholders written with character references are still placeholders', ()
   }
   assert.ok(!validateDoc('prd', VALID_PRD + '\nFish &amp; chips.\n').rules.includes('placeholder'));
 });
+
+test('a heading inside a list item keeps the item, so its indented prose still counts', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // commonmark.js: an h2 and a paragraph, both inside the item.
+  assert.equal(wordCount('- item\n  ## Details\n    many words\n'), 4);
+});
+
+test('--doc without a doc name is refused, never a whole-project pass', async () => {
+  const err = console.error; const log = console.log;
+  console.error = () => {}; console.log = () => {};
+  try {
+    const { main } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+    for (const args of [['--doc'], ['--doc', ''], ['--doc', '--json']]) {
+      assert.equal(main(['node', 'dybs-validate.mjs', SAMPLE, ...args]), 2, args.join(' '));
+    }
+  } finally { console.error = err; console.log = log; }
+});

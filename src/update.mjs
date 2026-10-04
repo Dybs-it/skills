@@ -208,6 +208,18 @@ function sameRoot(dir, root) {
 
 // Device and inode of a path itself (no link followed), or null.
 const idOfStat = (st) => `${st.dev}:${st.ino}`;
+// Reads a file without following a link at its own name (O_NOFOLLOW), and
+// only if what was opened is a regular file: a file swapped for a link after
+// it was inspected is never read through. null when it is not.
+function readNoFollow(p) {
+  let fd;
+  try { fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+    if (['ELOOP', 'EMLINK', 'ENOENT', 'ENOTDIR'].includes(e.code)) return null;
+    throw e;
+  }
+  try { return fstatSync(fd).isFile() ? readFileSync(fd) : null; } finally { closeSync(fd); }
+}
+
 function idOf(p) {
   try { return idOfStat(lstatSync(p)); } catch { return null; }
 }
@@ -236,7 +248,7 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterLook: null, beforeRmdir: null, beforeUndoRm: null };
+export const testHooks = { afterLook: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -316,7 +328,9 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     const at = inspectPath(dir, rel);
     if (at.state === 'unsafe') { actions.push({ op: 'unsafe', rel, why: at.why }); continue; }
     if (at.state === 'missing') { actions.push({ op: 'add', rel }); continue; }
-    const cur = readFileSync(join(dir, rel));
+    testHooks.beforePlanRead?.(join(dir, rel));
+    const cur = readNoFollow(join(dir, rel));
+    if (!cur) { actions.push({ op: 'unsafe', rel, why: 'it changed into something other than a regular file while it was read' }); continue; }
     const curHash = sha(cur);
     if (curHash === sha(buf)) { actions.push({ op: 'same', rel }); continue; }
     if (isKnownFile(rel, cur)) { actions.push({ op: 'update', rel, hash: curHash }); continue; }
@@ -331,7 +345,9 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     const at = inspectPath(dir, rel);
     if (at.state === 'missing') continue;
     if (at.state === 'unsafe') { actions.push({ op: 'unsafe', rel, why: at.why }); continue; }
-    const cur = readFileSync(join(dir, rel));
+    testHooks.beforePlanRead?.(join(dir, rel));
+    const cur = readNoFollow(join(dir, rel));
+    if (!cur) { actions.push({ op: 'unsafe', rel, why: 'it changed into something other than a regular file while it was read' }); continue; }
     const curHash = sha(cur);
     actions.push(isKnownFile(rel, cur)
       ? { op: 'remove', rel, hash: curHash }
@@ -596,8 +612,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // edited in place keeps its identity and its folders, so only its
         // content can tell. A link places this very file, so it is checked
         // here, right before.
+        // The very file staged, by identity, not just the same bytes: a
+        // replacement with the shipped content would otherwise be linked
+        // into place under an identity the rollback does not know.
         let staged = null;
-        try { staged = readFileSync(s.tmp); } catch { staged = null; }
+        try { staged = idOf(s.tmp) === s.tmpId && isRegular(s.tmp) ? readFileSync(s.tmp) : null; } catch { staged = null; }
         if (!staged || sha(staged) !== sha(want[s.a.rel])) {
           throw new Error(`the staged copy of ${s.a.rel} changed before it was installed; nothing was kept, run update again`);
         }
