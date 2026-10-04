@@ -70,6 +70,26 @@ Rules decided now, from lessons in the Dybs repo:
 - **Safety stops are fixed and few:** destructive or outward actions,
   contradictions with accepted context, repeated failure.
 
+Interruption and resume (decision 0002, proposed, unproven). The human may
+close the terminal at any moment. A fresh agent running the same skill must
+pick up from the task file alone:
+
+- **Write the step before acting.** Task frontmatter holds `status` and
+  `step`, edited in place before each step that changes files or runs
+  commands.
+- **Mark a run in flight.** `run:` holds the start time and is cleared at
+  each check-in. A skill that finds it set says which step was interrupted
+  and checks that step's effect on disk before doing it again.
+- **Steps are safe to run twice.** Edit in place, re-run tests, never
+  append blindly. No runtime can promise a prompt was not already sent.
+- **A deliberate stop is recorded.** `status: stopped` with a line why. A
+  skill never restarts a stopped task; only the human clears it.
+- **Runtime state is not work state.** An agent going idle, exiting or
+  being resumed never moves a task. Only review and the human's word do.
+
+Pass when a field run kills the terminal mid-`dybs-build`, and a fresh
+session names the interrupted step and neither redoes nor skips it.
+
 Borrowed: TDD loop and issue slicing (Matt Pocock), story structure and
 code review lenses (BMad).
 
@@ -78,3 +98,8 @@ code review lenses (BMad).
 The Dybs app reads `dybs/` natively: Getting Started shows doc status from
 the validator's `--json` output, ideas and roadmap become views, tasks
 become the board. BMad projects stay supported through a read-only adapter.
+
+Runtime (decision 0002): the app may use Herdr as an optional backend, so a
+closed view or app does not kill a running agent. Work state comes from
+`dybs/`, process state from the runtime; the mapping between them lives in
+the app's own storage, not the repo. Spike first, on a spare Mac.
