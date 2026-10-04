@@ -5,7 +5,7 @@ import {
   mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, cpSync, symlinkSync,
   readdirSync, lstatSync, chmodSync, statSync, constants as fsConstants,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
@@ -1146,8 +1146,10 @@ test('without hard links, moving aside never replaces anything and never loses a
     r = setup();
     let err;
     try { mod.applyPlan(r.plan, { beforeAside: (st) => { if (st.a.rel === SKILL) writeFileSync(st.p, 'edited after the copy'); } }); } catch (e) { err = e; }
-    assert.match(err.message, /your version is kept at (\S+)/);
-    const kept = err.message.match(/your version is kept at (\S+?)(;|$)/)[1];
+    // Back at its own name when that is still free, else kept where the
+    // error says: either way the edit is where the user can find it.
+    const kept = /back at its own name/.test(err.message) ? prd(r.root) : err.message.match(/your version is kept at (\S+?)(;|$)/)?.[1];
+    assert.ok(kept, err.message);
     assert.equal(readFileSync(kept, 'utf8'), 'edited after the copy');
     rmSync(r.root, { recursive: true });
   } finally { Object.assign(mod.fsOps, real); }
@@ -1620,5 +1622,49 @@ test('a removal that fails after the private move says where the file is', async
   const kept = [...err.message.matchAll(/is kept at (\S+?\.rm)\b/g)].map((m) => m[1]);
   assert.ok(kept.length, err.message);
   for (const k of kept) assert.ok(existsSync(k), `${k} exists`);
+  rmSync(root, { recursive: true });
+});
+
+test('without hard links, a save that replaced the original after the copy is never moved', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  // An editor saves atomically (temp file + rename) after the copy.
+  const beforeAside = (st) => {
+    if (st.a.rel !== SKILL) return;
+    writeFileSync(`${st.p}.x`, 'saved by the editor');
+    renameSync(`${st.p}.x`, st.p);
+  };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeAside }), /changed while it was being moved aside/); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(prd(root), 'utf8'), 'saved by the editor');
+  rmSync(root, { recursive: true });
+});
+
+test('the moved-aside original is checked against the identity it was created with', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let replaced = null;
+  // After the original name is dropped, a watcher replaces the .old entry
+  // with its own file holding the same bytes.
+  mod.testHooks.afterLook = (p) => {
+    if (replaced || !p.endsWith(SKILL)) return;
+    const old = readdirSync(dirname(p)).find((n) => n.endsWith('.old'));
+    if (!old) return;
+    replaced = join(dirname(p), old);
+    writeFileSync(`${replaced}.x`, 'old shipped version');
+    renameSync(`${replaced}.x`, replaced);
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /not where it was moved aside/); } finally { mod.testHooks.afterLook = null; }
+  assert.ok(replaced);
+  assert.ok(existsSync(replaced), 'the watcher\'s file is never deleted');
   rmSync(root, { recursive: true });
 });
