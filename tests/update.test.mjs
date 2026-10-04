@@ -598,3 +598,8 @@ test('CLI: update --json reports an update that stopped as JSON', async () => {
   assert.equal(code, 1);
   assert.match(JSON.parse(out.join('\n')).error, /changed since the update was planned/);
 });
+
+test('standalone doc skills stop when project.md is missing, and skipped inputs are not read', () => {
+  assert.match(readFileSync(join(SKILLS_SRC, 'dybs-prd', SKILL), 'utf8'), /No `dybs\/` folder, or no `dybs\/project\.md`/);
+  assert.match(readFileSync(join(SKILLS_SRC, 'dybs-start', 'interview.md'), 'utf8').replace(/\s+/g, ' '), /listed under `skip:` in `project\.md` is not read/);
+});

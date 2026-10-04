@@ -70,7 +70,8 @@ resolved and every rule you inferred rather than heard.
 These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
 so do not assume the others are present.
 
-- **No `dybs/` folder:** stop and suggest `dybs-start`. If that skill is not
+- **No `dybs/` folder, or no `dybs/project.md`:** the project is not set up;
+  stop and suggest `dybs-start`. If that skill is not
   installed, the human can add it with
   `npx skills add Dybs-it/skills --skill dybs-start`.
 - **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
@@ -89,7 +90,7 @@ so do not assume the others are present.
 7. Frontmatter `depth`, when present, is `quick` or `thorough`.
 8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.
 9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
-10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), and no doc is both `quick` and `thorough`.
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
 11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`.
 12. No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.
 <!-- rules:end -->
