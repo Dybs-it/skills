@@ -23,7 +23,8 @@ If `dybs/` already exists, repair a partial setup before anything else:
   **1. Listen**; step 4 creates only what is missing and keeps the rest.
 - No `dybs/README.md` or `dybs/team.md`: copy the missing one from
   `assets/` and say you restored it. Never overwrite one that exists. If
-  one exists but is not a file (a folder, say), stop and ask the human to
+  one exists but is not a file (a folder, say), or is a file that cannot be
+  read (its permissions), stop and ask the human to fix its permissions or
   move it aside; then restore it.
 - No `dybs/log.md`: the decisions behind the docs are gone. Say so before
   routing, and recreate it from what `project.md` and the docs record (one

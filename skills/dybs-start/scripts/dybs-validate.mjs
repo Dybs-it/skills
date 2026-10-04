@@ -882,13 +882,13 @@ export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, renam
 // between.
 // `from` is left in place: the caller records the placement first and only
 // then removes it, so a failure in that removal is still undone.
-export function placeNoClobber(from, to, check) {
+export function placeNoClobber(from, to, check, fromId) {
   try {
     fsOps.link(from, to);
     return 'link';
   } catch (err) {
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    copyExclusive(from, to, check);
+    copyExclusive(from, to, check, fromId);
     return 'copy';
   }
 }
@@ -898,17 +898,33 @@ export function placeNoClobber(from, to, check) {
 // copy that fails halfway (disk full) leaves a partial file only this call
 // can prove is its own, so it is removed here, by identity and after
 // `check`, and never blocks putting the original back. Returns its identity.
-function copyExclusive(from, to, check) {
+function copyExclusive(from, to, check, fromId) {
   // The folders are checked before anything is read or created, not only
   // when a partial copy has to be cleaned up.
   check?.();
-  const data = readFileSync(from);
+  // The source is opened without following a link at its name, and only
+  // the very file expected (`fromId`, when given) is copied.
+  let src;
+  try { src = openSync(from, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+    if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Error(`${from} is no longer a regular file; nothing was copied`);
+    throw e;
+  }
+  let data;
+  let mode;
+  try {
+    const st = fstatSync(src);
+    if (!st.isFile() || (fromId && idOf(st) !== fromId)) throw new Error(`${from} changed before it was copied; nothing was copied`);
+    mode = st.mode & 0o7777;
+    data = readFileSync(src);
+  } finally { closeSync(src); }
   let id = null;
   try {
-    const fd = openSync(to, 'wx', lstatSync(from).mode & 0o7777);
+    const fd = openSync(to, 'wx', mode);
     try {
       id = idOf(fstatSync(fd));
       fsOps.write(fd, data);
+      // The mode exactly as the source had it: open() applies the umask.
+      fchmodSync(fd, mode);
     } finally { closeSync(fd); }
   } catch (e) {
     if (id) {
@@ -955,6 +971,9 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // A doc is never accepted without the docs it cannot be written
       // without: each must exist and validate.
       const projectData = parseFrontmatter(projectText).data;
+      // A doc the project skips is not accepted: its skill stops, and
+      // `--doc` refuses it too.
+      if (skipped(projectData).has(name)) return { ok: false, errors: [`${DOCS[name].file} is under skip: in project.md; remove it from skip: before accepting it`] };
       for (const dep of REQUIRES[name] || []) {
         const depRel = `dybs/${DOCS[dep].file}`;
         const depPath = join(root, depRel);
@@ -1059,7 +1078,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       if (!isRegularFile(path)) throw notRegular();
       let copyId;
       try {
-        copyId = copyExclusive(path, old, pinned);
+        copyId = copyExclusive(path, old, pinned, oldId);
       } catch (e2) {
         if (e2.code === 'EEXIST') throw new Error(`something appeared at ${old} during the accept; nothing was changed, run --accept again`);
         throw e2;
@@ -1099,7 +1118,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (readFileSync(old, 'utf8') !== text) {
       // A link puts the very file back; a copy is only a snapshot, so the
       // original itself (which an editor may still be writing) is kept.
-      const how = placeNoClobber(old, path, pinned);
+      const how = placeNoClobber(old, path, pinned, oldId);
       moved = false;
       if (how === 'link') rmIfOurs(old, oldId, pinned);
       rmIfOurs(tmp, tmpId, pinned);
@@ -1113,9 +1132,19 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       throw new Error(`the temporary copy of ${rel} changed before it was placed; nothing was kept, run --accept again`);
     }
     inputsUnchanged();
-    const how = placeNoClobber(tmp, path, pinned);
+    const how = placeNoClobber(tmp, path, pinned, tmpId);
+    // What was actually placed, read at once. A folder swapped during the
+    // placement put the name outside the project: it was just created by
+    // this run, so it is removed by that identity (without the changed
+    // folders) and acceptance stops. A link that placed anything but the
+    // temporary copy is undone the same way.
+    const placedNow = pathId(path);
+    if (folderChain(root, rel) !== dirs || (how === 'link' && placedNow !== tmpId)) {
+      try { rmIfOurs(path, placedNow); } catch { /* reported below */ }
+      throw new Error(`${rel} or a folder on the way changed while it was being placed; run --accept again`);
+    }
     placed = true;
-    placedId = how === 'link' ? tmpId : pathId(path);
+    placedId = placedNow;
     pinned();
     rmIfOurs(tmp, tmpId, pinned);
     // Until that unlink, a link placement left two names for one file, and a
@@ -1172,11 +1201,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       let restored = false;
       let how = null;
       try {
-        try { how = placeNoClobber(old, path, pinned); } catch (e) {
+        try { how = placeNoClobber(old, path, pinned, oldId); } catch (e) {
           // The failure that brought us here may be the link itself: fall
           // back to an exclusive copy, still never over an existing entry.
           if (e.code === 'EEXIST') throw e;
-          copyExclusive(old, path, pinned);
+          copyExclusive(old, path, pinned, oldId);
           how = 'copy';
         }
         restored = true;
