@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   update, discover, rootsFor, skillNames, packageVersion, INSTALL_HINT,
@@ -78,7 +78,15 @@ export function run(argv, deps = {}) {
     for (const s of skillNames()) console.log(s);
     return 0;
   }
-  const roots = rootsFor(resolve(opts.positional[0] || '.'), opts);
+  // A folder asked for must exist: a misspelt path is an error, never an
+  // empty project that updates successfully.
+  const projectRoot = resolve(opts.positional[0] || '.');
+  // Only a folder that is really not there is refused here; one we may not
+  // enter is left to discovery, which reports why.
+  let rootOk = true;
+  try { rootOk = statSync(projectRoot).isDirectory(); } catch (e) { rootOk = !['ENOENT', 'ENOTDIR'].includes(e.code); }
+  if (!rootOk) { console.error(`${projectRoot} is not a folder`); return 2; }
+  const roots = rootsFor(projectRoot, opts);
 
   if (cmd === 'status') {
     let found;

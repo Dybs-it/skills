@@ -607,7 +607,12 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
       paraPrefix = containerPrefix(lines[n]);
       paraQuote = quoteDepth(lines[n]);
     }
-    if (codeItem) { para = false; indented = inner.length - afterMarkers.length + 4; }
+    if (codeItem) {
+      para = false;
+      indented = inner.length - afterMarkers.length + 4;
+      // The code is shown only where code is kept, as for any code block.
+      if (!keepCode) line = line.slice(0, line.length - afterMarkers.length);
+    }
     out.push(line);
   }
   return out.join('\n');
@@ -685,8 +690,10 @@ function dropLinkTargets(text) {
         // A quoted title (`"x)"`, `'x)'`) after the destination holds no
         // delimiters of its own.
         if (depth === 1 && (text[j] === '"' || text[j] === "'") && /[ \t]/.test(text[j - 1])) {
-          const q = text.indexOf(text[j], j + 1);
-          if (q > 0 && !text.slice(j, q).includes('\n')) { j = q; continue; }
+          // Escaped quotes (`"x\")"`) do not close the title.
+          let q = j + 1;
+          while (q < text.length && text[q] !== text[j] && text[q] !== '\n') q += text[q] === '\\' ? 2 : 1;
+          if (q < text.length && text[q] === text[j]) { j = q; continue; }
         }
         if (text[j] === '(') depth++;
         else if (text[j] === ')' && --depth === 0) break;
@@ -780,7 +787,8 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // neither does the indentation of a list item's content.
   // Anywhere in a line, not only at its start: inline HTML stays raw, and
   // `intro <details>` ... `</details>` collapses the sections between.
-  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(textOutsideCodeSpans(l)));
+  // A link destination (`[x](<details>)`) is never raw HTML: it is left out.
+  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(dropLinkTargets(textOutsideCodeSpans(l))));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
@@ -799,7 +807,8 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // (`T**O**DO`, `[TO](x)DO`), so it is also checked with emphasis, code
   // and link markup removed. That can only find more, never fewer.
   const shown = decodeReferences(visibleText(body, { keepCode: true }));
-  const flat = dropLinkTargets(shown).replace(/[*_~`[\]]/g, '');
+  // Backslash escapes of punctuation (`\{\{x\}\}`) render as the bare character.
+  const flat = dropLinkTargets(shown).replace(/\\([!-/:-@[-`{-~])/g, '$1').replace(/[*_~`[\]]/g, '');
   const frontmatterValues = Object.values(data || {}).join('\n');
   if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat) || PLACEHOLDER.test(decodeReferences(frontmatterValues))) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';

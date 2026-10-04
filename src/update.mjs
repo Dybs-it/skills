@@ -247,9 +247,18 @@ function readNoFollowStat(p, id) {
   }
   try {
     const st = fstatSync(fd, BIG);
-    if (!st.isFile() || (id != null && idOfStat(st) !== id)) return null;
+    if (!st.isFile() || (id != null && idOfStat(st) !== id) || !stillAtName(p, st)) return null;
     return { data: readFileSync(fd), mode: Number(st.mode) & 0o7777 };
   } finally { closeSync(fd); }
+}
+// Where open() has no O_NOFOLLOW (Windows), a link at the name is followed.
+// So the opened file must also be what the name itself is (no link
+// followed): the same identity, and not a link.
+function stillAtName(p, st) {
+  try {
+    const own = fsOps.lstat(p, BIG);
+    return !own.isSymbolicLink() && idOfStat(own) === idOfStat(st);
+  } catch { return false; }
 }
 // The bytes of exactly the file `id` at `p`, or null.
 const readById = (p, id) => readNoFollowStat(p, id)?.data ?? null;
@@ -464,13 +473,17 @@ export const fsOps = { lstat: lstatSync, link: linkSync, copyFile: copyFileSync,
 // whatever appeared in between.
 // `out.id`, when `out` is given, is set to the identity of a copy: the only
 // proof afterwards that a file at `to` is the one this call created.
+// The errors a filesystem without hard links answers link() with. Windows
+// exFAT reports EISDIR (nodejs/node#65817).
+const NO_HARD_LINKS = ['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV', 'EISDIR'];
+
 export function placeNoClobber(from, to, check, fromId, out) {
   try {
     fsOps.link(from, to);
     return 'link';
   } catch (err) {
     if (err.code === 'EEXIST') throw err;
-    if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
+    if (!NO_HARD_LINKS.includes(err.code)) throw err;
     const id = copyExclusive(from, to, check, fromId);
     if (out) out.id = id;
     return 'copy';
@@ -490,7 +503,7 @@ function copyExclusive(from, to, check, fromId) {
   // the very file expected (`fromId`, when given) is copied: a link or a
   // replacement swapped in is refused, never read through.
   let fd;
-  try { fd = openSync(from, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+  try { fd = fsOps.open(from); } catch (e) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Error(`${from} is no longer a regular file; nothing was copied`);
     throw e;
   }
@@ -498,7 +511,7 @@ function copyExclusive(from, to, check, fromId) {
   let mode;
   try {
     const st = fstatSync(fd, BIG);
-    if (!st.isFile() || (fromId && idOfStat(st) !== fromId)) throw new Error(`${from} changed before it was copied; nothing was copied`);
+    if (!st.isFile() || (fromId && idOfStat(st) !== fromId) || !stillAtName(from, st)) throw new Error(`${from} changed before it was copied; nothing was copied`);
     mode = Number(st.mode) & 0o7777;
     data = readFileSync(fd);
   } finally { closeSync(fd); }
@@ -668,7 +681,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           rmIfOurs(s.p, s.oldId, () => pinned(s));
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
-          if (s.old || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
+          if (s.old || !NO_HARD_LINKS.includes(err.code)) throw err;
           // No hard links here: an exclusive copy (COPYFILE_EXCL never
           // replaces anything), then the original name is moved to a name
           // only this run knows and dropped only while it is the same file
