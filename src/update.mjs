@@ -82,7 +82,10 @@ export function discover(roots) {
     for (const folder of skillFolders(root)) {
       for (const skill of skillNames()) {
         const dir = join(folder, skill);
-        if (!existsSync(join(dir, 'SKILL.md'))) continue;
+        // An install is recognised by any file we ship in it, not only by
+        // SKILL.md: an install that lost SKILL.md is damaged, and update
+        // repairs it instead of calling it "not installed".
+        if (!existsSync(dir) || !Object.keys(shippedFiles(skill)).some((rel) => existsSync(join(dir, rel)))) continue;
         const real = realpathSync(dir);
         if (!realRoots.some((r) => within(real, r))) {
           skipped.push({ skill, dir: real, via: dir, why: 'resolves outside the requested folder' });

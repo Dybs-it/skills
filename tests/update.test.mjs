@@ -399,3 +399,13 @@ test('CLI: an unknown option or a second folder is refused, nothing is written',
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
 });
+
+test('an install that lost SKILL.md is found and repaired', () => {
+  const root = project(['dybs-prd']);
+  rmSync(prd(root));
+  const { results } = update([root]);
+  assert.equal(results.length, 1);
+  assert.equal(ops(results[0])[SKILL], 'add');
+  assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
+  rmSync(root, { recursive: true });
+});
