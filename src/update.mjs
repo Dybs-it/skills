@@ -247,8 +247,8 @@ function rmIfOurs(p, id, check) {
   check?.();
   const aside = `${p}.${randomUUID()}.rm`;
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
-  if (idOf(aside) === id) { rmSync(aside); return; }
-  try { fsOps.link(aside, p); rmSync(aside); } catch {
+  if (idOf(aside) === id) { fsOps.rm(aside); return; }
+  try { fsOps.link(aside, p); fsOps.rm(aside); } catch {
     throw new Error(`${p} is not the file the update wrote; it is kept at ${aside}`);
   }
   throw new Error(`${p} is not the file the update wrote; left in place`);
@@ -587,7 +587,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         if (chainOf(dir, s.a.rel) !== s.chain || idOf(s.tmp) !== s.tmpId) {
           throw new Error(`a folder on the way to ${s.a.rel} changed during the update; nothing was kept, run update again`);
         }
-        fsOps.rm(s.tmp);
+        // Removed by identity under a private name, the folders re-checked
+        // right before: a file that replaced the staging name is kept.
+        rmIfOurs(s.tmp, s.tmpId, () => pinned(s));
         // Until that unlink, a link placement left two names for one file, and
         // a write through the staging name would land in the target. So the
         // target is read once more now that it is the only name.
@@ -605,6 +607,16 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // exactly that before the originals are let go. Edited in place (same
     // identity), it is someone's work now, so nothing is committed.
     beforeCommit?.();
+    // Files the plan found already current are part of the result too: one
+    // edited, removed or swapped for a link since would leave the skill
+    // mixed, so it stops the update like any other change.
+    for (const a of actions) {
+      if (a.op !== 'same') continue;
+      recheck(a);
+      let current = false;
+      try { current = isRegular(join(dir, a.rel)) && sha(fsOps.read(join(dir, a.rel))) === sha(want[a.rel]); } catch { current = false; }
+      if (!current) throw new Error(`${a.rel} changed since the update was planned; nothing was kept, run update again`);
+    }
     for (const b of backups) {
       let same = false;
       try { same = idOf(b.path) === b.id && sha(fsOps.read(b.path)) === b.hash; } catch { same = false; }
