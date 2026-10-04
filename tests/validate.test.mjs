@@ -675,7 +675,9 @@ test('without hard links, accept places the doc with an exclusive copy and refus
     writeFileSync(join(dir, 'from'), 'new');
     mod.placeNoClobber(join(dir, 'from'), join(dir, 'to'));
     assert.equal(readFileSync(join(dir, 'to'), 'utf8'), 'new');
-    assert.ok(!existsSync(join(dir, 'from')));
+    // The source stays until the caller has recorded the placement.
+    assert.equal(readFileSync(join(dir, 'from'), 'utf8'), 'new');
+    rmSync(join(dir, 'from'));
     assert.equal(calls.length, 1);
     assert.ok(calls[0] & constants.COPYFILE_EXCL);
     writeFileSync(join(dir, 'from'), 'newer');
@@ -777,20 +779,47 @@ test('placeholders after a literal <!-- in code still count; placeholders in cod
   rmSync(dir2, { recursive: true });
 });
 
-test('--accept --json reports an operational failure as JSON', () => {
+test('--accept --json reports an operational failure as JSON', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = mod.fsOps.link;
+  mod.fsOps.link = () => { throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' }); };
   const dir = copySample();
-  const leftover = join(dir, 'dybs/context', `ui.md.dybs-${process.pid}.tmp`);
-  writeFileSync(leftover, 'left over');
   const logs = [];
   const l = console.log; const e = console.error;
   console.log = (m) => logs.push(m); console.error = () => {};
   let code;
-  try { code = main(['node', 'v', dir, '--accept', 'ui', '--json']); } finally { console.log = l; console.error = e; }
+  try { code = main(['node', 'v', dir, '--accept', 'ui', '--json']); } finally { console.log = l; console.error = e; mod.fsOps.link = real; }
   assert.equal(code, 1);
   const out = JSON.parse(logs.join('\n'));
   assert.equal(out.ok, false);
   assert.equal(out.accept, 'ui');
-  assert.match(out.errors.join(' '), /EEXIST|exists/);
+  assert.match(out.errors.join(' '), /EIO/);
+  // The failed accept left the doc as it was, with no stray files.
+  assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
+  const { readdirSync } = await import('node:fs');
+  assert.deepEqual(readdirSync(join(dir, 'dybs/context')).filter((n) => n.includes('.dybs-')), []);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept never reuses the name of a kept old version', async () => {
+  const dir = copySample();
+  const kept = join(dir, 'dybs/context', `ui.md.dybs-${process.pid}.old`);
+  writeFileSync(kept, 'an edit kept by an earlier run');
+  assert.equal(acceptDoc(dir, 'ui', '2026-10-04').ok, true);
+  assert.equal(readFileSync(kept, 'utf8'), 'an edit kept by an earlier run');
+  rmSync(dir, { recursive: true });
+});
+
+test('a failure removing the temporary copy after placement is rolled back', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const before = readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8');
+  const real = mod.fsOps.rm;
+  mod.fsOps.rm = () => { throw Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' }); };
+  try {
+    assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04'), /EBUSY/);
+  } finally { mod.fsOps.rm = real; }
+  assert.equal(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), before);
   rmSync(dir, { recursive: true });
 });
 
