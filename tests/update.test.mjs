@@ -1427,3 +1427,13 @@ test('without hard links, the verified original is deleted by identity, never a 
   assert.equal(readFileSync(kept, 'utf8'), 'someone else');
   rmSync(root, { recursive: true });
 });
+
+test('a skill left alone is never also reported as not installed', () => {
+  const root = project(['dybs-scope']);
+  // dybs-prd is present, but resolves to another skill's folder: left alone.
+  symlinkSync('../../.agents/skills/dybs-scope', join(root, '.agents/skills/dybs-prd'));
+  const { skipped, notInstalled } = update([root]);
+  assert.ok(skipped.some((s) => s.skill === 'dybs-prd'));
+  assert.ok(!notInstalled.includes('dybs-prd'));
+  rmSync(root, { recursive: true });
+});
