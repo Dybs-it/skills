@@ -471,7 +471,7 @@ function copyExclusive(from, to, check, fromId) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeAside, beforeStageRm, beforePlacedCheck, beforeCommit, beforeCleanup } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeAside, beforeStageRm, beforePlacedCheck, beforeCommit, beforeCleanup, beforeBackup } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   // Unique to this run: two runs in the same millisecond (or a reused pid)
@@ -548,14 +548,27 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // before its bytes go in, and proven to be where we meant it.
         // Read without following a link at the name: a file swapped for a
         // link since the plan is refused, never copied from where it points.
+        // The folders are re-pinned right before the read and again before
+        // the write, so neither goes through a folder swapped since.
         const b = backupPath(p);
+        const swapped = () => new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again`);
+        beforeBackup?.('read', entry);
+        if (chainOf(dir, a.rel) !== chain) throw swapped();
         const orig = readNoFollowStat(p);
         if (!orig) throw new Error(`${a.rel} is no longer a regular file; nothing was changed, run update again`);
         const bytes = orig.data;
         const backup = { path: b, hash: sha(bytes), entry };
+        if (chainOf(dir, a.rel) !== chain) throw swapped();
+        beforeBackup?.('write', entry);
         writeOwnFile(b, bytes, orig.mode, (id) => { backup.id = id; backups.push(backup); });
         if (chainOf(dir, a.rel) !== chain || idOf(b) !== backup.id) {
-          throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again (a stray ${basename(b)} may have been written through it)`);
+          // A swap in the last instant put the backup where `b` now leads.
+          // It was created by this run (its identity comes from the open
+          // file), so it is removed by that identity at once, without the
+          // stale folder pins the rollback would require.
+          const err = swapped();
+          try { rmIfOurs(b, backup.id); } catch (e) { err.message += `; ${e.message}`; }
+          throw err;
         }
         a.backup = b;
       }

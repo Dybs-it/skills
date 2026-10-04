@@ -2105,3 +2105,37 @@ test('a --force backup is never read through a link that replaced the file', asy
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+for (const stage of ['read', 'write']) {
+  test(`a --force backup never lands outside the install when a folder is swapped before its ${stage}`, async () => {
+    const mod = await import('../src/update.mjs');
+    const { renameSync } = await import('node:fs');
+    const root = project(['dybs-prd']);
+    const dir = join(root, '.agents/skills/dybs-prd');
+    writeFileSync(prd(root), 'my own version');
+    const plan = mod.planInstall(findInstalls([root])[0], { force: true });
+    assert.equal(ops(plan)[SKILL], 'replace');
+    const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+    writeFileSync(join(outside, SKILL), 'outside content');
+    let swapped = false;
+    const beforeBackup = (at, entry) => {
+      if (swapped || at !== stage || entry.a.rel !== SKILL) return;
+      swapped = true;
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    };
+    // Watched while the update runs too: a backup written outside and
+    // removed again still copied bytes where they do not belong.
+    const seen = new Set();
+    mod.testHooks.afterLook = () => { for (const f of readdirSync(outside)) if (f.includes('.bak')) seen.add(f); };
+    try {
+      assert.throws(() => mod.applyPlan(plan, { beforeBackup }), /changed/);
+    } finally { mod.testHooks.afterLook = null; }
+    assert.ok(swapped);
+    assert.deepEqual(readdirSync(outside).filter((f) => f.endsWith('.bak')), [], 'no backup outside');
+    if (stage === 'read') assert.deepEqual([...seen], [], 'nothing was ever written outside');
+    assert.equal(readFileSync(join(outside, SKILL), 'utf8'), 'outside content');
+    rmSync(root, { recursive: true });
+    rmSync(outside, { recursive: true });
+  });
+}
