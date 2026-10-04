@@ -13,12 +13,22 @@ import { pathToFileURL } from 'node:url';
 export const COVERAGE = ['FULL', 'PARTIAL', 'NONE'];
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const LOCATION = /\S+:\d+/;
+// A test location: a path and a line number from 1 up.
+const LOCATION = /\S+:[1-9]\d*/;
+// The risk categories quality.md defines.
+export const CATEGORIES = ['security', 'data', 'business', 'performance', 'technical', 'operations'];
+
+// What a reader of the rendered gate.md sees: HTML comments and fenced
+// examples are dropped, so a commented-out table never counts.
+export function visible(text) {
+  return text.replace(/<!--[\s\S]*?-->/g, '').replace(/^(```|~~~)[\s\S]*?^\1[^\n]*$/gm, '');
+}
 
 // Rows of the first Markdown table under "## <heading>", as objects keyed by
-// lower-cased header names.
+// lower-cased header names. null when the heading is missing or has no
+// table under it; [] for a table with a header and no rows.
 export function tableUnder(text, heading) {
-  const lines = text.split(/\r?\n/);
+  const lines = visible(text).split(/\r?\n/);
   const start = lines.findIndex((l) => l.trim().toLowerCase() === `## ${heading.toLowerCase()}`);
   if (start < 0) return null;
   const rows = [];
@@ -33,7 +43,7 @@ export function tableUnder(text, heading) {
     if (cells.every((c) => c === '')) continue;
     rows.push(Object.fromEntries(header.map((h, j) => [h, cells[j] ?? ''])));
   }
-  return rows;
+  return header ? rows : null;
 }
 
 // Security must be stated explicitly: a blank, a typo or an unfilled
@@ -80,7 +90,11 @@ export function parseGate(text) {
     const score = Number(r.score);
     if (!r.risk) problems.push('a risk has no id');
     if (!Number.isInteger(score) || score < 1 || score > 9) problems.push(`risk ${r.risk}: score must be 1 to 9`);
-    return { id: r.risk, category: (r.category || '').toLowerCase(), score, open: !/^mitigated$/i.test(r.status || '') };
+    // An unknown category is a format problem and is treated as security,
+    // so a typo can never make a security risk waivable.
+    const category = (r.category || '').trim().toLowerCase();
+    if (!CATEGORIES.includes(category)) problems.push(`risk ${r.risk}: category must be one of ${CATEGORIES.join('|')}`);
+    return { id: r.risk, category: CATEGORIES.includes(category) ? category : 'security', score, open: !/^mitigated$/i.test(r.status || '') };
   });
   // Waivers are matched by id, so every id must name exactly one thing.
   const seen = new Set();
@@ -99,6 +113,7 @@ export function waiverIssue(w, today) {
   if (!w) return 'no waiver';
   if (!w.reason || !w.by) return 'waiver needs a reason and the name of the human who approved it';
   if (!isDate(w.approved) || !isDate(w.expires)) return 'waiver needs real approved and expires dates (YYYY-MM-DD)';
+  if (w.approved > today) return `waiver approval is dated ${w.approved}, after today`;
   if (w.expires < today) return `waiver expired on ${w.expires}`;
   return null;
 }
@@ -165,6 +180,10 @@ export function main(argv) {
   const json = args.includes('--json');
   const t = args.indexOf('--today');
   const today = t >= 0 ? args[t + 1] : new Date().toISOString().slice(0, 10);
+  if (!isDate(today)) {
+    console.error('--today needs a real date (YYYY-MM-DD); without one, waiver expiry cannot be checked');
+    return 2;
+  }
   const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--today');
   if (!file) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--today YYYY-MM-DD] [--json]'); return 2; }
   let text;

@@ -103,7 +103,7 @@ test('a waiver does not turn CONCERNS into anything', () => {
 
 test('format problems are reported, not guessed', () => {
   const p = parseGate(gate({ items: [['a', 'P5', 'MOSTLY', '', 'no']], risks: [['r', 'x', '12', 'open']] }));
-  assert.equal(p.problems.length, 3);
+  assert.equal(p.problems.length, 4); // priority, coverage, score, category
   assert.deepEqual(parseGate('# nothing here').problems, [
     'missing "## Items" table',
     'missing "## Risks" table (keep it, with no rows, when there are no risks)',
@@ -189,4 +189,54 @@ test('CLI: an unreadable gate file exits 2, not the FAIL code', () => {
     try { execFileSync('node', [bin, target], { stdio: 'pipe' }); } catch (e) { status = e.status; }
     assert.equal(status, 2, target);
   }
+});
+
+// --- Codex review round 2 on PR #3 ---
+
+test('a risk with an unknown category is a format problem and never waivable', () => {
+  assert.match(parseGate(gate({ items: [full('a', 'P0')], risks: [['r1', 'securty', '9', 'open']] })).problems.join(' '), /category must be one of/);
+  const p = parseGate(gate({ items: [full('a', 'P0')], risks: [['r1', 'securty', '9', 'open']], waivers: [waiver('r1')] }));
+  p.problems = [];
+  const r = decide(p, TODAY);
+  assert.equal(r.decision, 'FAIL');
+  assert.match(r.waiverProblems.join(' '), /security gaps are never waived/);
+});
+
+test('line zero is not a test location', () => {
+  const p = parseGate(gate({ items: [['a', 'P0', 'FULL', 'tests/a.test.js:0', 'no']] }));
+  assert.equal(p.items[0].coverage, 'PARTIAL');
+});
+
+test('a waiver approved after today does not count', () => {
+  const items = [gap('a', 'P0')];
+  assert.equal(run({ items, waivers: [waiver('a')] }).decision, 'WAIVED');
+  assert.equal(run({ items, waivers: [waiver('a', { approved: '2026-10-10' })] }).decision, 'FAIL');
+});
+
+test('a Risks heading without a table is a format problem', () => {
+  const text = gate({ items: [full('a', 'P0')] }).replace(/## Risks\n\n\|.*\n\|.*\n/, '## Risks\n\nNone found, I think.\n');
+  assert.match(parseGate(text).problems.join(' '), /missing "## Risks" table/);
+});
+
+test('tables inside HTML comments or code fences are ignored', () => {
+  const real = gate({ items: [gap('a', 'P0')] });
+  const commented = real.replace('## Items\n\n', '## Items\n\n<!--\n| Item | Priority | Coverage | Evidence | Security |\n|---|---|---|---|---|\n| a | P0 | FULL | tests/a.test.js:1 | no |\n-->\n');
+  assert.equal(decide(parseGate(commented), TODAY).decision, 'FAIL');
+  const waivedInComment = real.replace('## Waivers\n\n', '## Waivers\n\n<!-- \n| Item | Reason | Approved by | Approved | Expires |\n|---|---|---|---|---|\n| a | demo | Jos | 2026-10-01 | 2026-11-01 |\n-->\n');
+  assert.equal(decide(parseGate(waivedInComment), TODAY).decision, 'FAIL');
+  const fenced = real.replace('## Waivers\n\n', '## Waivers\n\n```\n| Item | Reason | Approved by | Approved | Expires |\n|---|---|---|---|---|\n| a | demo | Jos | 2026-10-01 | 2026-11-01 |\n```\n');
+  assert.equal(decide(parseGate(fenced), TODAY).decision, 'FAIL');
+});
+
+test('--today without a real date is a usage error', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
+  const file = join(dir, 'gate.md');
+  writeFileSync(file, gate({ items: [full('a', 'P0')] }));
+  const cli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
+  const code = (args) => { try { execFileSync('node', [cli, file, ...args], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
+  assert.equal(code(['--today']), 2);
+  assert.equal(code(['--today', '--json']), 2);
+  assert.equal(code(['--today', '2026-13-01']), 2);
+  assert.equal(code(['--today', TODAY]), 0);
+  rmSync(dir, { recursive: true });
 });

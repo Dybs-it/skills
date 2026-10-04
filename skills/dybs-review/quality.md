@@ -119,5 +119,10 @@ Coverage per item is **FULL** (proven by tests that count), **PARTIAL** or
 5. Otherwise: **PASS**.
 
 Only the human can waive a FAIL, never an agent. A waiver needs a reason,
-the human's name, a date, and an expiry date. Security items are never
-waived. A waived gap still counts as a gap.
+the human's name, a date no later than today, and an expiry date. Security
+items are never waived, and a risk without a known category is treated as
+security. A waived gap still counts as a gap.
+
+The decision is computed by `dybs-gate/scripts/dybs-gate.mjs`, never by an
+agent. Without the script the gate is **not computed**, and a gate that was
+not computed never counts as PASS.

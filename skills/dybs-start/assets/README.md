@@ -1,6 +1,6 @@
 ---
 method: dybs
-method-version: 0.3.0
+method-version: 0.4.0
 ---
 
 # dybs/
@@ -29,7 +29,9 @@ dybs/
     decisions/         one file per decision (NNNN-short-title.md)
 ```
 
-Later phases add `ideas/`, `roadmap.md` and `work/`. They do not exist yet.
+`work/<task>/` holds one folder per task, written by the quality skills:
+`test-plan.md`, `review.md`, `gate.md` and `pr.md` (and later `task.md`).
+Later phases add `ideas/` and `roadmap.md`.
 
 ## Order
 

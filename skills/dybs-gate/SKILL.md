@@ -48,9 +48,11 @@ node <skills>/dybs-gate/scripts/dybs-gate.mjs dybs/work/<task>/gate.md
 
 (`<skills>` is the folder that holds this skill;
 `npx github:Dybs-it/skills gate dybs/work/<task>/gate.md` does the same.)
-Copy the decision and its reasons into the Decision section. Without Node,
-apply the rules in `quality.md` by hand, step by step, and write
-"computed by hand" next to the decision.
+Copy the decision and its reasons into the Decision section. Without Node
+or without the script, **do not decide**: write `Decision: not computed (no
+gate script)`, list what looks blocking against the rules in `quality.md` as
+findings, and say the gate must be computed before merging. A gate that was
+not computed never counts as PASS.
 
 ## 4. Waivers
 
@@ -78,6 +80,8 @@ so do not assume the others are present.
   not installed, agree the acceptance criteria, risks and seams with the
   human in one round and write them to `dybs/work/<task>/test-plan.md`, using
   the sections `quality.md` describes.
-- **No gate script, or no Node:** apply the gate rules in `quality.md` by
-  hand, step by step, and write "computed by hand" next to the decision.
+- **No gate script, or no Node:** the gate is not decided. Write
+  `Decision: not computed (no gate script)`, list what looks blocking against
+  the rules in `quality.md`, and say it must be computed before merging. It
+  never counts as PASS.
 - **No `dybs/team.md`:** work without a persona; the rules here still apply.
