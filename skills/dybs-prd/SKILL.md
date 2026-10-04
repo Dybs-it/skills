@@ -64,7 +64,7 @@ Scope boundaries (what is out) belong in `scope.md`, not here.
 With `checkins: end` or `none`, do not ask now: follow **5. Check in** in
 `interview.md` and log the items below as `needs-you` lines. With `each-doc`:
 
-Validate (`--doc prd`), then give the check-in brief. Under **Needs you**,
+Validate (`--doc prd`; when the human accepts, `--accept prd`, see **Accepting** below), then give the check-in brief. Under **Needs you**,
 list the goals and must-haves you are least sure the human agrees with.
 
 ## If something is not installed
@@ -76,6 +76,14 @@ so do not assume the others are present.
   stop and suggest `dybs-start`. If that skill is not
   installed, the human can add it with
   `npx skills add Dybs-it/skills --skill dybs-start`.
+- **No `dybs/README.md`, or one that cannot be read:** the method rules
+  (safety stops, editing accepted docs, the check-in format) are missing;
+  stop and suggest `dybs-start`, which restores it. Do not go on without it.
+- **Accepting:** when the human accepts a doc in their own words, run the
+  validator with `--accept <name>` if it is installed (it sets the status,
+  the date and the `accepted-hash` fingerprint, and refuses a doc that does
+  not validate). Without it, set `status: accepted` and `accepted:` by hand
+  and say the acceptance is not fingerprinted.
 - **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
   same skills folder as this skill and Node is available, run it from the
   project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise

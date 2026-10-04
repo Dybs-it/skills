@@ -1468,3 +1468,12 @@ test('fence closers measured from the container; quotes inside list items; quote
   assert.deepEqual(headings('- ```\n  x\n  ```\n## Shown\n'), ['Shown']);
   assert.deepEqual(headings('> - ```\n>   x\n>   ```\n## Shown\n'), ['Shown']);
 });
+
+test('doc skills stop without the method README and fingerprint each acceptance', () => {
+  for (const doc of ['prd', 'scope', 'domain', 'architecture', 'ux', 'ui']) {
+    const t = readFileSync(join(ROOT, `skills/dybs-${doc}/SKILL.md`), 'utf8');
+    assert.match(t, /\*\*No `dybs\/README\.md`, or one that cannot be read:\*\*[\s\S]*?stop/, doc);
+    assert.match(t, /\*\*Accepting:\*\*[\s\S]*?`--accept <name>`/, doc);
+    assert.ok(t.includes(`when the human accepts, \`--accept ${doc}\``), doc);
+  }
+});
