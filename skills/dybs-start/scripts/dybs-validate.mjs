@@ -446,7 +446,10 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     let newItem = false;
     // A heading or a thematic break interrupts a list, blank line or not.
     // So does a block quote that starts left of the item's content.
-    const breaksList = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
+    // Only left of the item's content: `  ## Details` under `- item` is a
+    // heading inside the item, and the item goes on.
+    const breaksList = (/^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
+        && !(inList && qline.match(/^ */)[0].length >= (items.at(-1) ?? listIndent)))
       || (inList && /^ {0,3}>/.test(line) && line.match(/^ */)[0].length < (items.at(-1) ?? listIndent));
     if (!nowBlank && !/^( {4}|\t)/.test(qline)) {
       // `2. x` after paragraph text continues the paragraph: no list starts.

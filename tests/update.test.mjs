@@ -1790,3 +1790,46 @@ test('without hard links, a move-aside copy that fails halfway leaves nothing be
   assert.deepEqual(readdirSync(dir).filter((n) => n.includes('.old')), []);
   rmSync(root, { recursive: true });
 });
+
+test('planning never reads through a file swapped for a link after its inspection', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'secret'), 'old shipped version');
+  let swapped = false;
+  mod.testHooks.beforePlanRead = (p) => {
+    if (swapped || !p.endsWith(SKILL)) return;
+    swapped = true;
+    rmSync(p);
+    symlinkSync(join(outside, 'secret'), p);
+  };
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  let plan;
+  try { plan = mod.planInstall(findInstalls([root])[0], { known }); } finally { mod.testHooks.beforePlanRead = null; }
+  assert.ok(swapped);
+  const a = plan.actions.find((x) => x.rel === SKILL);
+  assert.equal(a.op, 'unsafe');
+  assert.ok(plan.blocked);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a staged file replaced by one with the same bytes is never placed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let pins = 0;
+  // On the pin right before placement, a watcher swaps the staged file for
+  // its own copy of the same shipped bytes.
+  const beforePin = (st) => {
+    if (st.a.rel !== SKILL || ++pins !== 2) return;
+    writeFileSync(`${st.tmp}.x`, readFileSync(st.tmp));
+    renameSync(`${st.tmp}.x`, st.tmp);
+  };
+  assert.throws(() => mod.applyPlan(plan, { beforePin }), /staged copy .* changed/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
