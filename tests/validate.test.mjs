@@ -1636,3 +1636,17 @@ test('only paragraph text takes a setext underline, and 2. or a fence with a bac
   // ```` ``` bad` ```` is no fence, so it does not end the open code span.
   assert.match(visibleText('open ``\n``` bad`\ntext <!-- TODO -->\n``\n', { keepCode: true }), /TODO/);
 });
+
+test('emphasized placeholders and inline HTML anywhere in a line are caught', () => {
+  for (const p of ['_TODO_', '*TBD*', '__TODO__']) {
+    assert.ok(validateDoc('prd', VALID_PRD + `\nStill ${p} here.\n`).rules.includes('placeholder'), p);
+  }
+  // `TODOs` is a word, not the placeholder.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nNo TODOs left.\n').rules.includes('placeholder'));
+  const hidden = VALID_PRD.replace('## Goals', 'intro <details>\n\n## Goals') + '\ntext </details>\n';
+  assert.ok(validateDoc('prd', hidden).rules.includes('html'));
+  // Code spans, escapes and autolinks are not raw HTML.
+  for (const ok of ['use `<details>` here', 'a \\<div> b', 'see <https://example.com>']) {
+    assert.ok(!validateDoc('prd', VALID_PRD + `\n${ok}\n`).rules.includes('html'), ok);
+  }
+});

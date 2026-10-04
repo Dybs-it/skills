@@ -68,11 +68,43 @@ export const MANUAL_RULES = [
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
   { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
-  { id: 'html', text: 'No raw HTML blocks (a line outside code that starts with an HTML tag such as `<pre>` or `<div>`, or with `<?`, `<!` or `<![CDATA[`): they change what renders in ways a reader of the source cannot see. HTML comments are fine.' },
+  { id: 'html', text: 'No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in a line, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments and autolinks (`<https://…>`) are fine.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 
-const PLACEHOLDER = /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/;
+// Bounded by letters and digits, not by \b: `_TODO_` renders as an
+// emphasized TODO, and `_` is a word character to \b.
+// A line with its code spans and backslash escapes removed, read the way
+// CommonMark reads it, left to right: an escaped character is text, a
+// backtick run opens a span only when a run of exactly the same length
+// follows, and inside a span a backslash is literal. A span that continues
+// onto another line is not followed: its tag is then judged as raw, which
+// can only refuse more.
+export function textOutsideCodeSpans(line) {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    const c = line[i];
+    if (c === '\\' && /[!-\/:-@[-`{-~]/.test(line[i + 1] ?? '')) { out += 'x'; i += 2; continue; }
+    if (c !== '`') { out += c; i += 1; continue; }
+    let n = i;
+    while (line[n] === '`') n += 1;
+    const run = n - i;
+    let close = -1;
+    for (let j = n; j < line.length;) {
+      if (line[j] !== '`') { j += 1; continue; }
+      let k = j;
+      while (line[k] === '`') k += 1;
+      if (k - j === run) { close = k; break; }
+      j = k;
+    }
+    if (close === -1) { out += line.slice(i, n); i = n; continue; }
+    i = close;
+  }
+  return out;
+}
+
+const PLACEHOLDER = /\{\{[^}]*\}\}|(?<![\p{L}\p{N}])(?:TODO|TBD)(?![\p{L}\p{N}])/u;
 
 export function parseFrontmatter(text) {
   // The block ends at the first line that starts with `---`, and that line
@@ -557,7 +589,9 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
   // A block quote or list item does not hide one (`> <div>`, `- <pre>`), and
   // neither does the indentation of a list item's content.
-  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*\u0001?[ \t]*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
+  // Anywhere in a line, not only at its start: inline HTML stays raw, and
+  // `intro <details>` ... `</details>` collapses the sections between.
+  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(textOutsideCodeSpans(l)));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
