@@ -2172,3 +2172,35 @@ test('--accept never removes a file at the moved-aside name that it did not link
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('--accept never puts a replacement back outside the project through a swapped folder', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { linkSync, mkdtempSync, readdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let replaced = null;
+  let swapped = false;
+  mod.testHooks.afterLook = (p) => {
+    if (replaced || !p.endsWith('.tmp')) return;
+    replaced = p;
+    writeFileSync(`${p}.x`, 'someone else');
+    renameSync(`${p}.x`, p);
+  };
+  mod.fsOps.link = (from, to) => {
+    if (replaced && !swapped && String(from).startsWith(`${replaced}.`) && String(from).endsWith('.rm') && to === replaced) {
+      swapped = true;
+      linkSync(from, join(outside, String(from).split('/').at(-1)));
+      renameSync(ctx, `${ctx}.moved`);
+      symlinkSync(outside, ctx);
+    }
+    return real.link(from, to);
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* either outcome */ } finally { mod.testHooks.afterLook = null; Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.deepEqual(readdirSync(outside).filter((f) => f.endsWith('.tmp')), [], 'nothing put back outside the project');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

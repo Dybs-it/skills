@@ -931,10 +931,19 @@ function rmIfOurs(p, id, check) {
   // Put back without overwriting anything: by link where the filesystem
   // has them, else as an exclusive copy (a snapshot, so the file itself is
   // then kept aside too, and named).
+  // Pinned right before the put-back and checked right after: through a
+  // folder swapped in between, the name would land somewhere else, and is
+  // then removed again when provably the same file (or the copy just made).
   const theirs = pathId(aside);
   let how;
-  try { how = placeNoClobber(aside, p, check, theirs); } catch {
+  const copied = {};
+  try { check?.(); how = placeNoClobber(aside, p, check, theirs, copied); } catch {
     throw Object.assign(new Error(`${p} changed while it was being removed; it is kept at ${aside}`), { keptAt: aside });
+  }
+  try { check?.(); } catch {
+    const now = pathId(p);
+    if (now !== null && now === (how === 'copy' ? copied.id : pathId(aside))) { try { rmIfOurs(p, now); } catch { /* named below */ } }
+    throw Object.assign(new Error(`${p} changed while it was being removed, and a folder on the way changed while it was put back; it is kept at ${aside}`), { keptAt: aside });
   }
   if (how === 'copy') throw Object.assign(new Error(`${p} changed while it was being removed; it was put back as a copy, the file itself is kept at ${aside}`), { keptAt: aside });
   try { fsOps.rm(aside); } catch {
