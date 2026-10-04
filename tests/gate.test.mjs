@@ -466,3 +466,12 @@ test('a test location may start with a Windows drive', async () => {
   assert.ok(!hasLocation('C:/repo/tests/invite.test.ts'));
   assert.ok(!hasLocation('C::14'));
 });
+
+test('an underlined (Setext) heading is refused, so it cannot end a section unseen', () => {
+  const real = gate({ items: [full('a', 'P0')] });
+  const table = real.match(/## Items\n\n([\s\S]*?)\n\n## Risks/)[1];
+  const moved = real.replace(`## Items\n\n${table}`, `## Items\n\nArchived\n========\n\n${table}`);
+  assert.match(parseGate(moved).problems.join(' '), /not underlined ones/);
+  // A thematic break after a blank line is fine.
+  assert.deepEqual(parseGate(real + '\n---\n').problems, []);
+});

@@ -74,7 +74,13 @@ export function markdownHazards(text) {
   const lines = text.split(/\r?\n/);
   let inComment = false;
   let fence = null;
-  for (const line of lines) {
+  let inFront = false;
+  for (let n = 0; n < lines.length; n++) {
+    const line = lines[n];
+    const prev = n ? lines[n - 1] : '';
+    // The frontmatter block (`---` ... `---`) is not Markdown.
+    if (n === 0 && line.trim() === '---') { inFront = true; continue; }
+    if (inFront) { if (line.trim() === '---') inFront = false; continue; }
     if (!inComment) {
       const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
       if (fence) {
@@ -100,6 +106,11 @@ export function markdownHazards(text) {
       continue;
     }
     if (line.includes('<!--')) problems.push('HTML comments must start a line of their own (no escaped or inline <!--)');
+    // An underlined (Setext) heading ends a section on screen, so it is
+    // refused rather than modelled: gate.md uses "#" and "##" headings only.
+    if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(\||#|`{3,}|~{3,}|<!--)/.test(prev) && !prev.includes('-->')) {
+      problems.push('use "##" headings, not underlined ones (a line of = or - under text)');
+    }
     if (/^ {0,3}(?:>\s?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)+(`{3,}|~{3,})/.test(line)) problems.push('gate.md may not open a code fence inside a list item or a quote');
   }
   return [...new Set(problems)];
