@@ -332,7 +332,7 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStageRm, beforeCleanup } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStageRm, beforePlacedCheck, beforeCleanup } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   const tag = `dybs-${process.pid}-${Date.now()}`;
@@ -452,6 +452,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           throw new Error(`a folder on the way to ${s.a.rel} changed during the update; nothing was kept, run update again`);
         }
         fsOps.rm(s.tmp);
+        // Until that unlink, a link placement left two names for one file, and
+        // a write through the staging name would land in the target. So the
+        // target is read once more now that it is the only name.
+        beforePlacedCheck?.(s);
+        if (sha(fsOps.read(s.p)) !== sha(want[s.a.rel])) {
+          throw new Error(`${s.a.rel} changed while it was being placed; nothing was kept, run update again`);
+        }
       }
     }
   } catch (err) {
