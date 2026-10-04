@@ -1774,3 +1774,31 @@ test('a staging file swapped in the instant before its link is removed by the id
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
 });
+
+test('a folder swapped during the move-aside link leaves no name outside the install', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, SKILL), 'theirs');
+  let swapped = false;
+  mod.fsOps.link = (from, to) => {
+    if (!swapped && to.endsWith('.old')) {
+      swapped = true;
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    }
+    return real.link(from, to);
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.deepEqual(readdirSync(outside).filter((n) => n.endsWith('.old')), [], 'no .old name is left outside');
+  assert.equal(readFileSync(join(outside, SKILL), 'utf8'), 'theirs');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
