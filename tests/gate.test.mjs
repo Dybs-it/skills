@@ -420,3 +420,11 @@ test('review counts untracked files before calling a change empty; pr ignores it
   const pr = readFileSync(join(ROOT, 'skills/dybs-pr/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(pr, /anything outside `dybs\/`: the work files this flow writes/);
 });
+
+test('a <!-- inside a code fence is text: it never hides the rows after the fence', () => {
+  const real = gate({ items: [full('a', 'P0'), gap('b', 'P0')] });
+  const tricky = real.replace('## Items\n\n', '## Items\n\n```\n<!--\n```\n\n').replace(/(\| b \| P0 \| NONE \|[^\n]*\n)/, '$1\n-->\n');
+  const parsed = parseGate(tricky);
+  assert.deepEqual(parsed.problems, []);
+  assert.equal(decide(parsed, TODAY).decision, 'FAIL');
+});

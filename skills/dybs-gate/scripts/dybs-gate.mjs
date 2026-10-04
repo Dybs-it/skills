@@ -31,10 +31,15 @@ export const CATEGORIES = ['security', 'data', 'business', 'performance', 'techn
 // comment counts only where it starts a line; anything else that looks like
 // one (escaped, mid-line) is refused by markdownHazards(), not interpreted.
 export function visible(text) {
-  const noComments = text.replace(/^ {0,3}<!--[\s\S]*?(?:-->|(?![\s\S]))/gm, '');
   const out = [];
   let fence = null;
-  for (const line of noComments.split(/\r?\n/)) {
+  let inComment = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (inComment) {
+      if (line.includes('-->')) inComment = false;
+      out.push('');
+      continue;
+    }
     const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
@@ -44,6 +49,13 @@ export function visible(text) {
     // A backtick fence's info string may not contain a backtick.
     if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
       fence = { ch: m[1][0], len: m[1].length };
+      out.push('');
+      continue;
+    }
+    // Comments are judged outside code only: inside a fence `<!--` is text.
+    const c = line.match(/^ {0,3}<!--/);
+    if (c) {
+      if (!line.slice(c[0].length).includes('-->')) inComment = true;
       out.push('');
       continue;
     }
@@ -60,7 +72,16 @@ export function markdownHazards(text) {
   const problems = [];
   const lines = text.split(/\r?\n/);
   let inComment = false;
+  let fence = null;
   for (const line of lines) {
+    if (!inComment) {
+      const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+      if (fence) {
+        if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
+        continue;
+      }
+      if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; continue; }
+    }
     if (inComment) {
       const end = line.indexOf('-->');
       if (end < 0) continue;
