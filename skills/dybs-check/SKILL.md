@@ -52,7 +52,9 @@ the smallest fix. If there are more, say how many and that they can wait.
 
 ## 3. Agent-ready test (thorough)
 
-Run this when any doc is at thorough depth; offer it at quick depth.
+Run this when any doc is at thorough depth; offer it at quick depth, unless
+`project.md` has `checkins: none`: then ask nothing, skip it, and say so in
+the report.
 
 Pick up to three must-have requirements from the PRD, the riskiest first
 (all of them when the PRD has fewer than three). For each,

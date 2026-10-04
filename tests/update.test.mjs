@@ -2842,3 +2842,9 @@ test('a staging file that went outside through a folder swapped and restored is 
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('dybs-check asks nothing under checkins: none, the agent-ready test offer included', () => {
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-check', 'SKILL.md'), 'utf8');
+  const section = t.slice(t.indexOf('## 3. Agent-ready test'));
+  assert.match(section.slice(0, 400), /offer it at quick depth, unless\s+`project.md` has `checkins: none`: then ask nothing/);
+});

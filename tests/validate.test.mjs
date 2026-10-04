@@ -2618,3 +2618,25 @@ test('code spans keep link syntax as text, defined references can split a placeh
   // A thematic break ends the block before it: `2.` may start a list.
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '***\n2. ## Goals')).rules.includes('sections'));
 });
+
+test('a linked project.md is rejected without ever being opened', (t) => {
+  const dir = copySample();
+  chmodSync(dir, 0o755);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  chmodSync(outside, 0o755);
+  const target = join(outside, 'project.md');
+  writeFileSync(target, readFileSync(join(dir, 'dybs/project.md'), 'utf8'));
+  // Unreadable: opening it would fail, so only a clean rejection passes.
+  chmodSync(target, 0o000);
+  rmSync(join(dir, 'dybs/project.md'));
+  symlinkSync(target, join(dir, 'dybs/project.md'));
+  const cmd = unprivileged([join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs'), dir, '--doc', 'project', '--json']);
+  if (!cmd) { rmSync(dir, { recursive: true }); rmSync(outside, { recursive: true }); return t.skip(UNPRIVILEGED_SKIP); }
+  let out; let code = 0;
+  try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { out = `${e.stdout}${e.stderr}`; code = e.status; }
+  assert.notEqual(code, 0);
+  assert.match(out, /symbolic link/, out);
+  assert.doesNotMatch(out, /EACCES/);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
