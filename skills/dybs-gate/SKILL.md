@@ -14,7 +14,7 @@ Parts are adapted from MIT-licensed work by Matt Pocock and BMad Code, LLC;
 their copyright notices are in the header of `quality.md` in this folder.
 
 **Reads:** `dybs/work/<task>/test-plan.md` (its criteria, risks and
-scenarios), the tests themselves, and `dybs/context/prd.md` and
+scenarios), `dybs/work/<task>/review.md` when present, the tests themselves, and `dybs/context/prd.md` and
 `domain.md` when present. **Writes:** `dybs/work/<task>/gate.md` from
 `template.md`.
 
@@ -41,6 +41,12 @@ secrets, personal data) with `yes` in the Security column.
 Copy the plan's risks with category, P, I, score and status (the script
 checks that the score is P × I). A risk is `mitigated` only when
 its mitigation exists and is proven, not when it is planned.
+
+Then read `review.md` when it exists. Every finding still open that is a
+defect or a gap in proof becomes a row too: a missing or wrong behaviour as
+an item (security `yes` when it concerns security), anything else as a risk
+scored like the plan's. A finding the human decided not to fix stays a row
+and needs a waiver like any other gap.
 
 ## 3. Compute
 

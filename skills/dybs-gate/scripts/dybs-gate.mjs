@@ -70,28 +70,37 @@ export function tableAt(text, heading) {
   const lines = visible(text).split(/\r?\n/);
   const start = lines.findIndex((l) => isHeading(l, heading));
   if (start < 0) return null;
-  const cellsOf = (line) => line.slice(1, line.endsWith('|') ? -1 : undefined).split('|').map((c) => c.trim());
+  // Split on unescaped pipes only; `\|` is a pipe inside a cell.
+  const cellsOf = (line) => line.slice(1, /(?<!\\)\|$/.test(line) ? -1 : undefined)
+    .split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
   const isSeparator = (cells) => cells.every((c) => /^:?-{3,}:?$/.test(c));
+  const isIndented = (l) => /^( {4}|\t)/.test(l || '');
   const rows = [];
   let columns = null;
+  let tables = 0;
+  let inTable = false;
   for (let i = start + 1; i < lines.length; i++) {
     const raw = lines[i];
     const line = raw.trim();
-    if (line.startsWith('## ')) break;
-    const tableLine = line.startsWith('|') && !/^( {4}|\t)/.test(raw);
-    if (!tableLine) { if (columns) break; continue; }
-    if (!columns) {
+    if (/^ {0,3}##[ \t]/.test(raw)) break;
+    const tableLine = line.startsWith('|') && !isIndented(raw);
+    if (!tableLine) { inTable = false; continue; }
+    if (!inTable) {
+      // The start of a table: a header line followed by a separator row.
       const next = (lines[i + 1] || '').trim();
-      if (/^( {4}|\t)/.test(lines[i + 1] || '') || !next.startsWith('|') || !isSeparator(cellsOf(next))) return null;
-      columns = cellsOf(line).map((c) => c.toLowerCase());
+      if (isIndented(lines[i + 1]) || !next.startsWith('|') || !isSeparator(cellsOf(next))) return null;
+      tables++;
+      inTable = true;
+      if (tables === 1) columns = cellsOf(line).map((c) => c.toLowerCase());
       i++;
       continue;
     }
+    if (tables > 1) continue;
     const cells = cellsOf(line);
     if (cells.every((c) => c === '')) continue;
     rows.push(Object.fromEntries(columns.map((h, j) => [h, cells[j] ?? ''])));
   }
-  return columns ? { columns, rows } : null;
+  return columns ? { columns, rows, tables } : null;
 }
 
 // Rows only, for callers that do not need the column names.
@@ -113,6 +122,7 @@ function schemaProblems(text, table, heading) {
   const problems = [];
   if (headingCount(text, heading) > 1) problems.push(`"## ${heading}" appears more than once; keep one`);
   if (!table) return problems;
+  if (table.tables > 1) problems.push(`the ${heading} section has more than one table; keep one`);
   const missing = COLUMNS[heading].filter((c) => !table.columns.includes(c));
   if (missing.length) problems.push(`the ${heading} table lacks column(s): ${missing.join(', ')}`);
   const twice = table.columns.filter((c, i) => c && table.columns.indexOf(c) !== i);
@@ -137,6 +147,10 @@ export function isDate(v) {
 
 export function parseGate(text) {
   const problems = [];
+  // Raw HTML can hide or show content in ways this parser does not follow
+  // (<pre>, <details>, <table>). gate.md needs none, so any is refused.
+  const html = visible(text).split(/\r?\n/).filter((l) => /^ {0,3}<[A-Za-z/!?]/.test(l));
+  if (html.length) problems.push(`gate.md may not contain raw HTML (found: ${html[0].trim().slice(0, 40)})`);
   const itemTable = tableAt(text, 'Items');
   problems.push(...schemaProblems(text, itemTable, 'Items'));
   const itemRows = itemTable?.rows ?? null;
@@ -277,8 +291,9 @@ export function main(argv) {
   const unknown = args.filter((a) => a.startsWith('--') && a !== '--json');
   if (unknown.length) { console.error(`unknown option ${unknown.join(', ')}. Usage: dybs-gate.mjs <gate.md> [--json]`); return 2; }
   const today = localDate();
-  const file = args.find((a) => !a.startsWith('--'));
-  if (!file) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--json]'); return 2; }
+  const files = args.filter((a) => !a.startsWith('--'));
+  if (files.length !== 1) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--json] (exactly one gate file)'); return 2; }
+  const [file] = files;
   let text;
   try {
     text = readFileSync(resolve(file), 'utf8');

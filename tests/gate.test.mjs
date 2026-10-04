@@ -308,10 +308,15 @@ test('the gate\'s default today is the local date, not the UTC one', () => {
 // --- Codex review round 5 on PR #3 ---
 
 test('a heading indented as code is not a heading', () => {
+  // The only Waivers heading is indented, so it is code: there is no Waivers
+  // section, and the table under it waives nothing.
   const text = gate({ items: [gap('a', 'P0')] }).replace(/## Waivers\n\n[\s\S]*?\n\n## Decision/,
-    '## Waivers\n\n    ## Waivers\n\n' + waiverRows + '\n\n## Decision');
-  // the real Waivers section has no table; the indented "heading" is code
+    '    ## Waivers\n\n' + waiverRows + '\n\n## Decision');
   assert.equal(decide(parseGate(text), TODAY).decision, 'FAIL');
+  // An indented copy under a real heading is just code inside that section.
+  const real = gate({ items: [gap('a', 'P0')] }).replace(/## Waivers\n\n[\s\S]*?\n\n## Decision/,
+    '## Waivers\n\n    ## Waivers\n\n' + waiverRows + '\n\n## Decision');
+  assert.equal(decide(parseGate(real), TODAY).decision, 'WAIVED');
   const tabbed = gate({ items: [gap('a', 'P0')] }).replace('## Waivers', '\t## Waivers').replace(/\| a \| demo/, '| a | demo');
   assert.equal(headingCountFor(tabbed), 0);
 });
@@ -339,5 +344,33 @@ test('the gate script runs when called through a linked skill folder', () => {
   symlinkSync(join(ROOT, 'skills/dybs-gate'), join(dir, 'dybs-gate'));
   const out = execFileSync('node', [join(dir, 'dybs-gate/scripts/dybs-gate.mjs'), join(ROOT, 'tests/fixtures/gate-pass.md')], { encoding: 'utf8' });
   assert.match(out, /Decision: PASS/);
+  rmSync(dir, { recursive: true });
+});
+
+// --- Codex review round 7 on PR #3 ---
+
+test('raw HTML in gate.md is refused, so <pre> cannot hide or show a table', () => {
+  const text = gate({ items: [gap('a', 'P0')] }).replace('## Items\n\n', '## Items\n\n<pre>\n| Item | Priority | Coverage | Evidence | Security |\n|---|---|---|---|---|\n| a | P0 | FULL | tests/a.test.js:1 | no |\n</pre>\n\n');
+  assert.match(parseGate(text).problems.join(' '), /may not contain raw HTML/);
+});
+
+test('a second table in a section is a format problem', () => {
+  const text = gate({ items: [full('a', 'P0')] }).replace(/## Waivers/, '| Risk | Category | P | I | Score | Status |\n|---|---|---|---|---|---|\n| r | security | 3 | 3 | 9 | open |\n\n## Waivers');
+  assert.match(parseGate(text).problems.join(' '), /Risks section has more than one table/);
+});
+
+test('an escaped pipe stays inside its cell', () => {
+  const rows = tableUnder('## A\n\n| X | Y |\n|---|---|\n| a \\| b | 2 |\n', 'A');
+  assert.deepEqual(rows, [{ x: 'a | b', y: '2' }]);
+});
+
+test('the CLI takes exactly one gate file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
+  const a = join(dir, 'a.md'); writeFileSync(a, gate({ items: [full('a', 'P0')] }));
+  const b = join(dir, 'b.md'); writeFileSync(b, gate({ items: [gap('a', 'P0')] }));
+  const cli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
+  const code = (args) => { try { execFileSync('node', [cli, ...args], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
+  assert.equal(code([a, b]), 2);
+  assert.equal(code([a]), 0);
   rmSync(dir, { recursive: true });
 });
