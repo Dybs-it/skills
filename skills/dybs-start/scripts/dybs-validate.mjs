@@ -77,13 +77,49 @@ export function parseFrontmatter(text) {
   return { data, body: text.slice(m[0].length) };
 }
 
+// What a reader sees: HTML comments and fenced code blocks dropped, by
+// Markdown's rules. A fence closes only with the same character, at least
+// as long as it opened, so a ```` block may hold ``` lines; an unclosed
+// comment or fence runs to the end. An indented code block (four spaces or
+// a tab) starts only after a blank line and outside a list, since an
+// indented line there continues a paragraph or a list item instead.
+export function visibleText(body) {
+  const noComments = body.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  const out = [];
+  let fence = null;
+  let indented = false;
+  let inList = false;
+  let prevBlank = true;
+  for (const line of noComments.split(/\r?\n/)) {
+    const blank = line.trim() === '';
+    const isIndented = /^( {4}|\t)/.test(line);
+    if (indented) {
+      if (blank || isIndented) { prevBlank = blank; continue; }
+      indented = false;
+    }
+    const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
+      continue;
+    }
+    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; continue; }
+    if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; continue; }
+    if (!blank && !isIndented) inList = /^ {0,3}([-*+]|\d{1,9}[.)])(\s|$)/.test(line) || (inList && !prevBlank);
+    prevBlank = blank;
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+// Headings a reader sees: none inside HTML comments or fenced examples.
 export function headings(body) {
-  return [...body.matchAll(/^##\s+(.+?)\s*$/gm)].map((h) => h.at(1));
+  return [...visibleText(body).matchAll(/^ {0,3}##\s+(.+?)\s*$/gm)].map((h) => h.at(1));
 }
 
 export function wordCount(body) {
-  // Count prose only: drop HTML comments (template guidance) and code fences.
-  const prose = body.replace(/<!--[\s\S]*?-->/g, '').replace(/```[\s\S]*?```/g, '');
+  // Count prose only: what a reader sees, without HTML comments (template
+  // guidance) or fenced code (``` or ~~~), by the same rules as headings.
+  const prose = visibleText(body);
   return (prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 }
 

@@ -182,3 +182,9 @@ test('project.md can never be skipped', () => {
   assert.notEqual(validateProject(dir).results.find((x) => x.name === 'project').status, 'skipped');
   rmSync(dir, { recursive: true });
 });
+
+test('tilde fences and indented code blocks are left out of the word count', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('one two\n\n~~~\nthree four five\n~~~\n'), 2);
+  assert.equal(wordCount('one two\n\n    three four five\n'), 2);
+});
