@@ -360,6 +360,13 @@ function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
     if (now !== null && now === (how === 'copy' ? copied.id : idOf(aside))) { try { rmIfOurs(p, now); } catch { /* named below */ } }
     throw Object.assign(new Error(`${p} is not the file the update wrote, and a folder on the way changed while it was put back; it is kept at ${aside}`), { keptAt: aside });
   }
+  // The name must now be the very file put back (or the copy just made): a
+  // folder swapped for a link and restored around the link passes the pins
+  // while the name landed outside. Then the private name is all that is
+  // left inside, and it stays.
+  if (idOf(p) !== (how === 'copy' ? copied.id : theirs)) {
+    throw Object.assign(new Error(`${p} is not the file the update wrote, and it could not be put back at its name; it is kept at ${aside}`), { keptAt: aside });
+  }
   if (how === 'copy') {
     throw Object.assign(new Error(`${p} is not the file the update wrote; it was put back as a copy, the file itself is kept at ${aside}`), { keptAt: aside });
   }
