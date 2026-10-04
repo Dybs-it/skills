@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, acceptedHash, nextStep, main } from '../skills/dybs-start/scripts/dybs-validate.mjs';
+import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, acceptedHash, nextStep, main, headings } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
@@ -600,4 +600,11 @@ test('--accept never replaces an edit saved while it ran', () => {
 
 test('leading or trailing whitespace is part of the accepted content', () => {
   assert.notEqual(acceptedHash({}, '# PRD\n'), acceptedHash({}, '    # PRD\n'));
+});
+
+test('a four-backtick block may hold triple backticks without hiding what follows', () => {
+  const withBlock = VALID_PRD.replace('## Goals', '````\n```\nexample\n```\n````\n\n## Goals');
+  assert.deepEqual(validateDoc('prd', withBlock).rules, []);
+  // ...and a heading after the inner ``` is still inside the block.
+  assert.deepEqual(headings('````\n```\n## Hidden\n````\n\n## Shown\n'), ['Shown']);
 });

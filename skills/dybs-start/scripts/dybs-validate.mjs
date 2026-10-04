@@ -91,10 +91,29 @@ export function parseFrontmatter(text) {
   return { data, body: text.slice(m[0].length), duplicates, unparsed };
 }
 
+// What a reader sees: HTML comments and fenced code blocks dropped, by
+// Markdown's rules. A fence closes only with the same character, at least
+// as long as it opened, so a ```` block may hold ``` lines; an unclosed
+// comment or fence runs to the end.
+export function visibleText(body) {
+  const noComments = body.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  const out = [];
+  let fence = null;
+  for (const line of noComments.split(/\r?\n/)) {
+    const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
+      continue;
+    }
+    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; continue; }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 // Headings a reader sees: none inside HTML comments or fenced examples.
 export function headings(body) {
-  const visible = body.replace(/<!--[\s\S]*?(?:-->|$)/g, '').replace(/^ {0,3}(```|~~~)[\s\S]*?(?:^ {0,3}\1[^\n]*$|(?![\s\S]))/gm, '');
-  return [...visible.matchAll(/^ {0,3}##\s+(.+?)\s*$/gm)].map((h) => h.at(1));
+  return [...visibleText(body).matchAll(/^ {0,3}##\s+(.+?)\s*$/gm)].map((h) => h.at(1));
 }
 
 export function wordCount(body) {
