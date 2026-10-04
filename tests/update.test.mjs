@@ -2259,3 +2259,40 @@ test('cleanup recovery never links the kept original outside the install through
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('putting back a file that was not the update\'s never lands it outside the install through a swapped folder', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let replaced = null;
+  let swapped = false;
+  // A user's file takes the staging name right after the first look...
+  mod.testHooks.afterLook = (p) => {
+    if (replaced || !String(p).endsWith('.new')) return;
+    replaced = String(p);
+    writeFileSync(`${p}.x`, 'theirs');
+    renameSync(`${p}.x`, p);
+  };
+  // ...and while it is being put back, the folder is swapped for one that
+  // shows the same file under the private name.
+  mod.fsOps.link = (from, to) => {
+    if (replaced && !swapped && String(from).startsWith(`${replaced}.`) && String(from).endsWith('.rm') && to === replaced) {
+      swapped = true;
+      linkSync(from, join(outside, String(from).split('/').at(-1)));
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    }
+    return real.link(from, to);
+  };
+  try { try { mod.applyPlan(plan); } catch { /* reported */ } } finally { mod.testHooks.afterLook = null; Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.deepEqual(readdirSync(outside).filter((f) => f.endsWith('.new')), [], 'nothing put back outside the install');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
