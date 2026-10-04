@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -424,4 +424,42 @@ test('--accept never writes through a symbolic link', () => {
   assert.equal(acceptDoc(dir2, 'prd').ok, false);
   assert.equal(readFileSync(join(ctx, 'prd.md'), 'utf8'), before);
   for (const d of [dir, dir2, outside]) rmSync(d, { recursive: true });
+});
+
+// --- Codex review round 3 on PR #2 ---
+
+test('--doc also validates project.md, whose settings it uses', () => {
+  const dir = copySample();
+  assert.equal(acceptDoc(dir, 'project', '2026-10-04').ok, true);
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: end'));
+  const report = validateProject(dir, 'prd');
+  assert.deepEqual(report.results.map((r) => r.name), ['project', 'prd']);
+  assert.equal(report.ok, false);
+  rmSync(dir, { recursive: true });
+});
+
+test('a placeholder left in frontmatter is caught like one in the body', () => {
+  const draft = VALID_PROJECT.replace('status: accepted', 'status: draft').replace('kind: greenfield', 'kind: greenfield\ntype: {{web app | api}}');
+  assert.ok(validateDoc('project', draft).warnings.some((w) => w.includes('placeholder')));
+  const accepted = VALID_PROJECT.replace('kind: greenfield', 'kind: greenfield\ntype: {{web app | api}}');
+  assert.deepEqual(validateDoc('project', accepted).rules, ['placeholder']);
+});
+
+test('a parked kickoff routes back to the kickoff, not to a doc', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace('status: accepted', 'status: draft\nkickoff: parked'));
+  const report = validateProject(dir);
+  assert.equal(report.parked, true);
+  const { out } = capture(() => main(['node', 'v', dir, '--json']));
+  assert.equal(JSON.parse(out).next, 'kickoff');
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept keeps the doc\'s permissions', () => {
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/prd.md');
+  chmodSync(path, 0o600);
+  assert.equal(acceptDoc(dir, 'prd', '2026-10-04').ok, true);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  rmSync(dir, { recursive: true });
 });
