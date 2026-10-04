@@ -1014,7 +1014,8 @@ export function validateProject(root, only) {
   if (readme) results.push({ name: 'readme', file: 'README.md', status: null, words: 0, errors: [readme], warnings: [] });
 
   const projectPath = join(dir, DOCS.project.file);
-  const projectText = lookup(projectPath) === 'present' ? readRegular(projectPath) : null;
+  // A linked project.md is never opened: the loop below reports it.
+  const projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath) : null;
   const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
   validateHooks.afterSettings?.();
   const skip = skipped(projectData);
