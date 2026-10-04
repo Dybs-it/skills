@@ -2232,3 +2232,27 @@ test('quoted link titles and inline comments holding `--` cannot hide a placehol
   assert.ok(!validateDoc('prd', VALID_PRD + '\nordinary <!-- TODO --> text\n').rules.includes('placeholder'));
   assert.ok(!validateDoc('prd', VALID_PRD + '\n<!-- TODO -- block -->\n').rules.includes('placeholder'));
 });
+
+test('items opening with code, link destinations, escapes and escaped title quotes read as CommonMark does', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // `-\t\tfoo`: one column of padding, the rest indented code (CommonMark example 7).
+  assert.equal(wordCount('-\t\tfoo bar\n'), 0);
+  assert.ok(!validateDoc('prd', VALID_PRD + '\n-     <div>code</div>\n').rules.includes('html'));
+  // A link destination in angle brackets is no raw HTML.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nSee [the details](<details>).\n').rules.includes('html'));
+  // `\{\{x\}\}` renders as `{{x}}`.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n\\{\\{product\\}\\}\n').rules.includes('placeholder'));
+  // An escaped quote does not close a link title.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O](foo "x\\")")DO\n').rules.includes('placeholder'));
+});
+
+test('--accept falls back to copies where link() answers EISDIR (Windows exFAT)', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  mod.fsOps.link = () => { throw Object.assign(new Error('EISDIR: illegal operation on a directory, link'), { code: 'EISDIR' }); };
+  let r;
+  try { r = mod.acceptDoc(dir, 'prd', '2026-10-04'); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(r.ok, true, (r.errors || []).join(' '));
+  rmSync(dir, { recursive: true });
+});

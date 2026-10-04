@@ -607,7 +607,12 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
       paraPrefix = containerPrefix(lines[n]);
       paraQuote = quoteDepth(lines[n]);
     }
-    if (codeItem) { para = false; indented = inner.length - afterMarkers.length + 4; }
+    if (codeItem) {
+      para = false;
+      indented = inner.length - afterMarkers.length + 4;
+      // The code is shown only where code is kept, as for any code block.
+      if (!keepCode) line = line.slice(0, line.length - afterMarkers.length);
+    }
     out.push(line);
   }
   return out.join('\n');
@@ -685,8 +690,10 @@ function dropLinkTargets(text) {
         // A quoted title (`"x)"`, `'x)'`) after the destination holds no
         // delimiters of its own.
         if (depth === 1 && (text[j] === '"' || text[j] === "'") && /[ \t]/.test(text[j - 1])) {
-          const q = text.indexOf(text[j], j + 1);
-          if (q > 0 && !text.slice(j, q).includes('\n')) { j = q; continue; }
+          // Escaped quotes (`"x\")"`) do not close the title.
+          let q = j + 1;
+          while (q < text.length && text[q] !== text[j] && text[q] !== '\n') q += text[q] === '\\' ? 2 : 1;
+          if (q < text.length && text[q] === text[j]) { j = q; continue; }
         }
         if (text[j] === '(') depth++;
         else if (text[j] === ')' && --depth === 0) break;
@@ -780,7 +787,8 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // neither does the indentation of a list item's content.
   // Anywhere in a line, not only at its start: inline HTML stays raw, and
   // `intro <details>` ... `</details>` collapses the sections between.
-  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(textOutsideCodeSpans(l)));
+  // A link destination (`[x](<details>)`) is never raw HTML: it is left out.
+  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(dropLinkTargets(textOutsideCodeSpans(l))));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
@@ -799,7 +807,8 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // (`T**O**DO`, `[TO](x)DO`), so it is also checked with emphasis, code
   // and link markup removed. That can only find more, never fewer.
   const shown = decodeReferences(visibleText(body, { keepCode: true }));
-  const flat = dropLinkTargets(shown).replace(/[*_~`[\]]/g, '');
+  // Backslash escapes of punctuation (`\{\{x\}\}`) render as the bare character.
+  const flat = dropLinkTargets(shown).replace(/\\([!-/:-@[-`{-~])/g, '$1').replace(/[*_~`[\]]/g, '');
   const frontmatterValues = Object.values(data || {}).join('\n');
   if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat) || PLACEHOLDER.test(decodeReferences(frontmatterValues))) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
@@ -973,8 +982,17 @@ function readById(p, id) {
   }
   try {
     const st = fstatSync(fd, BIG);
-    return st.isFile() && idOf(st) === id ? readFileSync(fd, 'utf8') : null;
+    return st.isFile() && idOf(st) === id && stillAtName(p, st) ? readFileSync(fd, 'utf8') : null;
   } finally { closeSync(fd); }
+}
+// Where open() has no O_NOFOLLOW (Windows), a link at the name is followed.
+// So the opened file must also be what the name itself is (no link
+// followed): the same identity, and not a link.
+function stillAtName(p, st) {
+  try {
+    const own = fsOps.lstat(p, BIG);
+    return !own.isSymbolicLink() && idOf(own) === idOf(st);
+  } catch { return false; }
 }
 
 // Removes `p` only while it is still the file we created.
@@ -1043,12 +1061,16 @@ export const fsOps = { lstat: lstatSync, open: (p) => openSync(p, fsConstants.O_
 // then removes it, so a failure in that removal is still undone.
 // `out.id`, when `out` is given, is set to a copy's identity: the only
 // proof afterwards that a file at `to` is the one this call created.
+// The errors a filesystem without hard links answers link() with. Windows
+// exFAT reports EISDIR (nodejs/node#65817).
+const NO_HARD_LINKS = ['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV', 'EISDIR'];
+
 export function placeNoClobber(from, to, check, fromId, out) {
   try {
     fsOps.link(from, to);
     return 'link';
   } catch (err) {
-    if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
+    if (!NO_HARD_LINKS.includes(err.code)) throw err;
     const id = copyExclusive(from, to, check, fromId);
     if (out) out.id = id;
     return 'copy';
@@ -1067,7 +1089,7 @@ function copyExclusive(from, to, check, fromId) {
   // The source is opened without following a link at its name, and only
   // the very file expected (`fromId`, when given) is copied.
   let src;
-  try { src = openSync(from, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+  try { src = fsOps.open(from); } catch (e) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Error(`${from} is no longer a regular file; nothing was copied`);
     throw e;
   }
@@ -1075,7 +1097,7 @@ function copyExclusive(from, to, check, fromId) {
   let mode;
   try {
     const st = fstatSync(src, BIG);
-    if (!st.isFile() || (fromId && idOf(st) !== fromId)) throw new Error(`${from} changed before it was copied; nothing was copied`);
+    if (!st.isFile() || (fromId && idOf(st) !== fromId) || !stillAtName(from, st)) throw new Error(`${from} changed before it was copied; nothing was copied`);
     mode = Number(st.mode) & 0o7777;
     data = readFileSync(src);
   } finally { closeSync(src); }
@@ -1118,7 +1140,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     }
   };
   // A doc is accepted under project.md's settings (its depth and cap), so
-  // those settings must themselves be valid first.
+  // those settings must themselves be valid first. They are read once: the
+  // validated bytes decide, never a second read a concurrent edit could
+  // change and restore before the inputs are checked again.
+  let settings = null;
   if (name !== 'project') {
     const projectPath = join(root, 'dybs', DOCS.project.file);
     if (!existsSync(projectPath)) return { ok: false, errors: ['dybs/project.md is missing: its depth and settings decide how this doc is accepted. Run dybs-start first.'] };
@@ -1133,6 +1158,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // A doc is never accepted without the docs it cannot be written
       // without: each must exist and validate.
       const projectData = parseFrontmatter(projectText).data;
+      settings = projectData;
       // A doc the project skips is not accepted: its skill stops, and
       // `--doc` refuses it too.
       if (skipped(projectData).has(name)) return { ok: false, errors: [`${DOCS[name].file} is under skip: in project.md; remove it from skip: before accepting it`] };
@@ -1171,8 +1197,8 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     }
   }
   const next = setFrontmatter(text, { status: 'accepted', updated: today, accepted: today, 'accepted-hash': acceptedHash(data, body) });
-  const projectPath = join(root, 'dybs', DOCS.project.file);
-  const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
+  // project.md is accepted under its own settings: the doc itself.
+  const projectData = name === 'project' ? data : settings;
   const check = validateDoc(name, next, depthFor(name, projectData), projectData?.checkins);
   if (check.errors.length) return { ok: false, errors: check.errors };
   // Write beside it and rename into place: rename replaces whatever is at
@@ -1273,7 +1299,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       rmIfOurs(path, oldId, pinned);
     } catch (e) {
       if (e.code === 'EEXIST') throw new Error(`something appeared at ${old} during the accept; nothing was changed, run --accept again`);
-      if (moved || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(e.code)) throw e;
+      if (moved || !NO_HARD_LINKS.includes(e.code)) throw e;
       // No hard links: an exclusive copy (COPYFILE_EXCL never replaces
       // anything), then the doc's own name is moved to a name only this run
       // knows and dropped only while it is the same file with the same
