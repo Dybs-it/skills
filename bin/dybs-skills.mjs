@@ -41,6 +41,8 @@ const SYMBOL = { add: '+', update: '~', replace: '!', remove: '-', conflict: '?'
 // Bump when the shape of --json output changes.
 const JSON_SCHEMA = 1;
 
+// Unknown options and extra paths are refused: a misspelled --dry-run must
+// never turn into a real update.
 function parse(argv) {
   const opts = { positional: [], force: false, dryRun: false, global: false };
   for (const a of argv) {
@@ -49,8 +51,10 @@ function parse(argv) {
     else if (a === '--global') opts.global = true;
     else if (a === '--json') opts.json = true;
     else if (a === '--help' || a === '-h') opts.help = true;
+    else if (a.startsWith('-')) opts.error = `unknown option "${a}"`;
     else opts.positional.push(a);
   }
+  if (!opts.error && opts.positional.length > 1) opts.error = `one folder at most, got ${opts.positional.length}`;
   return opts;
 }
 
@@ -62,6 +66,7 @@ export function run(argv) {
 
   const opts = parse(rest);
   if (opts.help) { console.log(HELP); return 0; }
+  if (opts.error) { console.error(`${opts.error}\n\n${HELP}`); return 2; }
   const roots = rootsFor(resolve(opts.positional[0] || '.'), opts);
 
   if (cmd === 'status') {
