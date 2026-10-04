@@ -688,12 +688,16 @@ function skipped(projectData) {
 // words are shown. Leaving a malformed one in can only count more.
 // Parentheses in a bare destination nest when balanced (`foo(bar(baz))`):
 // up to eight levels are read, a deeper one is left as text (counts more).
+// A backslash escapes only ASCII punctuation: `foo\ <x>` is no destination.
+const ESCAPED = String.raw`\\[!-\/:-@\[-\`{-~]`;
 const BALANCED = (depth) => (depth === 0
-  ? String.raw`(?:[^\s()\\]|\\.)*`
-  : String.raw`(?:[^\s()\\]|\\.|\(${BALANCED(depth - 1)}\))*`);
+  ? String.raw`(?:[^\s()\\]|${ESCAPED})*`
+  : String.raw`(?:[^\s()\\]|${ESCAPED}|\(${BALANCED(depth - 1)}\))*`);
 const LINK_DEST = String.raw`(?:<[^<>\n]*>|${BALANCED(8)})`;
 const LINK_TITLE = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\))`;
-const INLINE_TARGET = String.raw`\([ \t]*${LINK_DEST}(?:[ \t]+${LINK_TITLE})?[ \t]*\)`;
+// Up to one line ending is allowed in each gap (`](\nurl)`), as CommonMark does.
+const GAP = String.raw`[ \t]*(?:\n[ \t]*)?`;
+const INLINE_TARGET = String.raw`\(${GAP}${LINK_DEST}(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)${LINK_TITLE})?${GAP}\)`;
 // Only after an unescaped `[` opener, with no brackets in the link text: a
 // bare `](x)` is text, and so is `[a [b](c)](x)`'s outer part (a link holds
 // no link). One pass only, so a stripped link never forms a new one.
@@ -708,27 +712,45 @@ function dropValidLinkTargets(text) {
 // definition), and its title may sit alone on the next line. Returns line
 // index -> normalized label (null for a title line). Missing a definition
 // only counts more words and refuses more HTML.
-const DEF_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*(?:(?: {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})+| {0,3})\[((?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]+)\]:[ \t]*(?:<[^<>\n]*>|(?:[^\s()\\<]|\\.|\(${BALANCED(7)}\))${BALANCED(8)})([ \t]+${LINK_TITLE})?[ \t]*$`);
+const DEF_DEST = String.raw`(?:<[^<>\n]*>|(?:[^\s()\\<]|${ESCAPED}|\(${BALANCED(7)}\))${BALANCED(8)})`;
+const DEF_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*(?:(?: {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})+| {0,3})\[((?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]+)\]:[ \t]*${DEF_DEST}([ \t]+${LINK_TITLE})?[ \t]*$`);
 const DEF_TITLE_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*[ \t]*${LINK_TITLE}[ \t]*$`);
-const label = (l) => l.trim().replace(/\s+/g, ' ').toLowerCase();
+// A label alone (`[r]:`), its destination on the next line. That line is
+// never a setext underline or a thematic break, which end the paragraph.
+const DEF_OPEN = /^(?: {0,3}>[ \t]?)*(?:(?: {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})+| {0,3})\[((?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]+)\]:[ \t]*$/;
+const DEF_REST = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*[ \t]*${DEF_DEST}([ \t]+${LINK_TITLE})?[ \t]*$`);
+const BLOCK_END = /^(?: {0,3}>[ \t]?)* {0,3}(?:=+|-+|(?:([-*_])(?:[ \t]*\1){2,}))[ \t]*$/;
+// Labels match case-insensitively by Unicode case folding: `ẞ` matches
+// `ss`. Lower then upper case, as commonmark.js does it.
+const label = (l) => l.trim().replace(/\s+/g, ' ').toLowerCase().toUpperCase();
 function definitions(lines) {
   const defs = new Map();
   let titleMayFollow = false;
-  lines.forEach((l, i) => {
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
     if (titleMayFollow && DEF_TITLE_LINE.test(l)) {
       defs.set(i, null);
       titleMayFollow = false;
-      return;
+      continue;
     }
-    const m = DEF_LINE.exec(l);
     const blockStart = i === 0 || defs.has(i - 1) || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
+    const m = DEF_LINE.exec(l);
     if (m && blockStart) {
       defs.set(i, label(m[1]));
       titleMayFollow = !m[2];
-    } else {
-      titleMayFollow = false;
+      continue;
     }
-  });
+    const open = DEF_OPEN.exec(l);
+    const rest = open && blockStart && i + 1 < lines.length && !BLOCK_END.test(lines[i + 1]) ? DEF_REST.exec(lines[i + 1]) : null;
+    if (rest) {
+      defs.set(i, label(open[1]));
+      defs.set(i + 1, null);
+      titleMayFollow = !rest[1];
+      i += 1;
+      continue;
+    }
+    titleMayFollow = false;
+  }
   return defs;
 }
 

@@ -2726,3 +2726,25 @@ test('a staging file that went outside through a folder swapped and restored is 
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('without hard links, an original that cannot be looked up at cleanup is reported as kept', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  // At cleanup, the kept original's private name fails with EIO: never
+  // taken for gone.
+  let cleanup = false;
+  const eio = () => { throw Object.assign(new Error('I/O error'), { code: 'EIO' }); };
+  const isOrig = (p) => cleanup && /SKILL\.md\.[0-9a-f-]{36}\.rm$/.test(String(p));
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.lstat = (p, o) => (isOrig(p) ? eio() : real.lstat(p, o));
+  mod.fsOps.open = (p) => (isOrig(p) ? eio() : real.open(p));
+  let r;
+  try { r = mod.applyPlan(plan, { beforeCleanup: () => { cleanup = true; } }); } finally { Object.assign(mod.fsOps, real); }
+  const a = r.actions.find((x) => x.rel === SKILL);
+  assert.match(String(a.kept ?? ''), /\.rm$/);
+  rmSync(root, { recursive: true });
+});
