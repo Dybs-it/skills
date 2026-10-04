@@ -1028,3 +1028,8 @@ test('--json names the check as the next step once every doc is written', () => 
   assert.equal(JSON.parse(logs.join('\n')).next, 'check');
   rmSync(dir, { recursive: true });
 });
+
+test('an indented code block inside a block quote is code', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('> quoted words\n>\n>     code one two three\n\nafter'), 3);
+});

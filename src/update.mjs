@@ -401,8 +401,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // The backup is written the same way: created exclusively, tracked
         // before its bytes go in, and proven to be where we meant it.
         const b = backupPath(p);
-        const backup = { path: b };
-        writeOwnFile(b, readFileSync(p), lstatSync(p).mode & 0o7777, (id) => { backup.id = id; backups.push(backup); });
+        const bytes = readFileSync(p);
+        const backup = { path: b, hash: sha(bytes) };
+        writeOwnFile(b, bytes, lstatSync(p).mode & 0o7777, (id) => { backup.id = id; backups.push(backup); });
         if (chainOf(dir, a.rel) !== chain || idOf(b) !== backup.id) {
           throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again (a stray ${basename(b)} may have been written through it)`);
         }
@@ -480,7 +481,16 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // one we wrote, or a same-named file reached through a swapped link
     // would be deleted instead.
     for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmIfOurs(s.tmp, s.tmpId));
-    for (const b of backups) undo(b.path, () => rmIfOurs(b.path, b.id));
+    // A backup edited in place keeps its identity, so its bytes are checked
+    // too: a changed one is someone's work now and is kept.
+    for (const b of backups) {
+      undo(b.path, () => {
+        let same = false;
+        try { same = sha(readFileSync(b.path)) === b.hash; } catch { same = false; }
+        if (same) rmIfOurs(b.path, b.id);
+        else if (idOf(b.path) !== null) throw new Error(`${b.path} changed during the update; kept`);
+      });
+    }
     for (const a of actions) delete a.backup;
     for (const d of createdDirs) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop));
     if (stuck.length) err.message += `; could not undo everything, check by hand: ${stuck.join('; ')}`;
