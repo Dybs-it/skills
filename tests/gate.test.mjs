@@ -585,3 +585,12 @@ test('a backtick run that finds no equal closer is no code span: the tag stays r
     assert.doesNotMatch(parseGate(text).problems.join(' '), /raw HTML/, line);
   }
 });
+
+test('text starting with # but no space, or a pipe line, is no exemption from the Setext rule', () => {
+  for (const above of ['#Archived', '| a | b']) {
+    const real = gate({ items: [full('a', 'P0')] });
+    const table = real.match(/## Items\n\n([\s\S]*?)\n\n## Risks/)[1];
+    const moved = real.replace(`## Items\n\n${table}`, `## Items\n\n${above}\n---\n\n${table}`);
+    assert.match(parseGate(moved).problems.join(' '), /not underlined ones/, above);
+  }
+});

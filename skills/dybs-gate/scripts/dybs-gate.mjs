@@ -136,7 +136,10 @@ export function markdownHazards(text) {
     if (/^ {0,3}#{1,6}[ \t].*&[#A-Za-z0-9]+;/.test(line)) problems.push('headings may not contain character references such as &#116; or &amp;');
     // An underlined (Setext) heading ends a section on screen, so it is
     // refused rather than modelled: gate.md uses "#" and "##" headings only.
-    if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(\||#|`{3,}|~{3,})/.test(prev) && !prevComment) {
+    // Only a real ATX heading or a fence line above is exempt: `#Archived`
+    // (no space) is paragraph text and becomes a heading, and so does a
+    // pipe line that is not a table header for a bare `---`.
+    if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(#{1,6}([ \t]|$)|`{3,}|~{3,})/.test(prev) && !prevComment) {
       problems.push('use "##" headings, not underlined ones (a line of = or - under text)');
     }
     if (/^ {0,3}(?:>\s?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)+(`{3,}|~{3,})/.test(line)) problems.push('gate.md may not open a code fence inside a list item or a quote');
