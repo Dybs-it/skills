@@ -633,3 +633,10 @@ test('a comment opened in a quote inside a list item ends when a line leaves tha
   // indented line stays prose (CommonMark counts 2 words; never fewer).
   assert.ok(wordCount('- > <!--\n  > more\n> ===\n>     hidden words\n') >= 2);
 });
+
+test('placeholders written with character references are still placeholders', () => {
+  for (const p of ['T&#79;DO', 'T&#x42;D', '&lbrace;&lbrace;name&rbrace;&rbrace;', '&#123;&#123;x}}']) {
+    assert.ok(validateDoc('prd', VALID_PRD + `\nStill ${p} here.\n`).rules.includes('placeholder'), p);
+  }
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nFish &amp; chips.\n').rules.includes('placeholder'));
+});
