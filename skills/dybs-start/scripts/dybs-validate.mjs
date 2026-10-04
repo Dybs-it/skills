@@ -704,7 +704,7 @@ export function placeNoClobber(from, to) {
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
-export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforeMoveAside, beforePlace, beforePlacedCheck, beforeCleanup } = {}) {
+export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforeMoveAside, beforeAside, beforePlace, beforePlacedCheck, beforeCleanup } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -795,18 +795,27 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     } catch (e) {
       if (e.code === 'EEXIST') throw new Error(`something appeared at ${old} during the accept; nothing was changed, run --accept again`);
       if (moved || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(e.code)) throw e;
-      let resId;
+      // No hard links: an exclusive copy (COPYFILE_EXCL never replaces
+      // anything), then the doc's own name is moved to a name only this run
+      // knows and dropped only while it is the same file with the same
+      // bytes. No rename ever targets a name someone else could use.
       try {
-        const fd = openSync(old, 'wx', 0o600);
-        try { resId = idOf(fstatSync(fd)); } finally { closeSync(fd); }
+        fsOps.copyFile(path, old, fsConstants.COPYFILE_EXCL);
       } catch (e2) {
         if (e2.code === 'EEXIST') throw new Error(`something appeared at ${old} during the accept; nothing was changed, run --accept again`);
         throw e2;
       }
-      const st = (() => { try { return lstatSync(old); } catch { return null; } })();
-      if (!st || idOf(st) !== resId || st.size !== 0) throw new Error(`something changed ${old} during the accept; nothing was changed, run --accept again`);
-      renameSync(path, old);
       moved = true;
+      // From here the copy is the original the rollback restores.
+      const origId = oldId;
+      oldId = pathId(old);
+      beforeAside?.(path);
+      const aside = `${path}.${randomUUID()}.rm`;
+      renameSync(path, aside);
+      let same = false;
+      try { same = pathId(aside) === origId && readFileSync(aside, 'utf8') === readFileSync(old, 'utf8'); } catch { same = false; }
+      if (!same) throw new Error(`${rel} changed while it was being moved aside; your version is kept at ${aside}`);
+      fsOps.rm(aside);
     }
     pinned();
     if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);

@@ -1425,3 +1425,18 @@ test('indented code inside a nested list item starts four past the innermost ite
   assert.equal(wordCount('10. outer\n    - nested\n\n        visible prose here\n'), 6);
   assert.equal(wordCount('10. outer\n    - nested\n\n          code here\n'), 3);
 });
+
+test('without hard links, --accept never loses an edit made while moving the doc aside', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  const dir = copySample();
+  let err;
+  try {
+    mod.acceptDoc(dir, 'ui', '2026-10-04', { beforeAside: (p) => writeFileSync(p, 'edited after the copy') });
+  } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(err);
+  const kept = err.message.match(/your version is kept at (\S+?)(;|$)/)[1];
+  assert.equal(readFileSync(kept, 'utf8'), 'edited after the copy');
+  rmSync(dir, { recursive: true });
+});
