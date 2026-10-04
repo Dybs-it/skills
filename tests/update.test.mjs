@@ -2710,3 +2710,84 @@ test('without hard links, an edit written through an open original after its che
     rmSync(root, { recursive: true });
   }
 });
+
+test('an edit written in place just before a removal is put back, never deleted', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  // The committed cleanup has checked the moved-aside original; an editor
+  // still holding it open writes once more before the unlink.
+  let hit = false;
+  mod.testHooks.afterLook = (p) => {
+    if (hit || !/\.old\.[0-9a-f-]{36}\.rm$/.test(p)) return;
+    hit = true;
+    writeFileSync(p, 'EDITED in place', { flag: 'r+' });
+  };
+  let r;
+  try { r = mod.applyPlan(plan); } finally { mod.testHooks.afterLook = null; }
+  assert.ok(hit);
+  assert.ok(r);
+  const holding = readdirSync(dir).filter((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('EDITED'); } catch { return false; } });
+  assert.equal(holding.length, 1, 'the edit survives');
+  rmSync(root, { recursive: true });
+});
+
+test('the private name of a file put back is removed only while it is that file', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let stagedAt = null;
+  let replaced = false;
+  // The rollback meets a user's file at the staging name; it is moved aside,
+  // linked back, and then a watcher puts another file at the private name.
+  mod.testHooks.beforeMove = (p) => {
+    if (p !== stagedAt || replaced) return;
+    writeFileSync(`${p}.x`, 'first user file');
+    renameSync(`${p}.x`, p);
+  };
+  mod.fsOps.link = (from, to) => {
+    const r = real.link(from, to);
+    if (!replaced && to === stagedAt && /\.rm$/.test(from)) {
+      replaced = true;
+      writeFileSync(`${from}.y`, 'second user file');
+      renameSync(`${from}.y`, from);
+    }
+    return r;
+  };
+  const beforeStageCheck = (entry) => { stagedAt = entry.tmp; throw new Error('stop after staging'); };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /stop after staging/); } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  assert.ok(replaced);
+  const dir = dirname(prd(root));
+  const texts = readdirSync(dir).map((n) => { try { return readFileSync(join(dir, n), 'utf8'); } catch { return ''; } });
+  assert.ok(texts.includes('first user file'));
+  assert.ok(texts.includes('second user file'), 'the file at the private name survives');
+  rmSync(root, { recursive: true });
+});
+
+test('without hard links, a changed original is put back without replacing a new save', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  // Edited in place right before it is moved aside, then a new save lands at
+  // the name in the instant before the put-back.
+  const beforeAside = (s) => writeFileSync(s.p, 'edited in place', { flag: 'r+' });
+  mod.testHooks.beforePutBack = (p) => writeFileSync(p, 'a new save');
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let err = null;
+  try { mod.applyPlan(plan, { beforeAside }); } catch (e) { err = e; } finally { mod.testHooks.beforePutBack = null; Object.assign(mod.fsOps, real); }
+  assert.match(err?.message ?? '', /changed while it was being moved aside/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'a new save');
+  const dir = dirname(prd(root));
+  assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('edited in place'); } catch { return false; } }), 'the edited original is kept');
+  rmSync(root, { recursive: true });
+});
