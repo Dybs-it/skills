@@ -901,3 +901,35 @@ test('a gate.md that disappears mid-check gets no decision, not a crash read as 
   assert.doesNotMatch(r.out, /\n\s+at /, 'no stack trace');
   for (const d of [repo, bin]) rmSync(d, { recursive: true });
 });
+
+test('evidence saved while git runs is caught before any decision', () => {
+  const { repo, gatePath } = gateRepo();
+  const { r, bin } = gateWithGit(gatePath, 'log', `echo two > "${join(repo, 'code.js')}"`);
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE/);
+  for (const d of [repo, bin]) rmSync(d, { recursive: true });
+});
+
+test('changed evidence inside a submodule set to ignore = all is STALE', () => {
+  const sub = mkdtempSync(join(tmpdir(), 'dybs-gate-sub-'));
+  const s = (...a) => execFileSync('git', ['-C', sub, ...a], { encoding: 'utf8' }).trim();
+  s('init', '-q'); s('config', 'user.email', 't@example.com'); s('config', 'user.name', 'T');
+  writeFileSync(join(sub, 'lib.js'), 'one');
+  s('add', '.'); s('commit', '-qm', 'lib');
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  g('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', sub, 'vendor/lib');
+  g('config', '-f', '.gitmodules', 'submodule.vendor/lib.ignore', 'all');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  g('add', '.'); g('commit', '-qm', 'code');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  const run = () => { try { return { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  assert.equal(run().code, 0);
+  writeFileSync(join(repo, 'vendor/lib/lib.js'), 'two');
+  const r = run();
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /vendor\/lib/);
+  for (const d of [repo, sub]) rmSync(d, { recursive: true });
+});

@@ -559,27 +559,35 @@ export function freshness(gatePath, text) {
   }
   const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
   // NUL-separated porcelain: paths come unquoted (no C escapes for
-  // non-ASCII names), and a rename lists both of its paths.
-  let raw;
-  try {
-    raw = execFileSync('git', ['-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (e) {
-    const said = String(e.stderr || '').trim().split('\n')[0];
-    return { status: 'stale', reason: `git could not read the working tree (${said || e.message}). Fix the repository and run the gate again` };
-  }
-  const entries = raw.split('\0');
-  const paths = [];
-  for (let i = 0; i < entries.length; i++) {
-    const e = entries[i];
-    if (!e) continue;
-    paths.push(e.slice(3));
-    if (e[0] === 'R' || e[0] === 'C') paths.push(entries[++i]);
-  }
-  const changed = paths.filter((f) => f && f !== gateRel && f !== prRel);
-  if (changed.length) return { status: 'stale', reason: `uncommitted changes besides gate.md and pr.md: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}. Commit the evidence first` };
+  // non-ASCII names), and a rename lists both of its paths. Submodules are
+  // always looked into: `ignore = all` in .gitmodules or config must not
+  // hide changed evidence inside one.
+  const dirty = () => {
+    let raw;
+    try {
+      raw = execFileSync('git', ['-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      const said = String(e.stderr || '').trim().split('\n')[0];
+      return { status: 'stale', reason: `git could not read the working tree (${said || e.message}). Fix the repository and run the gate again` };
+    }
+    const entries = raw.split('\0');
+    const paths = [];
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      if (!e) continue;
+      paths.push(e.slice(3));
+      if (e[0] === 'R' || e[0] === 'C') paths.push(entries[++i]);
+    }
+    const changed = paths.filter((f) => f && f !== gateRel && f !== prRel);
+    if (changed.length) return { status: 'stale', reason: `uncommitted changes besides gate.md and pr.md: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}. Commit the evidence first` };
+    return null;
+  };
+  const before = dirty();
+  if (before) return before;
   let head;
+  const evidenceHead = () => git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude)${gateRel}`, `:(exclude)${prRel}`]);
   // Git failing here is never "nothing to check": it is refused.
-  try { head = git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude)${gateRel}`, `:(exclude)${prRel}`]); } catch {
+  try { head = evidenceHead(); } catch {
     return { status: 'stale', reason: 'git could not read the history of the evidence. Fix the repository and run the gate again' };
   }
   // Inside a repository the gate needs committed evidence: with nothing
@@ -599,6 +607,14 @@ export function freshness(gatePath, text) {
   if (named !== head) {
     return { status: 'stale', head: short, reason: `gate.md says commit: ${field || '(not set)'}, but the evidence is at ${short}. Check the tables against ${short}, set commit: ${short}, and run the gate again` };
   }
+  // Checked once more, last: a file saved or a commit made while git ran
+  // above would otherwise go unseen. What is left is the instant between
+  // this and the decision, which then describes the tree as it was.
+  const after = dirty();
+  if (after) return after;
+  let again = null;
+  try { again = evidenceHead(); } catch { again = null; }
+  if (again !== head) return { status: 'stale', head: short, reason: 'the evidence changed while the gate was checking it. Run the gate again' };
   return { status: 'fresh', head: short };
 }
 
