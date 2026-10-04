@@ -725,3 +725,18 @@ test('a missing method README routes to dybs-start, never to a "readme" phase', 
   assert.ok(!logs.join('\n').includes('Next: readme'));
   rmSync(dir, { recursive: true });
 });
+
+test('list items, quotes and formatting cannot hide a placeholder or raw HTML (round 9)', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // `  2. ` inside an item's paragraph continues it; no comment opens.
+  assert.match(visibleText('- ordinary\n  2. <!--\n     TODO\n', { keepCode: true }), /TODO/);
+  // Formatting that splits a placeholder still shows it whole.
+  for (const x of ['T**O**DO', '[TO](x)DO', 'T`O`DO', '{**{x}**}']) {
+    assert.ok(validateDoc('prd', VALID_PRD + '\n' + x + '\n').rules.includes('placeholder'), x);
+  }
+  // A blank line ends the quote and its fence: the next quote is read.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n> ```\n\n> <div>visible</div>\n').rules.includes('html'));
+  assert.match(visibleText('- > ```\n>\n  > TODO\n'), /TODO/);
+  // `- - <!--`: the comment sits in the inner item, which `  TODO` leaves.
+  assert.match(visibleText('- - <!--\n  TODO visible\n', { keepCode: true }), /TODO visible/);
+});

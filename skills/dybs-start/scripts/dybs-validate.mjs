@@ -346,14 +346,22 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     // Only an ordered list starting at 1 may interrupt a paragraph: after
     // paragraph text, `2. ```` is more of that paragraph, not a fence.
     const ordered = body0.match(/^ {0,3}(?:>[ \t]?)*\s*(\d{1,9})[.)][ \t]/);
-    if (m && !fence && ordered && Number(ordered[1]) !== 1 && !prevBlank && !afterBlock && !inList) m = null;
+    // Inside a list item too: `  2. ` at the item's content continues its
+    // paragraph (`- ordinary` / `  2. x`); only left of it is a new item.
+    const inItemText = inList && line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length >= (items.at(-1) ?? listIndent);
+    if (m && !fence && ordered && Number(ordered[1]) !== 1 && !prevBlank && !afterBlock && (!inList || inItemText)) m = null;
     // A fence lives in the container it opened in: a line outside that
     // block quote or list item ends the container, and the fence with it
     // (no lazy continuation for code), so the line is read afresh: a bare
     // ``` after `> ```` opens a new fence rather than closing the quoted one.
     // When the list item holds the quote (`- > ````), the item's column is
     // measured before the `>` markers and the quote depth after it.
-    if (fence && !blank) {
+    // A blank line without the `>` markers ends a block quote, and a fence
+    // inside it: `> ```` / (blank) / `> text` is a second quote, not code.
+    if (fence && blank && quoteDepth(line) < fence.quote) fence = null;
+    // In a list item a bare `>` is not blank: left of the item's content it
+    // ends the item (`- > ```` / `>`), and the fence with it.
+    if (fence && (!blank || (fence.listFirst && line.trim() !== ''))) {
       const rawLead = line.match(/^ */)[0].length;
       const depth = fence.listFirst ? quoteDepth(line.slice(Math.min(rawLead, fence.col))) : quoteDepth(line);
       const lead = fence.listFirst ? rawLead : inner.match(/^ */)[0].length;
@@ -414,7 +422,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     // paragraph: only a list starting at 1 may interrupt one.
     const lateOrdered = /^ {0,3}(?:>[ \t]?)*\s*(\d{1,9})[.)][ \t]/.exec(line);
     // A paragraph inside a quote is not continued by a line outside it.
-    const interrupts = !(lateOrdered && Number(lateOrdered[1]) !== 1 && para && !inList && quoteDepth(line) >= paraQuote);
+    const interrupts = !(lateOrdered && Number(lateOrdered[1]) !== 1 && para && (!inList || inItemText) && quoteDepth(line) >= paraQuote);
     const blockComment = !st.span && interrupts && /^ *<!--/.test(afterMarkers) && (afterMarkers !== line.replace(/^(?: {0,3}>[ \t]?)+/, '') ? markerLead < 4 : markerLead - (inList && quoteDepth(line) >= listQuote ? (items.filter((c) => c <= markerLead).at(-1) ?? 0) : 0) < 4);
     // Where the comment itself starts: after `- > ` it is inside the item.
     const commentLead = Math.max(0, line.replace(/^(?: {0,3}>[ \t]?)+/, '').indexOf('<!--'));
@@ -426,7 +434,8 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     // Remember the container the comment opened in (see above).
     if (stripped.open) {
       const q = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
-      const mk = q.match(/^ *(?:[-*+]|\d{1,9}[.)])[ \t]+/);
+      // Every marker on the line counts: `- - <!--` sits in the inner item.
+      const mk = q.match(/^ *(?:(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| ))+/);
       const itemCol = inList && quoteDepth(line) >= listQuote ? (items.filter((c) => c <= q.match(/^ */)[0].length).at(-1) ?? 0) : 0;
       // Quotes after a list marker count too (`- > <!--`): the comment
       // ends where a line leaves that quote, as in CommonMark.
@@ -579,7 +588,12 @@ export function validateDoc(name, text) {
     warnings.push(`${words} words, close to the cap of ${spec.maxWords}`);
   }
 
-  if (PLACEHOLDER.test(decodeReferences(visibleText(body, { keepCode: true })))) {
+  // Inline formatting can split a placeholder that still reads whole
+  // (`T**O**DO`, `[TO](x)DO`), so it is also checked with emphasis, code
+  // and link markup removed. That can only find more, never fewer.
+  const shown = decodeReferences(visibleText(body, { keepCode: true }));
+  const flat = shown.replace(/\]\([^)\n]*\)|\]\[[^\]\n]*\]/g, '').replace(/[*_~`[\]]/g, '');
+  if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);
