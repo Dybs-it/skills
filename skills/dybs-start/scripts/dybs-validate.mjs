@@ -424,7 +424,10 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     let newItem = false;
     // A heading or a thematic break interrupts a list, blank line or not.
     // So does a block quote that starts left of the item's content.
-    const breaksList = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
+    // Only left of the item's content: `  ## Details` under `- item` is a
+    // heading inside the item, and the item goes on.
+    const breaksList = (/^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
+        && !(inList && qline.match(/^ */)[0].length >= (items.at(-1) ?? listIndent)))
       || (inList && /^ {0,3}>/.test(line) && line.match(/^ */)[0].length < (items.at(-1) ?? listIndent));
     if (!nowBlank && !/^( {4}|\t)/.test(qline)) {
       // `2. x` after paragraph text continues the paragraph: no list starts.
@@ -627,8 +630,10 @@ export function main(argv) {
   const json = args.includes('--json');
   const docIdx = args.indexOf('--doc');
   const only = docIdx >= 0 ? args[docIdx + 1] : undefined;
-  if (only && !DOCS[only]) {
-    console.error(`unknown doc "${only}". Known: ${ORDER.join(', ')}`);
+  // `--doc` always names a known doc: without one (or with an empty
+  // value) it must not fall back to a whole-project check that can pass.
+  if (docIdx >= 0 && (!only || only.startsWith('--') || !DOCS[only])) {
+    console.error(`${only && !only.startsWith('--') ? `unknown doc "${only}"` : '--doc needs a doc name'}. Known: ${ORDER.join(', ')}`);
     return 2;
   }
   const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--doc');
