@@ -115,6 +115,8 @@ folder with `--global`), follows the link a package manager makes for a
 whole skill folder, and only touches skills that are already installed. **It never overwrites your edits:** a file is replaced
 only when it still matches a version this package shipped. Anything you
 changed is reported and left alone; `--force` replaces it and keeps a `.bak`.
+A file you changed that a release no longer ships stays too, and with
+`--force` the rest of the skill is updated around it.
 A skill with anything that needs you is left completely unchanged, so it
 never mixes files from two releases. Links inside a skill are never followed
 or written through, `--force` included. `--dry-run --json` prints the plan.
