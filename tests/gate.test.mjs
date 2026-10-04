@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'n
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { parseGate, decide, tableUnder, headingCount } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
+import { parseGate, decide, tableUnder, headingCount, visible } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
 const headingCountFor = (text) => headingCount(text, 'Waivers');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -548,4 +548,17 @@ test('a waiver whose reason or approver renders as nothing is incomplete', () =>
 test('an indented fence (for example on a list continuation line) is refused', () => {
   const text = gate({ items: [full('a', 'P0')] }).replace('## Risks', '- archived\n  ```\n\n## Risks');
   assert.ok(parseGate(text).problems.some((p) => p.includes('code fences must start')));
+});
+
+test('more gate refusals: entity headings, deep-indented fences, link-only waivers, indented frontmatter', () => {
+  const base = gate({ items: [full('a', 'P0')] });
+  const has = (text, s) => parseGate(text).problems.some((p) => p.includes(s));
+  assert.ok(has(base.replace('## Risks', '## I&#116;ems\n\n## Risks'), 'character references'));
+  assert.ok(has(base.replace('## Risks', '- archived\n    ```\n\n## Risks'), 'code fences must start'));
+  // A leading-space --- is a thematic break a reader sees, not frontmatter.
+  assert.equal(visible(' ---\nx\n---\n'), ' ---\nx\n---\n');
+  for (const f of [{ reason: '[](reason)' }, { by: '[](alice)' }, { by: '<span>alice</span>' }]) {
+    assert.equal(run({ items: [gap('a', 'P0')], waivers: [waiver('a', f)] }).decision, 'FAIL', JSON.stringify(f));
+  }
+  assert.equal(run({ items: [gap('a', 'P0')], waivers: [waiver('a')] }).decision, 'WAIVED');
 });

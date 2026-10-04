@@ -41,8 +41,10 @@ export function visible(text) {
     const line = lines[n];
     // The frontmatter block (`---` ... `---`) is not Markdown: nothing in it
     // is a heading or a table, whatever it looks like.
-    if (n === 0 && line.trim() === '---') { inFront = true; out.push(''); continue; }
-    if (inFront) { if (line.trim() === '---') inFront = false; out.push(''); continue; }
+    // Only a delimiter at column zero is frontmatter: ` ---` is a thematic
+    // break that a reader sees.
+    if (n === 0 && /^---[ \t]*$/.test(line)) { inFront = true; out.push(''); continue; }
+    if (inFront) { if (/^---[ \t]*$/.test(line)) inFront = false; out.push(''); continue; }
     if (inComment) {
       if (line.includes('-->')) inComment = false;
       out.push('');
@@ -91,8 +93,8 @@ export function markdownHazards(text) {
     const prevComment = lastComment;
     lastComment = false;
     // The frontmatter block (`---` ... `---`) is not Markdown.
-    if (n === 0 && line.trim() === '---') { inFront = true; continue; }
-    if (inFront) { if (line.trim() === '---') inFront = false; continue; }
+    if (n === 0 && /^---[ \t]*$/.test(line)) { inFront = true; continue; }
+    if (inFront) { if (/^---[ \t]*$/.test(line)) inFront = false; continue; }
     if (!inComment) {
       const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
       if (fence) {
@@ -101,7 +103,8 @@ export function markdownHazards(text) {
       }
       // An indented fence may belong to a list item (a continuation line),
       // and would then end with that item: refused rather than modelled.
-      if (m && /^[ \t]/.test(line)) problems.push('code fences must start at the beginning of the line (no indentation)');
+      // Any depth: under `- item` four raw spaces are only two relative ones.
+      if (/^[ \t]+(`{3,}|~{3,})/.test(line)) problems.push('code fences must start at the beginning of the line (no indentation)');
       if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; continue; }
     }
     if (inComment) {
@@ -126,6 +129,9 @@ export function markdownHazards(text) {
     // A heading inside a list item or quote (`- ## Archived`) still ends a
     // section on screen, so it is refused rather than modelled.
     if (/^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}([ \t]|$)/.test(line)) problems.push('headings may not sit inside a list item or a quote');
+    // `## I&#116;ems` renders as Items: a heading is matched as written, so
+    // character references in one are refused rather than decoded.
+    if (/^ {0,3}#{1,6}[ \t].*&[#A-Za-z0-9]+;/.test(line)) problems.push('headings may not contain character references such as &#116; or &amp;');
     // An underlined (Setext) heading ends a section on screen, so it is
     // refused rather than modelled: gate.md uses "#" and "##" headings only.
     if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(\||#|`{3,}|~{3,})/.test(prev) && !prevComment) {
@@ -341,7 +347,9 @@ export function waiverIssue(w, today) {
   const unfilled = (v) => /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/i.test(v);
   // Something a reader can see: an entity such as `&nbsp;` or `&#32;` is a
   // non-empty source string that renders as nothing.
-  const blank = (v) => !/[\p{L}\p{N}]/u.test(v.replace(/&[#A-Za-z0-9]+;/g, ''));
+  // Plain text only: Markdown or HTML can render as nothing (`[](alice)`,
+  // `<span hidden>`), so a field using it is not a visible reason or name.
+  const blank = (v) => /[[\]<>`]|&[#A-Za-z0-9]+;/.test(v) || !/[\p{L}\p{N}]/u.test(v);
   if (!w.reason || !w.by || unfilled(w.reason) || unfilled(w.by) || blank(w.reason) || blank(w.by)) return 'waiver needs a real reason and the name of the human who approved it';
   if (!isDate(w.approved) || !isDate(w.expires)) return 'waiver needs real approved and expires dates (YYYY-MM-DD)';
   if (w.approved > today) return `waiver approval is dated ${w.approved}, after today`;
