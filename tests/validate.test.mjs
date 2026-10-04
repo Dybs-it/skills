@@ -1360,3 +1360,26 @@ test('--accept catches a write through the temporary name after a link placement
   assert.equal(readFileSync(path, 'utf8'), 'a watcher wrote this');
   rmSync(dir, { recursive: true });
 });
+
+test('a heading opening a list item, and a short setext underline, are block boundaries', async () => {
+  const { wordCount, visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('- ## Example\n      code words here\n'), 1);
+  assert.equal(visibleText('open `\n--\ntext <!-- TODO -->\nclose `\n', { keepCode: true }), 'open `\n--\ntext \nclose `\n');
+});
+
+test('--accept never deletes a file that replaces its temporary name after the look', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync } = await import('node:fs');
+  const dir = copySample();
+  let replaced;
+  mod.testHooks.afterLook = (p) => {
+    if (replaced || !p.endsWith('.tmp')) return;
+    replaced = p;
+    writeFileSync(`${p}.x`, 'someone else');
+    renameSync(`${p}.x`, p);
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* either outcome is fine */ } finally { mod.testHooks.afterLook = null; }
+  assert.ok(replaced);
+  assert.equal(readFileSync(replaced, 'utf8'), 'someone else');
+  rmSync(dir, { recursive: true });
+});

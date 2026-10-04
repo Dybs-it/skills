@@ -216,7 +216,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
         // as an HTML comment, a heading or a list item, checked below.
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
         if (HTML_INTERRUPT.test(rest)) return false;
-        if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|1[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
+        if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|1[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$|=+[ \t]*$|-+[ \t]*$)/.test(rest)) return false;
         if (closer(run).test(lines[k])) return true;
       }
       return false;
@@ -347,7 +347,9 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     if (hideSpanLines && inSpan) { afterBlock = false; out.push(''); continue; }
     // A setext underline (`===` or `---` under paragraph text) completes a
     // heading too.
-    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
+    // A heading that opens a list item (`- ## Example`) counts as well.
+    const block = qline.replace(/^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+(?=#)/, '');
+    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(block)
       || (!wasBlank && /^ {0,3}(=+|-+)[ \t]*$/.test(qline));
     out.push(line);
   }
@@ -652,8 +654,19 @@ function pathId(p) {
 }
 
 // Removes `p` only while it is still the file we created.
+// Moved first to a name only this run knows, then checked there: what is
+// verified is exactly what gets deleted, even if something replaces `p` in
+// between. One that is not ours goes back, never over anything.
+export const testHooks = { afterLook: null };
 function rmIfOurs(p, id) {
-  if (id && pathId(p) === id) fsOps.rm(p);
+  if (!id || pathId(p) !== id) return;
+  testHooks.afterLook?.(p);
+  const aside = `${p}.${randomUUID()}.rm`;
+  try { renameSync(p, aside); } catch { return; }
+  if (pathId(aside) === id) { fsOps.rm(aside); return; }
+  try { fsOps.link(aside, p); fsOps.rm(aside); } catch {
+    throw new Error(`${p} changed while it was being removed; it is kept at ${aside}`);
+  }
 }
 
 // Today as the person running the command sees it (local time, not UTC), so

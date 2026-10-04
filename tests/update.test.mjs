@@ -1336,3 +1336,39 @@ test('an untouched v0.1 install is recognised and updated, not called an edit', 
   }
   rmSync(root, { recursive: true });
 });
+
+test('removing "our" file never deletes a replacement that appears after the look', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let hit = false;
+  // An editor saves (write a temp, rename over) right after the updater looked.
+  mod.testHooks.afterLook = (p) => {
+    if (hit || p !== prd(root)) return;
+    hit = true;
+    writeFileSync(`${p}.save`, 'an editor saved this');
+    renameSync(`${p}.save`, p);
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /not the file the update wrote/); } finally { mod.testHooks.afterLook = null; }
+  assert.ok(hit);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'an editor saved this');
+  rmSync(root, { recursive: true });
+});
+
+test('a project root below an unsearchable folder is a discovery error', () => {
+  const outer = mkdtempSync(join(tmpdir(), 'dybs-locked-'));
+  const root = join(outer, 'proj');
+  mkdirSync(root);
+  chmodSync(outer, 0o000);
+  const cli = join(PKG_ROOT, 'bin/dybs-skills.mjs');
+  const cmd = process.getuid?.() === 0 ? ['runuser', ['-u', 'nobody', '--', process.execPath, cli, 'status', root, '--json']] : [process.execPath, [cli, 'status', root, '--json']];
+  let out; let code = 0;
+  try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe', cwd: tmpdir() }); } catch (e) { out = e.stdout; code = e.status; }
+  chmodSync(outer, 0o755);
+  assert.equal(code, 1);
+  assert.match(JSON.parse(out).error, /EACCES/);
+  rmSync(outer, { recursive: true });
+});
