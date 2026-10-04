@@ -70,8 +70,10 @@ or written through, `--force` included. `--dry-run --json` prints the plan.
 Discovery covers `.<agent>/skills/` folders directly under the project (and
 home with `--global`), not every place a package manager or plugin can live.
 A skill that resolves outside the folder you asked for (say, through a
-linked `.claude` folder) is reported and left alone. If writing fails
-halfway, the files already changed are put back.
+linked `.claude` folder) is reported and left alone. Each installed skill
+folder is updated as one unit: if writing fails halfway, the files already
+changed in that folder are put back. Folders updated before it stay updated,
+and the error names them.
 
 `npx skills update` also works, but replaces skill files whole.
 
