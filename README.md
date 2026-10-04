@@ -137,4 +137,5 @@ Inspired by the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD)
 (MIT), especially its personas, and by
 [Matt Pocock's skills](https://github.com/mattpocock/skills), especially
 grilling with recommended answers and a shared domain language. No text is
-copied from either. See [NOTICE.md](NOTICE.md).
+copied verbatim from either. See [NOTICE.md](NOTICE.md) and
+[docs/sources.md](docs/sources.md) for exactly what was adapted, from which version.
