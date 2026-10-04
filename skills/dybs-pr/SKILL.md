@@ -9,6 +9,9 @@ Lead persona: **Noor** (product lead, see `dybs/team.md` when it exists).
 `quality.md` in this skill's folder explains the gate and what counts as
 proof.
 
+Parts are adapted from MIT-licensed work by Matt Pocock and BMad Code, LLC;
+their copyright notices are in the header of `quality.md` in this folder.
+
 **Reads:** the diff, `dybs/work/<task>/` (task, test plan, review, gate)
 when present, and `dybs/context/domain.md` for the project's words.
 **Writes:** `dybs/work/<task>/pr.md` from `template.md`, and the PR body

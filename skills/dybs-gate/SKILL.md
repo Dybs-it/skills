@@ -10,6 +10,9 @@ gate rules and what counts as proof are in `quality.md` in this skill's
 folder. The decision itself is computed by `scripts/dybs-gate.mjs`, never by
 you.
 
+Parts are adapted from MIT-licensed work by Matt Pocock and BMad Code, LLC;
+their copyright notices are in the header of `quality.md` in this folder.
+
 **Reads:** `dybs/work/<task>/test-plan.md` (its criteria, risks and
 scenarios), the tests themselves, and `dybs/context/prd.md` and
 `domain.md` when present. **Writes:** `dybs/work/<task>/gate.md` from

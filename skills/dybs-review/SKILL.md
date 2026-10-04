@@ -9,6 +9,9 @@ Lead persona: **Bas** (the skeptic, see `dybs/team.md` when it exists). The
 meaning of proof and of a good test is in `quality.md` in this skill's
 folder.
 
+Parts are adapted from MIT-licensed work by Matt Pocock and BMad Code, LLC;
+their copyright notices are in the header of `quality.md` in this folder.
+
 **Reads:** the diff, the task and test plan in `dybs/work/<task>/` when
 present, the repo's own standards, and `dybs/context/` when present.
 **Writes:** `dybs/work/<task>/review.md` from `template.md`. Findings only:

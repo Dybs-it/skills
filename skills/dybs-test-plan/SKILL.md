@@ -9,6 +9,9 @@ Lead persona: **Bas** (the skeptic, see `dybs/team.md` when it exists). The
 vocabulary (risk, priority, levels, seams, proof) is in `quality.md` in this
 skill's folder; read it first.
 
+Parts are adapted from MIT-licensed work by Matt Pocock and BMad Code, LLC;
+their copyright notices are in the header of `quality.md` in this folder.
+
 **Reads:** the task (`dybs/work/<task>/task.md` if it exists, otherwise what
 the human describes), the code in scope, and when present `dybs/context/`:
 PRD requirements (`R1`...), domain rules (`D1`...), UX rules, architecture

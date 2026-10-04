@@ -463,3 +463,13 @@ test('every file docs/sources.md names as adapted carries the upstream copyright
     assert.match(t, new RegExp(`Copyright \\(c\\) \\d{4} ${owner}`), file);
   }
 });
+
+test('every quality skill points to the MIT notices it ships in quality.md', () => {
+  for (const s of QUALITY) {
+    const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8').replace(/\s+/g, ' ');
+    assert.match(t, /copyright notices are in the header of `quality\.md` in this folder/, s);
+    const q = readFileSync(join(SKILLS_SRC, s, 'quality.md'), 'utf8').replace(/\s+/g, ' ');
+    assert.match(q, /Copyright \(c\) 2025 BMad Code, LLC/, s);
+    assert.match(q, /Copyright \(c\) 2026 Matt Pocock/, s);
+  }
+});

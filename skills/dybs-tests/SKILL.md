@@ -9,6 +9,9 @@ Lead persona: **Tess** (architect, see `dybs/team.md` when it exists). The
 rules for good tests and for proof are in `quality.md` in this skill's
 folder; read it first and follow it to the letter.
 
+Parts are adapted from MIT-licensed work by Matt Pocock and BMad Code, LLC;
+their copyright notices are in the header of `quality.md` in this folder.
+
 **Reads:** `dybs/work/<task>/test-plan.md` (run `dybs-test-plan` first if it
 is missing, or ask the human to agree the seams now), the code, the
 project's existing tests and test command (`dybs/context/architecture.md`
