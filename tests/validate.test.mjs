@@ -952,3 +952,13 @@ test('project.md is validated from the same snapshot its settings came from', as
   assert.deepEqual(r.results.find((x) => x.name === 'project').errors, []);
   rmSync(dir, { recursive: true });
 });
+
+test('a malformed link is no placeholder, and an ordered item after a quoted heading starts a list', () => {
+  // `(bad destination)` is no link destination: the text is not TODO.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nT[O](bad destination)DO\n').rules.includes('placeholder'));
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O](good)DO\n').rules.includes('placeholder'));
+  // After a heading inside the same quote, `2.` may start a list.
+  const quoted = VALID_PRD.replace('## Goals', '> ## Intro\n> 2. ## Goals');
+  assert.ok(!validateDoc('prd', quoted).rules.includes('sections'));
+  assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', '> text\n> 2. ## Goals')).rules.includes('sections'));
+});

@@ -2710,3 +2710,19 @@ test('a put-back that landed outside through a folder swapped and restored keeps
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a staging file that went outside through a folder swapped and restored is named in the error', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  // As if the folder had been a link at the open and was restored since:
+  // the folders are the pinned ones again, the file is out of reach by name.
+  const beforeStageCheck = (entry) => renameSync(entry.tmp, join(outside, basename(entry.tmp)));
+  assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /may have been written outside the install/);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

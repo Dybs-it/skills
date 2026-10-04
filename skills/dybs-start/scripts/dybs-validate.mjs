@@ -640,7 +640,9 @@ export function headings(body) {
     if (/(?:[-*+]|\d[.)]) {1,4}$/.test(prefix) && indent) return;
     const markers = prefix;
     const ordered = [...markers.matchAll(/(\d{1,9})[.)]/g)];
-    const afterBlank = i === 0 || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]) || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(lines[i - 1]);
+    // Inside the same block quotes: the line before, read without its `>`.
+    const before = i === 0 ? '' : lines[i - 1].replace(/^(?: {0,3}>[ \t]?)*/, '');
+    const afterBlank = i === 0 || /^[ \t]*$/.test(before) || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(before);
     if (ordered.some((o) => Number(o[1]) !== 1) && !afterBlank) return;
     found.push(text);
   });
@@ -727,39 +729,6 @@ function definitions(lines) {
   return defs;
 }
 
-// Removes every `](destination)` and `][label]`, with the destination's
-// parentheses balanced (`](foo(bar))`), so only the text a reader sees is
-// left between the brackets.
-function dropLinkTargets(text) {
-  let out = '';
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === ']' && text[i + 1] === '(') {
-      let depth = 0;
-      let j = i + 1;
-      for (; j < text.length && text[j] !== '\n'; j++) {
-        if (text[j] === '\\') { j++; continue; }
-        // A quoted title (`"x)"`, `'x)'`) after the destination holds no
-        // delimiters of its own.
-        if (depth === 1 && (text[j] === '"' || text[j] === "'") && /[ \t]/.test(text[j - 1])) {
-          // Escaped quotes (`"x\")"`) do not close the title.
-          let q = j + 1;
-          while (q < text.length && text[q] !== text[j] && text[q] !== '\n') q += text[q] === '\\' ? 2 : 1;
-          if (q < text.length && text[q] === text[j]) { j = q; continue; }
-        }
-        if (text[j] === '(') depth++;
-        else if (text[j] === ')' && --depth === 0) break;
-      }
-      if (depth === 0 && j < text.length && text[j] === ')') { i = j; continue; }
-    }
-    if (text[i] === ']' && text[i + 1] === '[') {
-      const end = text.indexOf(']', i + 2);
-      if (end > 0 && !text.slice(i + 2, end).includes('\n')) { i = end; continue; }
-    }
-    out += text[i];
-  }
-  return out;
-}
-
 export function validateDoc(name, text) {
   const spec = DOCS[name];
   const errors = [];
@@ -844,7 +813,9 @@ export function validateDoc(name, text) {
   // Backslash escapes of punctuation (`\{\{x\}\}`) render as the bare character.
   // An escaped marker (`T\*O\*DO`) is text, not formatting: escapes are set
   // aside before the markup is removed and come back as the bare character.
-  const flat = dropLinkTargets(shown)
+  // Only a well-formed link loses its destination: `T[O](bad destination)DO`
+  // is no link, and shows no TODO.
+  const flat = dropValidLinkTargets(shown)
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
     .replace(/[*_~`[\]]/g, '')
     .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
