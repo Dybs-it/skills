@@ -868,3 +868,34 @@ test('list refuses options and folders', async () => {
     assert.equal(run(['list']), 0);
   } finally { console.error = e; console.log = l; }
 });
+
+test('a write that fails after the staging file exists leaves nothing behind', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  rmSync(join(dir, 'scripts'), { recursive: true });
+  try {
+    const [install] = findInstalls([root]);
+    const plan = mod.planInstall(install);
+    mod.fsOps.write = () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); };
+    assert.throws(() => mod.applyPlan(plan), /disk full/);
+    assert.equal(existsSync(join(dir, 'scripts')), false);
+    assert.deepEqual(readdirSync(dir).filter((n) => n.includes('.new')), []);
+  } finally {
+    Object.assign(mod.fsOps, real);
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('status prints the real reason a folder was left alone', async () => {
+  const { run } = await import('../bin/dybs-skills.mjs');
+  const root = project(['dybs-scope']);
+  symlinkSync('../../.agents/skills/dybs-scope', join(root, '.agents/skills/dybs-prd'));
+  const out = [];
+  const l = console.log; console.log = (m) => out.push(m);
+  try { run(['status', root]); } finally { console.log = l; }
+  assert.match(out.join('\n'), /resolves to a folder named dybs-scope, not dybs-prd/);
+  assert.doesNotMatch(out.join('\n'), /resolves outside the requested folder/);
+  rmSync(root, { recursive: true });
+});

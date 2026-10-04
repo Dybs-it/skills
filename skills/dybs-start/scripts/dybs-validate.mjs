@@ -199,11 +199,20 @@ export function visibleText(body, { keepCode = false } = {}) {
     // `- ```js`); the container prefix does not hide it.
     const m = line.match(/^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(`{3,}|~{3,})(.*)$/);
     if (fence) {
-      if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
+      // Inside a list item the closing fence sits at the item's content
+      // indent (four spaces under `10. `), so it may be indented up to three
+      // spaces past where the opening fence started.
+      const c = line.match(/^( *)((?:>[ \t]?)*)(`{3,}|~{3,})[ \t]*$/);
+      if (c && c[1].length <= fence.indent + 3 && c[3][0] === fence.ch && c[3].length >= fence.len) fence = null;
       if (keepCode) out.push(line);
       continue;
     }
-    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; if (keepCode) out.push(line); continue; }
+    if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
+      fence = { ch: m[1][0], len: m[1].length, indent: line.length - m[1].length - m[2].length };
+      prevBlank = false;
+      if (keepCode) out.push(line);
+      continue;
+    }
     if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; if (keepCode) out.push(line); continue; }
     const stripped = stripComments(line, st, closesLater);
     inComment = stripped.open;
