@@ -336,7 +336,7 @@ test('with check-ins at the end or none, drafts do not stop the route', () => {
     { name: 'project', status: 'draft', errors: [] },
     { name: 'prd', status: 'missing', errors: [] },
   ];
-  assert.equal(nextStep(results, 'each-doc'), 'project');
+  assert.equal(nextStep(results, 'each-doc'), 'dybs-start'); // project.md belongs to dybs-start
   assert.equal(nextStep(results, 'end'), 'prd');
   assert.equal(nextStep(results, 'none'), 'prd');
   const dir = copySample();
@@ -1032,4 +1032,56 @@ test('--json names the check as the next step once every doc is written', () => 
 test('an indented code block inside a block quote is code', async () => {
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   assert.equal(wordCount('> quoted words\n>\n>     code one two three\n\nafter'), 3);
+});
+
+test('frontmatter quotes must form a matching pair', () => {
+  for (const bad of ['status: "draft\'', 'status: "draft', "status: draft'"]) {
+    const r = validateDoc('prd', VALID_PRD.replace('status: accepted', bad));
+    assert.ok(r.rules.includes('frontmatter'), bad);
+  }
+  const ok = validateDoc('prd', VALID_PRD.replace(/^updated: (.*)$/m, 'updated: "$1"'));
+  assert.ok(!ok.rules.includes('frontmatter'));
+});
+
+test('a missing or failing project.md routes to dybs-start', () => {
+  assert.equal(nextStep([{ name: 'project', status: 'missing', errors: [] }]), 'dybs-start');
+  assert.equal(nextStep([{ name: 'project', status: 'draft', errors: ['bad'] }], 'none'), 'dybs-start');
+});
+
+test('--accept restores the original without overwriting a save that appeared', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = mod.fsOps.link;
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  let calls = 0;
+  // The placement of the accepted copy fails after an editor saved a new
+  // version at the path; the restore must not overwrite that save.
+  mod.fsOps.link = (from, to) => { if (++calls === 1) { writeFileSync(to, 'saved meanwhile'); throw Object.assign(new Error('EIO'), { code: 'EIO' }); } return real(from, to); };
+  try {
+    assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /original is kept at/);
+  } finally { mod.fsOps.link = real; }
+  assert.equal(readFileSync(path, 'utf8'), 'saved meanwhile');
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept cleanup never deletes through a folder swapped for a link', async () => {
+  const { renameSync: mv } = await import('node:fs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const before = readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8');
+  let decoy;
+  const beforeCleanup = (old) => {
+    const name = old.slice(join(dir, 'dybs/context').length + 1);
+    mkdirSync(join(outside, 'context'));
+    decoy = join(outside, 'context', name);
+    writeFileSync(decoy, before);
+    mv(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+    symlinkSync(outside, join(dir, 'dybs'));
+  };
+  const r = acceptDoc(dir, 'ui', '2026-10-04', { beforeCleanup });
+  assert.equal(r.ok, true);
+  assert.ok(r.warnings.some((w) => /kept at/.test(w)));
+  assert.equal(readFileSync(decoy, 'utf8'), before);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
 });
