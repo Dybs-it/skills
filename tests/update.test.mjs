@@ -5,7 +5,7 @@ import {
   mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, cpSync, symlinkSync,
   readdirSync, lstatSync, chmodSync, statSync, constants as fsConstants,
 } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
@@ -2308,4 +2308,54 @@ test('a lookup that fails during rollback is reported, never taken for "already 
   try { mod.applyPlan(plan, { beforeCommit: () => { rollingBack = true; throw new Error('injected failure'); } }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
   assert.match(String(err?.message), /could not undo everything.*EIO/);
   rmSync(root, { recursive: true });
+});
+
+test('a skill folder swapped at the commit point stops the update, even with no unchanged file to recheck', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  // Every file differs from the release: no `same` action is left.
+  const known = {};
+  for (const f of readdirSync(dir, { recursive: true })) {
+    if (!lstatSync(join(dir, f)).isFile()) continue;
+    writeFileSync(join(dir, f), `old ${f}`);
+    known[`dybs-prd/${f.split(sep).join('/')}`] = [sha(`old ${f}`)];
+  }
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  assert.ok(!plan.actions.some((a) => a.op === 'same'));
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const beforeCommit = () => { renameSync(dir, `${dir}.moved`); symlinkSync(outside, dir); };
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /changed/);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('cleanup recovery never links the kept original outside the install through a swapped folder', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = false;
+  const beforeCleanup = (s) => { if (s.a.rel === SKILL) writeFileSync(s.old, 'edited in place'); };
+  mod.fsOps.link = (from, to) => {
+    if (!swapped && /\.old\.[0-9a-f-]{36}\.rm$/.test(from)) {
+      swapped = true;
+      // The replacement folder shows the trash file under its own name.
+      linkSync(from, join(outside, from.split('/').at(-1)));
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    }
+    return real.link(from, to);
+  };
+  try { mod.applyPlan(plan, { beforeCleanup }); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.deepEqual(readdirSync(outside).filter((f) => f.endsWith('.old')), [], 'no kept original linked outside');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });
