@@ -197,6 +197,27 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
   return { ...install, actions, blocked, want };
 }
 
+// Creates the folders of `relDir` below `root` one level at a time, never
+// through a link: an existing level must be a real folder, a missing one is
+// created on its own (not recursively). Returns the first folder it made.
+function mkdirNoFollow(root, relDir) {
+  if (relDir === '.' || relDir === '') return undefined;
+  let p = root;
+  let first;
+  for (const part of relDir.split(/[\\/]/)) {
+    p = join(p, part);
+    let st = null;
+    try { st = lstatSync(p); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+    if (st) {
+      if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`${posix(relative(root, p))} is not a real folder; nothing was changed, run update again`);
+      continue;
+    }
+    mkdirSync(p);
+    first = first || p;
+  }
+  return first;
+}
+
 // Filesystem calls applyPlan uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
 export const fsOps = { link: linkSync };
@@ -224,7 +245,7 @@ function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   const tag = `dybs-${process.pid}-${Date.now()}`;
@@ -252,7 +273,8 @@ export function applyPlan(plan, { failAt, beforeFail } = {}) {
       if (!['add', 'update', 'replace', 'remove'].includes(a.op)) continue;
       const p = join(dir, a.rel);
       if (a.op === 'remove') { staged.push({ a, p }); continue; }
-      const made = mkdirSync(dirname(p), { recursive: true });
+      beforeMkdir?.();
+      const made = mkdirNoFollow(dir, dirname(a.rel));
       if (made) createdDirs.push({ deepest: dirname(p), stop: dirname(made) });
       recheck(a);
       const tmp = `${p}.${tag}.new`;
