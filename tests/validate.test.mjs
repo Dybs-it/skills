@@ -1197,3 +1197,9 @@ test('with checkins: none, a doc may not declare itself thorough', () => {
   assert.equal(acceptDoc(dir, 'ui', '2026-10-04').ok, false);
   rmSync(dir, { recursive: true });
 });
+
+test('a fence in a nested list item ends where that item ends', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('10. outer\n    - nested\n      ```\n      code here\n    back to outer content\n'), 7);
+  assert.equal(wordCount('- a\n  - b\n    ```\n    hidden words\n    ```\n  after\n'), 3);
+});

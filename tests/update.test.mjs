@@ -1102,3 +1102,27 @@ test('a rollback that restores by copy keeps the original file itself', async ()
   assert.equal(readFileSync(join(dir, old), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
 });
+
+test('a write through the staging name after a link placement is caught', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  let hit = false;
+  const beforeStageRm = (s) => { if (s.a.rel === SKILL) { writeFileSync(s.tmp, 'a watcher wrote this'); hit = true; } };
+  assert.throws(() => applyPlan(plan, { beforeStageRm }), /changed while it was being placed/);
+  assert.ok(hit);
+  // The changed file is someone's now: kept, never deleted.
+  assert.equal(readFileSync(prd(root), 'utf8'), 'a watcher wrote this');
+  rmSync(root, { recursive: true });
+});
+
+test('frontmatter needs a closing line that is exactly ---', async () => {
+  const { parseFrontmatter } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(parseFrontmatter('---\ndoc: prd\n---oops\n# T\n\n---\n').data, null);
+  assert.equal(parseFrontmatter('---\ndoc: prd\n---\n# T\n').data.doc, 'prd');
+  assert.equal(parseFrontmatter('---\ndoc: prd\n---  \n# T\n').data.doc, 'prd');
+  assert.equal(parseFrontmatter('---\ndoc: prd\n---').data.doc, 'prd');
+});
