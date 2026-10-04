@@ -2663,3 +2663,50 @@ test('a file that replaced ours before the move is never moved, so it keeps its 
   assert.equal(lstatSync(stagedAt).ino, theirs, 'the very file, not a copy');
   rmSync(root, { recursive: true });
 });
+
+test('folders made before a deeper mkdir fails are removed by the rollback', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  // A file two missing folders deep; the second mkdir fails (quota, I/O).
+  plan.actions.push({ op: 'add', rel: 'deep/er/file.md' });
+  plan.want['deep/er/file.md'] = 'new';
+  mod.testHooks.afterLook = (p) => {
+    if (p === join(dir, 'deep/er')) throw Object.assign(new Error('no space left'), { code: 'ENOSPC' });
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /no space left/); } finally { mod.testHooks.afterLook = null; }
+  assert.equal(existsSync(join(dir, 'deep')), false, 'the folder the update made is gone');
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+test('without hard links, an edit written through an open original after its check is never deleted', async () => {
+  const mod = await import('../src/update.mjs');
+  const { openSync, writeSync, closeSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  for (const outcome of ['commit', 'rollback']) {
+    const root = project(['dybs-prd']);
+    const dir = dirname(prd(root));
+    writeFileSync(prd(root), 'old shipped version');
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const plan = mod.planInstall(findInstalls([root])[0], { known });
+    // An editor holds the original open and saves through that handle late.
+    const fd = openSync(prd(root), 'r+');
+    const beforeCommit = () => {
+      writeSync(fd, 'EDITED', 0);
+      if (outcome === 'rollback') throw new Error('stop before commit');
+    };
+    mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+    let err = null;
+    let r = null;
+    try { r = mod.applyPlan(plan, { beforeCommit }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); closeSync(fd); }
+    const holding = readdirSync(dir).filter((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('EDITED'); } catch { return false; } });
+    assert.equal(holding.length, 1, `${outcome}: the edit survives (${err?.message ?? 'committed'})`);
+    if (outcome === 'commit') assert.equal(err, null);
+    else assert.match(err.message, /kept at/);
+    rmSync(root, { recursive: true });
+  }
+});
