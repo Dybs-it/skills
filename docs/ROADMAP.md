@@ -52,6 +52,9 @@ dybs/work/<id>.md       one file per task; status lives in its frontmatter
 - `dybs-to-tasks`: split an accepted idea into tasks. Each task cites its
   idea, the requirements and domain rules it touches, and acceptance checks.
   Vertical slices that can each be verified alone.
+  Candidate, unproven: a ready test per task. A fresh agent reads the task
+  and the code and lists what it had to guess. Build only if field runs of
+  `dybs-build` show rework caused by missed callers or modules.
 - `dybs-build`: implement one task test-first against the context.
 - `dybs-review`: check the change against the task's acceptance, the domain
   rules and the quality bars. Findings, then fixes.
