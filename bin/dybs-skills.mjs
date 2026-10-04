@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   update, discover, rootsFor, skillNames, packageVersion, INSTALL_HINT,
 } from '../src/update.mjs';
@@ -60,7 +62,9 @@ function parse(argv) {
   return opts;
 }
 
-export function run(argv) {
+// `deps.update` lets a test stand in for the updater.
+export function run(argv, deps = {}) {
+  const runUpdate = deps.update || update;
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { console.log(HELP); return 0; }
   if (cmd === 'validate') return validateMain(['node', 'dybs-validate', ...rest]);
@@ -84,7 +88,19 @@ export function run(argv) {
   }
 
   if (cmd === 'update') {
-    const { results, notInstalled, skipped } = update(roots, opts);
+    let outcome;
+    try {
+      outcome = runUpdate(roots, opts);
+    } catch (err) {
+      // An update that stopped (a path changed, a permission error) is still
+      // reported as JSON when asked, so automation can handle it.
+      if (opts.json) {
+        console.log(JSON.stringify({ schema: JSON_SCHEMA, dryRun: opts.dryRun, error: err.message }, null, 2));
+        return 1;
+      }
+      throw err;
+    }
+    const { results, notInstalled, skipped } = outcome;
     const blocked = results.filter((r) => r.blocked);
     if (opts.json) {
       console.log(JSON.stringify({ schema: JSON_SCHEMA, dryRun: opts.dryRun, results, notInstalled, skipped }, null, 2));
@@ -125,9 +141,17 @@ export function run(argv) {
   return 2;
 }
 
-try {
-  process.exitCode = run(process.argv.slice(2));
-} catch (err) {
-  console.error(`dybs-skills: ${err.message}`);
-  process.exitCode = 1;
+// Run only when called as a command, so tests can import run().
+function calledDirectly() {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+if (calledDirectly()) {
+  try {
+    process.exitCode = run(process.argv.slice(2));
+  } catch (err) {
+    console.error(`dybs-skills: ${err.message}`);
+    process.exitCode = 1;
+  }
 }

@@ -66,7 +66,7 @@ export const MANUAL_RULES = [
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
   { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.' },
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
-  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), and no doc is both `quick` and `thorough`.' },
+  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
@@ -117,14 +117,20 @@ export function headings(body) {
 }
 
 export function wordCount(body) {
-  // Count prose only: drop HTML comments (template guidance) and code fences.
-  const prose = body.replace(/<!--[\s\S]*?-->/g, '').replace(/```[\s\S]*?```/g, '');
+  // Count prose only: what a reader sees, without HTML comments (template
+  // guidance) or fenced code (``` or ~~~), by the same rules as headings.
+  const prose = visibleText(body);
   return (prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 }
 
 function list(raw) {
   return new Set((raw || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
 }
+
+// What each doc cannot be written without. A doc that something still in
+// the route requires cannot be skipped; other inputs are optional (a skill
+// works without a skipped one and notes what it would have answered).
+export const REQUIRES = { scope: ['prd'], domain: ['prd'], architecture: ['prd'], ux: ['prd'], ui: ['ux'] };
 
 // Docs that project.md's `quick:`, `thorough:` and `skip:` may name.
 export const LISTABLE = ORDER.filter((n) => n !== 'project');
@@ -189,6 +195,11 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
       for (const key of ['quick', 'thorough', 'skip']) {
         const unknown = [...list(data[key])].filter((n) => !LISTABLE.includes(n));
         if (unknown.length) fail('doc-lists', `"${key}:" names unknown doc(s) ${unknown.join(', ')}. Known: ${LISTABLE.join(', ')}`);
+      }
+      const skipList = list(data.skip);
+      for (const [doc, needs] of Object.entries(REQUIRES)) {
+        if (skipList.has(doc)) continue;
+        for (const n of needs) if (skipList.has(n)) fail('doc-lists', `"skip:" lists ${n}, but ${doc} needs it; skip ${doc} too or keep ${n}`);
       }
       const both = [...list(data.quick)].filter((n) => list(data.thorough).has(n));
       if (both.length) fail('doc-lists', `${both.join(', ')} listed under both "quick:" and "thorough:"`);
@@ -410,7 +421,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
     }
     placeNoClobber(tmp, path);
     rmSync(old);
-  } catch (err) { rmSync(tmp, { force: true }); throw err; }
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    // Never leave the doc stranded under its temporary name.
+    if (existsSync(old) && !existsSync(path)) renameSync(old, path);
+    throw err;
+  }
   return { ok: true };
 }
 
@@ -453,7 +469,10 @@ export function main(argv) {
 
   if (json) {
     // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
-    console.log(JSON.stringify({ schema: 2, ...report, next: report.parked ? 'kickoff' : nextStep(report.results, report.checkins) }, null, 2));
+    // With --doc only that doc (and project.md) was read, so there is no
+    // project-wide next step to give.
+    const next = only ? null : report.parked ? 'kickoff' : nextStep(report.results, report.checkins);
+    console.log(JSON.stringify({ schema: 2, ...report, next }, null, 2));
     return report.ok ? 0 : 1;
   }
   if (report.fatal) {
@@ -469,6 +488,7 @@ export function main(argv) {
     for (const e of r.errors) console.log(`          error: ${e}`);
     for (const w of r.warnings) console.log(`          warn:  ${w}`);
   }
+  if (only) return report.ok ? 0 : 1;
   const next = report.parked ? 'kickoff' : nextStep(report.results, report.checkins);
   const docs = report.results.filter((r) => r.status !== 'skipped' && r.name !== 'readme');
   const waiting = docs.filter((r) => r.status === 'draft').map((r) => r.name);

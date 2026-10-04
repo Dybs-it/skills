@@ -622,3 +622,42 @@ test('--accept works on a filesystem without hard links', async () => {
     mod.fsOps.link = real;
   }
 });
+
+// --- Codex review round 9 on PR #2 ---
+
+test('~~~ code blocks do not count toward the word cap', () => {
+  const block = '\n~~~mermaid\n' + 'node '.repeat(DOCS.prd.maxWords.quick) + '\n~~~\n';
+  assert.deepEqual(validateDoc('prd', VALID_PRD + block).rules, []);
+});
+
+test('--doc gives no project-wide next step', () => {
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/context/scope.md'));
+  const json = capture(() => main(['node', 'v', dir, '--doc', 'ui', '--json'])); // ui is a draft
+  assert.equal(JSON.parse(json.out).next, null);
+  const text = capture(() => main(['node', 'v', dir, '--doc', 'prd']));
+  assert.doesNotMatch(text.out, /All docs written|Next:/);
+  rmSync(dir, { recursive: true });
+});
+
+test('skip: must keep what a remaining doc needs', () => {
+  const project = (skip) => validateDoc('project', VALID_PROJECT.replace(/^skip:.*$/m, `skip: ${skip}`));
+  assert.deepEqual(project('ui').rules, []);
+  assert.deepEqual(project('ux').rules, ['doc-lists']);
+  assert.deepEqual(project('ux, ui').rules, []);
+  assert.deepEqual(project('prd').rules, ['doc-lists']);
+});
+
+test('--accept puts the doc back when the final placement fails', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = mod.fsOps.link;
+  mod.fsOps.link = () => { throw Object.assign(new Error('disk gone'), { code: 'EIO' }); };
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/prd.md');
+  const before = readFileSync(path, 'utf8');
+  try {
+    assert.throws(() => mod.acceptDoc(dir, 'prd', '2026-10-04'), /disk gone/);
+  } finally { mod.fsOps.link = real; }
+  assert.equal(readFileSync(path, 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});

@@ -63,6 +63,10 @@ code, anything else?" With `checkins: none`, ask neither: use what is already
 in `dybs/`, `dybs/log.md` and the repo. Read all of it. Use sub-agents for large sources and keep
 only what they extract.
 
+A doc listed under `skip:` in `project.md` is not read, even if a file is
+there. Work without it, and write what it would have answered as an open
+question in your doc.
+
 **Facts are your job, decisions are the human's.** Never ask something you
 can find in the code, the repo or the material you were given. Look it up,
 and cite where you found it.
