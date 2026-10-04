@@ -1431,7 +1431,10 @@ test('without hard links, --accept never loses an edit made while moving the doc
     mod.acceptDoc(dir, 'ui', '2026-10-04', { beforeAside: (p) => writeFileSync(p, 'edited after the copy') });
   } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
   assert.ok(err);
-  const kept = err.message.match(/your version is kept at (\S+?)(;|$)/)[1];
+  // Back at its own name when that is still free, else kept where the error
+  // says: either way the edit is where the user can find it.
+  const kept = /back at its own name/.test(err.message) ? join(dir, 'dybs/context/ui.md') : err.message.match(/your version is kept at (\S+?)(;|$)/)?.[1];
+  assert.ok(kept, err.message);
   assert.equal(readFileSync(kept, 'utf8'), 'edited after the copy');
   rmSync(dir, { recursive: true });
 });
@@ -1743,4 +1746,20 @@ test('--accept names the real place of a previous version it could not remove', 
 test('HTML right after a code span that closes on a later line is still refused', () => {
   assert.ok(validateDoc('prd', VALID_PRD + '\ntext `code\nstill code` <div>\n').rules.includes('html'));
   assert.ok(!validateDoc('prd', VALID_PRD + '\ntext `code\nstill <div> code` after\n').rules.includes('html'));
+});
+
+test('without hard links, --accept never moves a save made after the copy', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  try {
+    assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', {
+      beforeAside: (p) => { writeFileSync(`${p}.x`, 'saved by the editor'); renameSync(`${p}.x`, p); },
+    }), /changed while it was being moved aside/);
+  } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(path, 'utf8'), 'saved by the editor');
+  rmSync(dir, { recursive: true });
 });
