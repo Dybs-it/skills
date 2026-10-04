@@ -586,9 +586,26 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
 
 // Headings a reader sees: none inside HTML comments or fenced examples.
 // An optional closing run of `#` (`## Goals ##`) is not part of the text.
+// An H2, also inside block quotes and list items (`> ## X`, `- ## X`). After
+// a list marker the heading starts within four spaces (five make indented
+// code), and an ordered item other than `1.` cannot interrupt a paragraph,
+// so it needs a blank line (or a block quote line) before it.
+const ATX_H2 = /^(?: {0,3}>[ \t]?)*((?: {0,3}(?:[-*+]|(\d{1,9})[.)]) {1,4})*)( {0,3})##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
 export function headings(body) {
   // A heading counts only if no reading of an unclosed comment hides it.
-  return [...visibleText(body, { hideUnclosed: true }).matchAll(/^ {0,3}##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/gm)].map((h) => h.at(1));
+  const lines = visibleText(body, { hideUnclosed: true }).split('\n');
+  const found = [];
+  lines.forEach((l, i) => {
+    const m = ATX_H2.exec(l);
+    if (!m) return;
+    const [, markers, , indent, text] = m;
+    if (markers && indent) return;
+    const ordered = [...markers.matchAll(/(\d{1,9})[.)]/g)];
+    const afterBlank = i === 0 || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]) || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(lines[i - 1]);
+    if (ordered.some((o) => Number(o[1]) !== 1) && !afterBlank) return;
+    found.push(text);
+  });
+  return found;
 }
 
 export function wordCount(body) {
@@ -726,11 +743,15 @@ export function validateDoc(name, text) {
   // destination, or a reference whose label is defined.
   const labels = new Set([...definitions(visibleText(body).split('\n')).values()].filter(Boolean));
   // `## Wh&#121;` renders as Why: references are decoded last, as text.
-  const plain = (h) => decodeReferences(h
+  // `don\'t` renders as don't, and an escaped marker (`\*`) stays literal:
+  // escapes are set aside first and put back as the bare character.
+  const ESC = 0xe000;
+  const plain = (h) => decodeReferences(h.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
     .replace(new RegExp(INLINE_LINK, 'g'), '$1')
     .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, t, l) => (labels.has(label(l || t)) ? t : m))
     .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, t) => (labels.has(label(t)) ? t : m))
-    .replace(/[*_~`]/g, '')).trim();
+    .replace(/[*_~`]/g, ''))
+    .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - ESC)).trim();
   const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || plain(h).toLowerCase() === s.toLowerCase()));
   for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
@@ -764,6 +785,15 @@ function readRegular(p) {
   try { return fstatSync(fd).isFile() ? readFileSync(fd, 'utf8') : null; } finally { closeSync(fd); }
 }
 
+// Whether a path is there: only ENOENT and ENOTDIR mean "missing". Any
+// other failure (a folder that cannot be searched, an I/O error) is
+// returned as its code, so an unreadable tree is never a passing "missing".
+function lookup(p) {
+  try { statSync(p); return 'present'; } catch (e) {
+    return e.code === 'ENOENT' || e.code === 'ENOTDIR' ? 'missing' : (e.code || e.message);
+  }
+}
+
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
   const results = [];
@@ -788,7 +818,7 @@ export function validateProject(root, only) {
   }
 
   const projectPath = join(dir, DOCS.project.file);
-  const projectText = existsSync(projectPath) ? readRegular(projectPath) : null;
+  const projectText = lookup(projectPath) === 'present' ? readRegular(projectPath) : null;
   const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
   const skip = skipped(projectData);
 
@@ -805,7 +835,12 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'skipped', words: 0, errors, warnings: [] });
       continue;
     }
-    if (!existsSync(path)) {
+    const where = lookup(path);
+    if (where !== 'present' && where !== 'missing') {
+      results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} cannot be reached (${where}): fix the permissions of dybs/ and its folders`], warnings: [] });
+      continue;
+    }
+    if (where === 'missing') {
       // A doc asked for by name must exist: `--doc` passing is the check
       // before a check-in, and "it is not there" is not a pass.
       const errors = only && (only === name || name === 'project') ? [`${spec.file} does not exist yet`] : [];

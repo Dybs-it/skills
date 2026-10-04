@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { unprivileged, UNPRIVILEGED_SKIP } from './unprivileged.mjs';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -864,4 +864,40 @@ test('a destination is stripped only after a link opener, and headings are compa
   // `## Wh&#121;` renders as Why.
   const ref = VALID_PRD.replace('## Goals', '## Go&#97;ls');
   assert.ok(!validateDoc('prd', ref).rules.includes('sections'));
+});
+
+test('headings are read as rendered: inside a list or quote, and with escapes', () => {
+  // `- ## Problem` and `> ## Users` render as H2s.
+  const contained = VALID_PRD.replace('## Problem', '- ## Problem').replace('## Users', '> ## Users');
+  assert.ok(!validateDoc('prd', contained).rules.includes('sections'));
+  // A list cannot start at 2 inside a paragraph: there it is text.
+  const lazy = VALID_PRD.replace('## Problem', 'text\n2. ## Problem');
+  assert.ok(validateDoc('prd', lazy).rules.includes('sections'));
+  // Five spaces after the marker make indented code.
+  const code = VALID_PRD.replace('## Problem', '-     ## Problem');
+  assert.ok(validateDoc('prd', code).rules.includes('sections'));
+  // `\'` renders as `'`; an escaped marker stays literal.
+  const VALID_UI = readFileSync(join(SAMPLE, 'dybs/context/ui.md'), 'utf8');
+  assert.ok(!validateDoc('ui', VALID_UI).rules.includes('sections'));
+  const escaped = VALID_UI.replace("## Do and don't", "## Do and don\\'t");
+  assert.notEqual(escaped, VALID_UI);
+  assert.ok(!validateDoc('ui', escaped).rules.includes('sections'));
+  const literal = VALID_PRD.replace('## Goals', '## Go\\*als');
+  assert.ok(validateDoc('prd', literal).rules.includes('sections'));
+  // An escaped `&` starts no character reference.
+  assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', '## Go\\&#97;ls')).rules.includes('sections'));
+});
+
+test('a context folder that cannot be searched fails validation, not "missing"', (t) => {
+  const dir = copySample();
+  chmodSync(dir, 0o755);
+  chmodSync(join(dir, 'dybs/context'), 0o000);
+  const cmd = unprivileged([join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs'), dir, '--json']);
+  if (!cmd) { chmodSync(join(dir, 'dybs/context'), 0o755); rmSync(dir, { recursive: true }); return t.skip(UNPRIVILEGED_SKIP); }
+  let out; let code = 0;
+  try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { out = e.stdout; code = e.status; }
+  chmodSync(join(dir, 'dybs/context'), 0o755);
+  assert.notEqual(code, 0, out);
+  assert.match(out, /EACCES/);
+  rmSync(dir, { recursive: true });
 });
