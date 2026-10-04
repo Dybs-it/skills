@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { unprivileged, UNPRIVILEGED_SKIP } from './unprivileged.mjs';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync, renameSync } from 'node:fs';
+import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync, renameSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -2393,5 +2393,42 @@ test('a context folder that cannot be searched fails validation, not "missing"',
   chmodSync(join(dir, 'dybs/context'), 0o755);
   assert.notEqual(code, 0, out);
   assert.match(out, /EACCES/);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept removes a temporary copy written through a swapped folder', () => {
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  // As if dybs/context had been swapped before the open: the temporary copy
+  // now sits in a folder outside the project, under its only name.
+  const beforeReplace = () => {
+    renameSync(join(dir, 'dybs/context'), join(outside, 'context'));
+    symlinkSync(join(outside, 'context'), join(dir, 'dybs/context'));
+  };
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', { beforeReplace }), /changed while it was being accepted/);
+  assert.deepEqual(readdirSync(join(outside, 'context')).filter((n) => n.includes('.dybs-')), [], 'no temporary copy left outside');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('--accept never strands a folder that replaced a file in the last instant before its removal', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  let hit = null;
+  // The cleanup of the moved-aside original meets a user's folder at its name.
+  mod.testHooks.beforeMove = (p) => {
+    if (hit || !/\.old$/.test(p)) return;
+    hit = p;
+    rmSync(p);
+    mkdirSync(p);
+    writeFileSync(join(p, 'notes.md'), 'the user\'s folder');
+  };
+  let r;
+  try { r = acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.beforeMove = null; }
+  assert.ok(hit);
+  assert.equal(r.ok, true);
+  assert.equal(readFileSync(join(hit, 'notes.md'), 'utf8'), 'the user\'s folder');
+  assert.deepEqual(readdirSync(ctx).filter((n) => n.endsWith('.rm')), [], 'nothing stranded aside');
   rmSync(dir, { recursive: true });
 });
