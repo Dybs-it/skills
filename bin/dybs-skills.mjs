@@ -66,11 +66,15 @@ export function run(argv, deps = {}) {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { console.log(HELP); return 0; }
   if (cmd === 'validate') return validateMain(['node', 'dybs-validate', ...rest]);
-  if (cmd === 'list') { for (const s of skillNames()) console.log(s); return 0; }
-
   const opts = parse(rest);
   if (opts.help) { console.log(HELP); return 0; }
   if (opts.error) { console.error(`${opts.error}\n\n${HELP}`); return 2; }
+  // `list` takes no options or folder: anything else is a mistake, not a list.
+  if (cmd === 'list') {
+    if (rest.length) { console.error(`list takes no arguments, got: ${rest.join(' ')}\n\n${HELP}`); return 2; }
+    for (const s of skillNames()) console.log(s);
+    return 0;
+  }
   const roots = rootsFor(resolve(opts.positional[0] || '.'), opts);
 
   if (cmd === 'status') {
@@ -115,6 +119,7 @@ export function run(argv, deps = {}) {
       console.log(`${r.skill.padEnd(18)} ${state}`);
       for (const a of changed) {
         console.log(`  ${SYMBOL[a.op]} ${a.rel}${a.why ? `  (${a.why})` : ''}${a.backup ? `  backup: ${a.backup}` : ''}`);
+        if (a.kept) console.log(`    the old version changed during the update; kept at ${a.kept}`);
       }
     }
     if (notInstalled.length) {
