@@ -381,6 +381,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     // is code at its start: with `hideSpanLines` it is left out, so a tag
     // there is never read as raw HTML.
     const inSpan = Boolean(st.span);
+    const spanRun = st.span;
     // A line that starts with a comment is an HTML block to its end, also
     // as the first block of a list item (`- <!--`) or at a list item's
     // content column.
@@ -438,7 +439,14 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false, hid
     prevBlank = nowBlank;
     paraQuote = nowBlank ? 0 : Math.max(wasBlank ? 0 : paraQuote, quoteDepth(lines[n]));
     // Judged after the `>` markers, like blankness and indentation.
-    if (hideSpanLines && inSpan) { afterBlock = false; out.push(''); continue; }
+    // Only the part inside the span is hidden: when it closes on this line,
+    // what follows the closing run is ordinary text and is still judged.
+    if (hideSpanLines && inSpan) {
+      afterBlock = false;
+      const at = st.span ? -1 : line.search(closer(spanRun));
+      out.push(at >= 0 ? line.slice(at + spanRun.length) : '');
+      continue;
+    }
     // A setext underline (`===` or `---` under paragraph text) completes a
     // heading too.
     // A heading that opens a list item (`- ## Example`) counts as well.
@@ -776,9 +784,13 @@ function rmIfOurs(p, id, check) {
   // Only a name that is already gone counts as removed; any other failure
   // (permissions, a lock) is the caller's to report or roll back.
   try { fsOps.rename(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
-  if (pathId(aside) === id) { fsOps.rm(aside); return; }
+  if (pathId(aside) === id) {
+    // A failed unlink leaves the file under its private name: say where.
+    try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
+    return;
+  }
   try { fsOps.link(aside, p); fsOps.rm(aside); } catch {
-    throw new Error(`${p} changed while it was being removed; it is kept at ${aside}`);
+    throw Object.assign(new Error(`${p} changed while it was being removed; it is kept at ${aside}`), { keptAt: aside });
   }
 }
 
@@ -793,7 +805,7 @@ export function localDate(d = new Date()) {
 // its content. Refuses a doc that would not validate as accepted.
 // Filesystem calls acceptDoc uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync };
+export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync, write: writeFileSync };
 
 // Puts `from` at `to` without overwriting anything there: link() where the
 // filesystem has hard links, an exclusive copy (COPYFILE_EXCL, O_EXCL) where
@@ -808,7 +820,24 @@ export function placeNoClobber(from, to) {
     return 'link';
   } catch (err) {
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    fsOps.copyFile(from, to, fsConstants.COPYFILE_EXCL);
+    // Created exclusively (O_EXCL) and identified before any byte goes in:
+    // a copy that fails halfway (disk full) leaves a partial file only this
+    // call can prove is its own, so it is removed here, by identity, and
+    // never blocks putting the original back.
+    const data = readFileSync(from);
+    let id = null;
+    try {
+      const fd = openSync(to, 'wx', lstatSync(from).mode & 0o7777);
+      try {
+        id = idOf(fstatSync(fd));
+        fsOps.write(fd, data);
+      } finally { closeSync(fd); }
+    } catch (e) {
+      if (id) {
+        try { rmIfOurs(to, id); } catch (e2) { e.message += `; the partial copy is kept: ${e2.message}`; }
+      }
+      throw e;
+    }
     return 'copy';
   }
 }
@@ -1004,13 +1033,14 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // holding what was validated. Otherwise it is kept and reported.
     beforeCleanup?.(old);
     let ours = false;
+    let keptAt = old;
     try { ours = folderChain(root, rel) === dirs && pathId(old) === oldId && readFileSync(old, 'utf8') === text; } catch { ours = false; }
     if (ours) {
       // Re-pinned inside the removal, right before its move: a folder
       // swapped for a link since the check above is never acted through.
-      try { rmIfOurs(old, oldId, pinned); } catch { ours = false; }
+      try { rmIfOurs(old, oldId, pinned); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
     }
-    if (!ours) return { ok: true, warnings: [`the previous version changed or could not be confirmed during acceptance; kept at ${old}`] };
+    if (!ours) return { ok: true, warnings: [`the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
   } catch (err) {
     // Undo through the same paths: a file that went through a swapped link
     // comes back the same way. Only what is provably ours is removed.
