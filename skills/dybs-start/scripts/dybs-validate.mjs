@@ -191,9 +191,12 @@ export function visibleText(body, { keepCode = false } = {}) {
       inComment = false;
       line = line.slice(end + 3);
     }
-    const blank = line.trim() === '';
+    // Inside a block quote, blankness and indentation are judged after the
+    // `>` markers: `>` alone is a blank line, `>     x` is indented code.
+    const inner = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
+    const blank = inner.trim() === '';
     if (blank) st.span = null;
-    const isIndented = /^( {4}|\t)/.test(line);
+    const isIndented = /^( {4}|\t)/.test(inner);
     if (indented) {
       if (blank || isIndented) { prevBlank = blank; if (keepCode) out.push(line); continue; }
       indented = false;
@@ -231,7 +234,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     const stripped = stripComments(line, st, closesLater);
     inComment = stripped.open;
     line = stripped.text;
-    const nowBlank = line.trim() === '';
+    const nowBlank = line.replace(/^(?: {0,3}>[ \t]?)+/, '').trim() === '';
     if (!nowBlank && !/^( {4}|\t)/.test(line)) {
       const item = line.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
       if (item) listIndent = item[0].length;
