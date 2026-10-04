@@ -649,6 +649,9 @@ export function validateProject(root, only) {
 
 function nextStep(results) {
   const pending = results.find((r) => r.status === 'missing' || r.status === 'draft' || r.errors.length);
+  // The method rules are not a phase: dybs-start (the `project` step)
+  // restores them, so a README problem routes there.
+  if (pending?.name === 'readme') return 'project';
   return pending ? pending.name : null;
 }
 

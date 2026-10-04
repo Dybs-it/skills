@@ -709,3 +709,19 @@ test('a list item opening with indented code, and lines leaving that item, are r
   // the inline comment above it never closes.
   assert.match(visibleText('- a\n      <!-- TODO\n    <!--\n-->\n', { keepCode: true }), /TODO/);
 });
+
+test('a missing method README routes to dybs-start, never to a "readme" phase', async () => {
+  const { main } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/README.md'));
+  const logs = [];
+  const l = console.log; const e = console.error;
+  console.log = (m) => logs.push(m); console.error = () => {};
+  try { main(['node', 'v', dir, '--json']); } finally { console.log = l; console.error = e; }
+  assert.equal(JSON.parse(logs.join('\n')).next, 'project');
+  logs.length = 0;
+  console.log = (m) => logs.push(m); console.error = () => {};
+  try { main(['node', 'v', dir]); } finally { console.log = l; console.error = e; }
+  assert.ok(!logs.join('\n').includes('Next: readme'));
+  rmSync(dir, { recursive: true });
+});
