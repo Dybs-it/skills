@@ -174,12 +174,20 @@ function backupPath(p) {
   return b;
 }
 
-function removeEmptyDirs(dir, stopAt) {
+// `stopId` is the identity `stopAt` must have: checked on every pass, so a
+// skill folder swapped for a link (to a tree with the same empty folders)
+// is never pruned through.
+function removeEmptyDirs(dir, stopAt, stopId) {
+  testHooks.beforePrune?.(dir);
   let d = dir;
+  const stopOk = () => {
+    try { const st = lstatSync(stopAt, BIG); return !st.isSymbolicLink() && st.isDirectory() && (!stopId || idOfStat(st) === stopId); } catch { return false; }
+  };
   // Every folder from `stopAt` down to `d` must be a real folder right
   // before it is removed: an ancestor swapped for a link would make rmdir
   // reach (and delete) an empty folder somewhere else.
   const real = (to) => {
+    if (!stopOk()) return false;
     let p = stopAt;
     for (const part of relative(stopAt, to).split(sep).filter(Boolean)) {
       p = join(p, part);
@@ -191,6 +199,7 @@ function removeEmptyDirs(dir, stopAt) {
   // required again right before rmdir: an empty folder that replaced the
   // one this update emptied is someone else's, never removed.
   const ids = (to) => {
+    if (!stopOk()) return null;
     const out = [];
     let p = stopAt;
     for (const part of relative(stopAt, to).split(sep).filter(Boolean)) {
@@ -301,7 +310,7 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -655,10 +664,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       beforeMkdir?.();
       let made = null;
       let deepest = null;
+      let stopId = null;
       try {
-        mkdirNoFollow(dir, dirname(a.rel), (d) => { made = made || d; deepest = d; });
+        mkdirNoFollow(dir, dirname(a.rel), (d) => { if (!made) { made = d; stopId = idOf(dirname(d)); } deepest = d; });
       } finally {
-        if (made) createdDirs.push({ deepest, stop: dirname(made) });
+        if (made) createdDirs.push({ deepest, stop: dirname(made), stopId });
       }
       recheck(a);
       beforeStage?.(a);
@@ -716,7 +726,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // file), so it is removed by that identity at once, without the
           // stale folder pins the rollback would require.
           const err = swapped();
-          try { rmIfOurs(b, backup.id); } catch (e) { err.message += `; ${e.message}`; }
+          try {
+            rmIfOurs(b, backup.id);
+            // Through a folder swapped and already restored, the backup went
+            // where no name we hold reaches (Node has no openat()): named.
+            if (provablyGone(b) && chainOf(dir, a.rel) === chain) err.message += `; a backup ${basename(b)} holding your version may have been written outside the install through a folder swapped meanwhile`;
+          } catch (e) { err.message += `; ${e.message}`; }
           throw err;
         }
         a.backup = b;
@@ -1039,7 +1054,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       });
     }
     for (const a of actions) delete a.backup;
-    for (const d of createdDirs) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop));
+    for (const d of createdDirs) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop, d.stopId));
     if (stuck.length) err.message += `; could not undo everything, check by hand: ${stuck.join('; ')}`;
     throw err;
   }
@@ -1121,7 +1136,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       } else if (!provablyGone(s.orig)) s.a.kept = s.a.kept ? `${s.a.kept} (and ${s.orig})` : s.orig;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {
-      try { removeEmptyDirs(dirname(s.p), dir); } catch { /* an empty folder left behind is harmless */ }
+      try { removeEmptyDirs(dirname(s.p), dir, s.chain.split('/')[0]); } catch { /* an empty folder left behind is harmless */ }
     }
   }
   return { ...plan, applied: true };

@@ -992,11 +992,19 @@ function readmeProblem(root) {
   const readme = join(root, 'dybs', 'README.md');
   if (!existsSync(readme)) return 'missing dybs/README.md (the method rules). Run dybs-start to restore it.';
   if (!statSync(readme).isFile()) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.';
+  // Never read through a link on the way (`dybs/` itself included): asked
+  // before the read and again after it, as for the docs.
+  const linked = () => {
+    const unsafe = unsafePath(root, 'dybs/README.md');
+    return unsafe ? `${unsafe}: keep dybs/ and its method rules as real files, then run dybs-start to restore them` : null;
+  };
+  const before = linked();
+  if (before) return before;
   // A file the skills cannot read is as good as missing.
   try { if (readRegular(readme) === null) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'; } catch (e) {
     return `dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`;
   }
-  return null;
+  return linked();
 }
 
 // Reads a file only if it is a regular file. Opened without blocking, so a

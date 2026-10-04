@@ -2693,3 +2693,24 @@ test('destinations allow only punctuation escapes and one line ending; labels fo
   // `ẞ` folds to `ss`.
   assert.ok(validateDoc('prd', VALID_PRD + '\nT[O][ẞ]DO\n\n[ss]: /url\n').rules.includes('placeholder'));
 });
+
+test('a dybs/ folder that is a link is rejected before its README is opened', (t) => {
+  const dir = copySample();
+  chmodSync(dir, 0o755);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  chmodSync(outside, 0o755);
+  renameSync(join(dir, 'dybs'), join(outside, 'dybs'));
+  symlinkSync(join(outside, 'dybs'), join(dir, 'dybs'));
+  // Unreadable: opening it would fail, so only a clean rejection passes.
+  chmodSync(join(outside, 'dybs/README.md'), 0o000);
+  const cmd = unprivileged([join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs'), dir, '--json']);
+  if (!cmd) { chmodSync(join(outside, 'dybs/README.md'), 0o644); rmSync(dir, { recursive: true }); rmSync(outside, { recursive: true }); return t.skip(UNPRIVILEGED_SKIP); }
+  let out; let code = 0;
+  try { out = execFileSync(cmd[0], cmd[1], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { out = `${e.stdout}${e.stderr}`; code = e.status; }
+  chmodSync(join(outside, 'dybs/README.md'), 0o644);
+  assert.notEqual(code, 0);
+  assert.match(out, /symbolic link/, out);
+  assert.doesNotMatch(out, /EACCES/);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
