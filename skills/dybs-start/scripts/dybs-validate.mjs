@@ -104,6 +104,22 @@ export function textOutsideCodeSpans(line) {
   return out;
 }
 
+// Character references decoded the way a reader sees them, for the
+// placeholder check: `T&#79;DO` renders as TODO. Numeric references are
+// decoded in full; of the named ones, those that can spell a placeholder
+// (the braces, and any letter or digit written as a reference). Decoding
+// inside code too can only find more, never less.
+const NAMED = { lbrace: '{', lcub: '{', rbrace: '}', rcub: '}', amp: '&' };
+export function decodeReferences(text) {
+  return text.replace(/&(?:#(\d{1,7})|#[xX]([0-9A-Fa-f]{1,6})|([A-Za-z][A-Za-z0-9]{1,31}));/g, (m, dec, hex, name) => {
+    if (dec || hex) {
+      const cp = dec ? Number(dec) : parseInt(hex, 16);
+      return cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '\uFFFD';
+    }
+    return NAMED[name] ?? m;
+  });
+}
+
 const PLACEHOLDER = /\{\{[^}]*\}\}|(?<![\p{L}\p{N}])(?:TODO|TBD)(?![\p{L}\p{N}])/u;
 
 export function parseFrontmatter(text) {
@@ -656,7 +672,7 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   }
 
   const frontmatterValues = Object.values(data || {}).join('\n');
-  if (PLACEHOLDER.test(visibleText(body, { keepCode: true })) || PLACEHOLDER.test(frontmatterValues)) {
+  if (PLACEHOLDER.test(decodeReferences(visibleText(body, { keepCode: true }))) || PLACEHOLDER.test(frontmatterValues)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);
