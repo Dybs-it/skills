@@ -1775,3 +1775,42 @@ test('a comment opened in a quote inside a list item ends when a line leaves tha
   // indented line stays prose (CommonMark counts 2 words; never fewer).
   assert.ok(wordCount('- > <!--\n  > more\n> ===\n>     hidden words\n') >= 2);
 });
+
+test('--accept never removes its temporary copy through a folder swapped for a link', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'context'));
+  let kept = null;
+  mod.testHooks.afterLook = (p) => {
+    if (kept || !p.endsWith('.tmp')) return;
+    kept = join(outside, 'context', p.split('/').at(-1));
+    linkSync(p, kept);
+    renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+    symlinkSync(outside, join(dir, 'dybs'));
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* either outcome is fine */ } finally { mod.testHooks.afterLook = null; }
+  assert.ok(kept, 'the hook ran on the temporary copy');
+  assert.ok(existsSync(kept), 'the outside name must survive');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('without hard links, a move-aside copy in --accept that fails halfway leaves nothing behind', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { readdirSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(path, 'utf8');
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.write = (fd, data) => {
+    if (String(data) === before) { real.write(fd, 'partial'); throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }); }
+    return real.write(fd, data);
+  };
+  try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /no space left/); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(path, 'utf8'), before);
+  assert.deepEqual(readdirSync(join(dir, 'dybs/context')).filter((n) => n.includes('.old')), []);
+  rmSync(dir, { recursive: true });
+});
