@@ -530,3 +530,9 @@ test('a heading opening a list item, and a short setext underline, are block bou
   assert.equal(wordCount('- ## Example\n      code words here\n'), 1);
   assert.equal(visibleText('open `\n--\ntext <!-- TODO -->\nclose `\n', { keepCode: true }), 'open `\n--\ntext \nclose `\n');
 });
+
+test('an indented code block in a list item ends at its own code column', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('- item\n\n      code\n    ordinary prose\n'), 3);
+  assert.equal(wordCount('- item\n\n      code\n      more code\n'), 1);
+});

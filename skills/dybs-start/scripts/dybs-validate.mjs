@@ -224,8 +224,10 @@ export function visibleText(body, { keepCode = false } = {}) {
     const blank = inner.trim() === '';
     if (blank) st.span = null;
     const isIndented = /^( {4}|\t)/.test(inner);
+    // An indented block continues only at its own code column: inside a
+    // list item that is four past the item's content (`listIndent + 4`).
     if (indented) {
-      if (blank || isIndented) { prevBlank = blank; if (keepCode) out.push(line); continue; }
+      if (blank || inner.match(/^ */)[0].length >= indented || /^\t/.test(inner)) { prevBlank = blank; if (keepCode) out.push(line); continue; }
       indented = false;
     }
     // A fence may sit in a block quote or start a list item (`> ```` or
@@ -274,7 +276,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     const lead = inner.match(/^ */)[0].length;
     const codeAt = inList ? listIndent + 4 : 4;
     if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock || quoteDepth(line) > (n ? quoteDepth(lines[n - 1]) : 0))) {
-      indented = true;
+      indented = codeAt;
       prevBlank = false;
       if (keepCode) out.push(line);
       continue;

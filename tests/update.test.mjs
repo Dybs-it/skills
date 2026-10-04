@@ -1197,3 +1197,18 @@ test('a project root below an unsearchable folder is a discovery error', () => {
   assert.match(JSON.parse(out).error, /EACCES/);
   rmSync(outer, { recursive: true });
 });
+
+test('installs outside the folder are left alone, never reported as "no skills installed"', () => {
+  const shared = project(['dybs-prd']);
+  const root = mkdtempSync(join(tmpdir(), 'dybs-linked-'));
+  mkdirSync(join(root, '.agents'));
+  symlinkSync(join(shared, '.agents/skills'), join(root, '.agents/skills'));
+  const cli = (...a) => execFileSync('node', [join(PKG_ROOT, 'bin/dybs-skills.mjs'), ...a], { encoding: 'utf8', stdio: 'pipe' });
+  for (const cmd of ['status', 'update']) {
+    const out = cli(cmd, root);
+    assert.doesNotMatch(out, /Install with/, cmd);
+    assert.match(out, /left alone/, cmd);
+  }
+  rmSync(root, { recursive: true });
+  rmSync(shared, { recursive: true });
+});
