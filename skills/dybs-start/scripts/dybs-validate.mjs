@@ -68,11 +68,43 @@ export const MANUAL_RULES = [
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
   { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
-  { id: 'html', text: 'No raw HTML blocks (a line outside code that starts with an HTML tag such as `<pre>` or `<div>`, or with `<?`, `<!` or `<![CDATA[`): they change what renders in ways a reader of the source cannot see. HTML comments are fine.' },
+  { id: 'html', text: 'No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in a line, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments and autolinks (`<https://…>`) are fine.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 
-const PLACEHOLDER = /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/;
+// Bounded by letters and digits, not by \b: `_TODO_` renders as an
+// emphasized TODO, and `_` is a word character to \b.
+// A line with its code spans and backslash escapes removed, read the way
+// CommonMark reads it, left to right: an escaped character is text, a
+// backtick run opens a span only when a run of exactly the same length
+// follows, and inside a span a backslash is literal. A span that continues
+// onto another line is not followed: its tag is then judged as raw, which
+// can only refuse more.
+export function textOutsideCodeSpans(line) {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    const c = line[i];
+    if (c === '\\' && /[!-\/:-@[-`{-~]/.test(line[i + 1] ?? '')) { out += 'x'; i += 2; continue; }
+    if (c !== '`') { out += c; i += 1; continue; }
+    let n = i;
+    while (line[n] === '`') n += 1;
+    const run = n - i;
+    let close = -1;
+    for (let j = n; j < line.length;) {
+      if (line[j] !== '`') { j += 1; continue; }
+      let k = j;
+      while (line[k] === '`') k += 1;
+      if (k - j === run) { close = k; break; }
+      j = k;
+    }
+    if (close === -1) { out += line.slice(i, n); i = n; continue; }
+    i = close;
+  }
+  return out;
+}
+
+const PLACEHOLDER = /\{\{[^}]*\}\}|(?<![\p{L}\p{N}])(?:TODO|TBD)(?![\p{L}\p{N}])/u;
 
 export function parseFrontmatter(text) {
   // The block ends at the first line that starts with `---`, and that line
@@ -557,7 +589,9 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
   // A block quote or list item does not hide one (`> <div>`, `- <pre>`), and
   // neither does the indentation of a list item's content.
-  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*\u0001?[ \t]*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
+  // Anywhere in a line, not only at its start: inline HTML stays raw, and
+  // `intro <details>` ... `</details>` collapses the sections between.
+  const html = visibleText(body, { hideSpanLines: true }).split('\n').find((l) => /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[/.test(textOutsideCodeSpans(l)));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
@@ -721,6 +755,9 @@ function folderChain(root, rel) {
 }
 
 const idOf = (st) => `${st.dev}:${st.ino}`;
+function isRegularFile(p) {
+  try { return lstatSync(p).isFile(); } catch { return false; }
+}
 function pathId(p) {
   try { return idOf(lstatSync(p)); } catch { return null; }
 }
@@ -873,6 +910,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // through a folder swapped right after the rename.
     oldId = pathId(path);
     beforeMoveAside?.(old);
+    // Only the regular file that was validated may be moved aside: a link
+    // put in its place keeps its own identity through link() and rename(),
+    // while every read follows it to bytes that may match.
+    const notRegular = () => new Error(`${rel} is no longer a regular file; nothing was changed, run --accept again`);
+    if (!isRegularFile(path)) throw notRegular();
     // Moved aside without ever replacing what is at the new name: rename()
     // would silently overwrite a file that appeared there. A link refuses
     // one (EEXIST); then the doc's own name is dropped only while it is
@@ -883,6 +925,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // a folder swapped for a link, either would act outside the project.
       pinned();
       fsOps.link(path, old);
+      if (!isRegularFile(old)) {
+        try { rmIfOurs(old, pathId(old)); } catch { /* reported below */ }
+        throw notRegular();
+      }
       moved = true;
       rmIfOurs(path, oldId, pinned);
     } catch (e) {
@@ -892,6 +938,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // anything), then the doc's own name is moved to a name only this run
       // knows and dropped only while it is the same file with the same
       // bytes. No rename ever targets a name someone else could use.
+      if (!isRegularFile(path)) throw notRegular();
       try {
         fsOps.copyFile(path, old, fsConstants.COPYFILE_EXCL);
       } catch (e2) {
@@ -909,9 +956,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       const aside = `${path}.${randomUUID()}.rm`;
       renameSync(path, aside);
       let same = false;
-      try { same = pathId(aside) === origId && readFileSync(aside, 'utf8') === readFileSync(old, 'utf8'); } catch { same = false; }
+      try { same = isRegularFile(aside) && pathId(aside) === origId && readFileSync(aside, 'utf8') === readFileSync(old, 'utf8'); } catch { same = false; }
       if (!same) throw new Error(`${rel} changed while it was being moved aside; your version is kept at ${aside}`);
-      fsOps.rm(aside);
+      // Deleted by identity under another private name, never by a plain
+      // unlink after the check: a file that replaced `aside` since is kept.
+      rmIfOurs(aside, origId);
     }
     pinned();
     if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
