@@ -22,7 +22,12 @@ scenarios), `dybs/work/<task>/review.md` when present, the tests themselves, and
 
 One row per thing that must hold: each acceptance criterion, each
 requirement (`R#`) and domain rule (`D#`) the task touches, each edge-case
-finding the plan kept. Give each its priority from the plan.
+finding the plan kept. Its priority is fixed by one rule, never chosen:
+
+1. the priority the plan gives the item itself (every criterion has one);
+2. raised to the highest priority of any scenario that covers it;
+3. **P0** when neither gives one (an unprioritised item is treated as the
+   most important, never the least).
 
 For each item, find the tests and **read their assertions**. Coverage is:
 

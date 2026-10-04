@@ -12,8 +12,8 @@ updated: {{YYYY-MM-DD}}
 
 ## Acceptance criteria
 
-<!-- Given/when/then, each linked to R#/D#. Mark (proposed) if not yet confirmed. -->
-- **AC1** ({{R1}}): given {{...}}, when {{...}}, then {{...}}
+<!-- Given/when/then, each with a priority and linked to R#/D#. Mark (proposed) if not yet confirmed. -->
+- **AC1** ({{P0}}, {{R1}}): given {{...}}, when {{...}}, then {{...}}
 
 ## Risks
 

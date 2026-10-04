@@ -374,3 +374,11 @@ test('the CLI takes exactly one gate file', () => {
   assert.equal(code([a]), 0);
   rmSync(dir, { recursive: true });
 });
+
+// --- Codex review round 8 on PR #3 ---
+
+test('a separator row narrower than the header is not a table', () => {
+  const text = gate({ items: [] }).replace(/## Items\n\n[\s\S]*?\n\n## Risks/,
+    '## Items\n\n| Item | Priority | Coverage | Evidence | Security |\n|---|\n| a | P0 | FULL | tests/a.test.js:1 | no |\n\n## Risks');
+  assert.match(parseGate(text).problems.join(' '), /missing "## Items" table/);
+});

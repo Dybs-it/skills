@@ -88,7 +88,10 @@ export function tableAt(text, heading) {
     if (!inTable) {
       // The start of a table: a header line followed by a separator row.
       const next = (lines[i + 1] || '').trim();
-      if (isIndented(lines[i + 1]) || !next.startsWith('|') || !isSeparator(cellsOf(next))) return null;
+      // As in GitHub Markdown, the separator row must have exactly as many
+      // cells as the header, or there is no table.
+      if (isIndented(lines[i + 1]) || !next.startsWith('|') || !isSeparator(cellsOf(next))
+        || cellsOf(next).length !== cellsOf(line).length) return null;
       tables++;
       inTable = true;
       if (tables === 1) columns = cellsOf(line).map((c) => c.toLowerCase());

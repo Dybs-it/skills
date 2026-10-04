@@ -26,8 +26,9 @@ is in scope and what is not.
 
 ## 2. Acceptance criteria
 
-List what must be true when the work is done, each as given/when/then, and
-link it to the requirement or rule it comes from (`R3`, `D2`). If the task
+List what must be true when the work is done, each as given/when/then, with
+a priority (P0 to P3, see `quality.md`), and link it to the requirement or
+rule it comes from (`R3`, `D2`). If the task
 has no criteria, derive them from the context docs and mark them
 *(proposed)* for the human to confirm.
 

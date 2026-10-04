@@ -552,3 +552,10 @@ test('an install that lost SKILL.md is found and repaired', () => {
   assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
   rmSync(root, { recursive: true });
 });
+
+test('the gate fixes item priority by rule, and the test plan gives every criterion one', () => {
+  const gateText = readFileSync(join(SKILLS_SRC, 'dybs-gate', SKILL), 'utf8');
+  assert.match(gateText, /\*\*P0\*\* when neither gives one/);
+  assert.match(readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'template.md'), 'utf8'), /\*\*AC1\*\* \(\{\{P0\}\}/);
+  assert.match(readFileSync(join(SKILLS_SRC, 'dybs-review', SKILL), 'utf8'), /git diff \$\(git merge-base <point> HEAD\)/);
+});
