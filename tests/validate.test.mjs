@@ -2678,3 +2678,18 @@ test('a folder swapped for a link around a doc read fails --doc', async () => {
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('destinations allow only punctuation escapes and one line ending; labels fold case; a destination may follow its label line', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // `\ ` escapes nothing in a destination: no link, so `<details>` is raw.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n[x](foo\\ <details>)\n').rules.includes('html'));
+  // One line ending inside the target is allowed: `T[O](\nurl)DO` reads TODO.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O](\nurl)DO\n').rules.includes('placeholder'));
+  // A definition whose destination is on the next line.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O][r]DO\n\n[r]:\n /url\n').rules.includes('placeholder'));
+  assert.equal(wordCount('[r]:\n/url\n'), 0);
+  // An underline after `[r]:` makes a heading, not a definition.
+  assert.equal(wordCount('[r]:\n===\n'), 1);
+  // `ẞ` folds to `ss`.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O][ẞ]DO\n\n[ss]: /url\n').rules.includes('placeholder'));
+});

@@ -269,7 +269,12 @@ function stillAtName(p, st) {
 const readById = (p, id) => readNoFollowStat(p, id)?.data ?? null;
 
 function idOf(p) {
-  try { return idOfStat(lstatSync(p, BIG)); } catch { return null; }
+  try { return idOfStat(fsOps.lstat(p, BIG)); } catch { return null; }
+}
+// Provably absent: only ENOENT and ENOTDIR say so. Any other failure (an
+// I/O error, a stale handle) leaves the name possibly holding a file.
+function provablyGone(p) {
+  try { fsOps.lstat(p); return false; } catch (e) { return e.code === 'ENOENT' || e.code === 'ENOTDIR'; }
 }
 // Only a regular file is what the plan saw: a link that replaced it keeps
 // its own identity through link() and rename(), while reads follow it.
@@ -1015,7 +1020,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             ours = Boolean(x) && sha(x) === s.a.hash;
           } catch { ours = false; }
           if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash });
-          else if (idOf(s.orig) !== null) throw new Error(`the original changed during the update (an edit through an open file); that version is kept at ${s.orig}`);
+          else if (!provablyGone(s.orig)) throw new Error(`the original changed during the update (an edit through an open file), or could not be read; that version is kept at ${s.orig}`);
         });
       }
     }
@@ -1113,7 +1118,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       } catch { ours = false; }
       if (ours) {
         try { rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash }); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
-      } else if (idOf(s.orig) !== null) s.a.kept = s.a.kept ? `${s.a.kept} (and ${s.orig})` : s.orig;
+      } else if (!provablyGone(s.orig)) s.a.kept = s.a.kept ? `${s.a.kept} (and ${s.orig})` : s.orig;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {
       try { removeEmptyDirs(dirname(s.p), dir); } catch { /* an empty folder left behind is harmless */ }
