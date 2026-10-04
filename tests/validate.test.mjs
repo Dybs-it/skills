@@ -608,3 +608,17 @@ test('a four-backtick block may hold triple backticks without hiding what follow
   // ...and a heading after the inner ``` is still inside the block.
   assert.deepEqual(headings('````\n```\n## Hidden\n````\n\n## Shown\n'), ['Shown']);
 });
+
+test('--accept works on a filesystem without hard links', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = mod.fsOps.link;
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  try {
+    const dir = copySample();
+    assert.equal(mod.acceptDoc(dir, 'prd', '2026-10-04').ok, true);
+    assert.match(readFileSync(join(dir, 'dybs/context/prd.md'), 'utf8'), /accepted-hash:/);
+    rmSync(dir, { recursive: true });
+  } finally {
+    mod.fsOps.link = real;
+  }
+});

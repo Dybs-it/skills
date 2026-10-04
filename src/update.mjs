@@ -167,15 +167,19 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
   const { skill, dir } = install;
   const want = shippedFiles(skill);
   const isKnown = (rel, hash) => (known[`${skill}/${rel}`] || []).includes(hash);
+  // A checkout with core.autocrlf turns LF into CRLF; that is the same
+  // shipped file, so match it with line endings normalised too.
+  const isKnownFile = (rel, buf) => isKnown(rel, sha(buf)) || isKnown(rel, sha(buf.toString('utf8').replace(/\r\n/g, '\n')));
   const actions = [];
 
   for (const [rel, buf] of Object.entries(want)) {
     const at = inspectPath(dir, rel);
     if (at.state === 'unsafe') { actions.push({ op: 'unsafe', rel, why: at.why }); continue; }
     if (at.state === 'missing') { actions.push({ op: 'add', rel }); continue; }
-    const curHash = sha(readFileSync(join(dir, rel)));
+    const cur = readFileSync(join(dir, rel));
+    const curHash = sha(cur);
     if (curHash === sha(buf)) { actions.push({ op: 'same', rel }); continue; }
-    if (isKnown(rel, curHash)) { actions.push({ op: 'update', rel, hash: curHash }); continue; }
+    if (isKnownFile(rel, cur)) { actions.push({ op: 'update', rel, hash: curHash }); continue; }
     actions.push(force ? { op: 'replace', rel, hash: curHash, why: 'changed after install' } : { op: 'conflict', rel, why: 'changed after install' });
   }
 
@@ -187,14 +191,34 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     const at = inspectPath(dir, rel);
     if (at.state === 'missing') continue;
     if (at.state === 'unsafe') { actions.push({ op: 'unsafe', rel, why: at.why }); continue; }
-    const curHash = sha(readFileSync(join(dir, rel)));
-    actions.push(isKnown(rel, curHash)
+    const cur = readFileSync(join(dir, rel));
+    const curHash = sha(cur);
+    actions.push(isKnownFile(rel, cur)
       ? { op: 'remove', rel, hash: curHash }
       : { op: 'keep', rel, why: 'changed after install, no longer shipped' });
   }
 
   const blocked = actions.some((a) => a.op === 'conflict' || a.op === 'unsafe');
   return { ...install, actions, blocked, want };
+}
+
+// Filesystem calls applyPlan uses for no-clobber placement; a test swaps
+// `link` to act like a filesystem without hard links.
+export const fsOps = { link: linkSync };
+
+// Puts `from` at `to` without overwriting anything there. link() does that
+// atomically; on a filesystem without hard links (exFAT, some network
+// mounts) it falls back to a check followed by rename().
+function placeNoClobber(from, to) {
+  try {
+    fsOps.link(from, to);
+    rmSync(from);
+  } catch (err) {
+    if (err.code === 'EEXIST') throw err;
+    if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
+    if (taken(to)) throw Object.assign(new Error(`${to} exists`), { code: 'EEXIST' });
+    renameSync(from, to);
+  }
 }
 
 // Applies a plan as one transaction. New content is written to temporary
@@ -263,13 +287,12 @@ export function applyPlan(plan, { failAt, beforeFail } = {}) {
       if (s.tmp) {
         tick();
         try {
-          linkSync(s.tmp, s.p);
+          placeNoClobber(s.tmp, s.p);
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`${s.a.rel} appeared since the update was planned; nothing was changed, run update again`);
           throw err;
         }
         s.placed = true;
-        rmSync(s.tmp, { force: true });
         if (s.a.op === 'add') done.push(s);
       }
     }
@@ -290,7 +313,7 @@ export function applyPlan(plan, { failAt, beforeFail } = {}) {
         undo(s.a.rel, () => rmSync(s.p));
       }
       // Put the original back without overwriting anything that appeared.
-      if (s.old) undo(s.a.rel, () => { linkSync(s.old, s.p); rmSync(s.old); });
+      if (s.old) undo(s.a.rel, () => placeNoClobber(s.old, s.p));
     }
     for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmSync(s.tmp, { force: true }));
     for (const b of backups) undo(b, () => rmSync(b, { force: true }));
