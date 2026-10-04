@@ -558,3 +558,13 @@ test('fence closers measured from the container; quotes inside list items; quote
   assert.deepEqual(headings('- ```\n  x\n  ```\n## Shown\n'), ['Shown']);
   assert.deepEqual(headings('> - ```\n>   x\n>   ```\n## Shown\n'), ['Shown']);
 });
+
+test('an unclosed <!-- in a paragraph is literal text, not a comment to the end', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // Never closed: CommonMark shows everything after it (checked against commonmark.js).
+  assert.match(visibleText('ordinary <!-- never closes\nTODO visible\n'), /TODO visible/);
+  assert.match(visibleText('ordinary <!-- a\n\nTODO later\n-->\n'), /TODO later/);
+  // Closed later in the same paragraph, or opening a block: hidden.
+  assert.doesNotMatch(visibleText('ordinary <!-- a\nTODO hidden\n-->\n'), /TODO/);
+  assert.doesNotMatch(visibleText('<!-- a\n\nTODO hidden\n'), /TODO/);
+});

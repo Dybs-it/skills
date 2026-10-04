@@ -99,7 +99,11 @@ const closer = (run) => new RegExp(`(?<!\`)${run}(?!\`)`);
 // `closesLater(run)` says whether a later line of the paragraph closes it
 // (an opener that is never closed is a literal backtick, not a span). `open`
 // is true when a comment starts here and does not close on this line.
-function stripComments(line, st, closesLater) {
+// An unclosed `<!--` hides what follows only where CommonMark lets it: as
+// the opener of an HTML block (`block`, a line that starts with it), or as
+// an inline comment that a later line of the same paragraph closes
+// (`commentClosesLater`). Anywhere else it is literal text.
+function stripComments(line, st, closesLater, block = false, commentClosesLater = () => false) {
   let out = '';
   let i = 0;
   if (st.span) {
@@ -134,7 +138,13 @@ function stripComments(line, st, closesLater) {
     }
     if (line.startsWith('<!--', i)) {
       const end = line.indexOf('-->', i + 4);
-      if (end < 0) return { text: out, open: true };
+      if (end < 0) {
+        const opensBlock = block && out.replace(/^(?: {0,3}>[ \t]?)+/, '').trim() === '';
+        if (opensBlock || commentClosesLater()) return { text: out, open: true };
+        out += '<!--';
+        i += 4;
+        continue;
+      }
       i = end + 3;
       continue;
     }
@@ -190,7 +200,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     // heading, a list item or a deeper block quote ends the paragraph, and
     // with it any chance to close. Each is judged after the line's `>`
     // markers, so a quoted heading ends it too.
-    const closesLater = (run) => {
+    const laterInParagraph = (found) => {
       const depth = quoteDepth(lines[n]);
       for (let k = n + 1; k < lines.length; k++) {
         const rest = lines[k].replace(/^(?: {0,3}>[ \t]?)+/, '');
@@ -200,10 +210,12 @@ export function visibleText(body, { keepCode = false } = {}) {
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
         if (HTML_INTERRUPT.test(rest)) return false;
         if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|1[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$|=+[ \t]*$|-+[ \t]*$)/.test(rest)) return false;
-        if (closer(run).test(lines[k])) return true;
+        if (found(lines[k])) return true;
       }
       return false;
     };
+    const closesLater = (run) => laterInParagraph((l) => closer(run).test(l));
+    const commentClosesLater = () => laterInParagraph((l) => l.includes('-->'));
     // A comment opened in a block quote or list item ends with it: a line
     // outside that container (a blank line ends a quote) is read afresh.
     if (inComment && (quoteDepth(line) < inComment.quote || (line.trim() !== '' && line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length < inComment.col))) inComment = false;
@@ -295,7 +307,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     const blockComment = !st.span && /^ {0,3}<!--/.test(line.replace(/^(?: {0,3}>[ \t]?)+/, ''));
     const commentLead = line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length;
     if (blockComment) htmlTail = true;
-    const stripped = stripComments(line, st, closesLater);
+    const stripped = stripComments(line, st, closesLater, blockComment, commentClosesLater);
     // Remember the container the comment opened in (see above).
     if (stripped.open) {
       const q = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
