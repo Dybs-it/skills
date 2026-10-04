@@ -11,7 +11,7 @@
 // - A skill with any conflict is not touched at all, so it never mixes files
 //   from two releases.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync,
   rmSync, rmdirSync, copyFileSync, realpathSync, lstatSync, renameSync, linkSync,
@@ -340,10 +340,12 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeStageRm, beforePlacedCheck, beforeCleanup } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeReserved, beforeStageRm, beforePlacedCheck, beforeCleanup } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
-  const tag = `dybs-${process.pid}-${Date.now()}`;
+  // Unique to this run: two runs in the same millisecond (or a reused pid)
+  // never share a name, so a kept `.old` from one is never another's target.
+  const tag = `dybs-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const staged = [];
   const backups = [];
   const done = [];
@@ -438,10 +440,27 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
           if (s.old || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-          // No hard links here: refuse an existing name, then rename (the
-          // gap between the two cannot be closed without them).
-          if (idOf(old) !== null) throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
-          renameSync(s.p, old);
+          // No hard links here: reserve the name first with an exclusive,
+          // empty file of our own, so nothing else can be created there.
+          // The rename then replaces only that reservation, and only while
+          // it is still ours and still empty.
+          let resId;
+          try {
+            writeOwnFile(old, '', 0o600, (id) => { resId = id; });
+          } catch (e) {
+            if (e.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
+            throw e;
+          }
+          beforeReserved?.(old);
+          const st = (() => { try { return lstatSync(old); } catch { return null; } })();
+          if (!st || idOfStat(st) !== resId || st.size !== 0) {
+            throw new Error(`something changed ${basename(old)} during the update; nothing was changed, run update again`);
+          }
+          try { renameSync(s.p, old); } catch (e) {
+            // Our own empty reservation is all there is to remove.
+            try { if (idOf(old) === resId && lstatSync(old).size === 0) rmSync(old); } catch { /* reported by the throw */ }
+            throw e;
+          }
           s.old = old;
           done.push(s);
         }
