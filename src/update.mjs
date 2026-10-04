@@ -101,7 +101,14 @@ export function discover(roots) {
         // An install is recognised by its folder, not by SKILL.md: an install
         // that lost files (dybs-check ships SKILL.md alone) is damaged, and
         // update repairs it instead of calling it "not installed".
-        if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
+        // Absent only when really not there: existsSync() also says false
+        // for a folder we may not search, hiding an install we cannot read.
+        let st;
+        try { st = statSync(dir); } catch (e) {
+          if (e.code === 'ENOENT' || e.code === 'ENOTDIR') continue;
+          throw e;
+        }
+        if (!st.isDirectory()) continue;
         const real = realpathSync(dir);
         if (!realRoots.some((r) => within(real, r))) {
           skipped.push({ skill, dir: real, via: dir, why: 'resolves outside the requested folder' });
@@ -345,7 +352,7 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeReserved, beforeStageRm, beforePlacedCheck, beforeCleanup } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeReserved, beforeStageRm, beforePlacedCheck, beforeCommit, beforeCleanup } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   // Unique to this run: two runs in the same millisecond (or a reused pid)
@@ -510,10 +517,23 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // a write through the staging name would land in the target. So the
         // target is read once more now that it is the only name.
         beforePlacedCheck?.(s);
-        if (sha(fsOps.read(s.p)) !== sha(want[s.a.rel])) {
+        // Read through the pinned folders, and only the very file placed: a
+        // folder swapped for a link could show an outside file with the
+        // same shipped bytes.
+        pinned(s);
+        if (idOf(s.p) !== s.placedId || sha(fsOps.read(s.p)) !== sha(want[s.a.rel])) {
           throw new Error(`${s.a.rel} changed while it was being placed; nothing was kept, run update again`);
         }
       }
+    }
+    // A --force backup holds the user's own version: it must still hold
+    // exactly that before the originals are let go. Edited in place (same
+    // identity), it is someone's work now, so nothing is committed.
+    beforeCommit?.();
+    for (const b of backups) {
+      let same = false;
+      try { same = idOf(b.path) === b.id && sha(fsOps.read(b.path)) === b.hash; } catch { same = false; }
+      if (!same) throw new Error(`the backup ${basename(b.path)} changed during the update; nothing was kept, run update again`);
     }
   } catch (err) {
     const stuck = [];
@@ -584,14 +604,28 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // Anything less is kept and reported.
       const chainOk = chainOf(dir, s.a.rel) === s.chain;
       const id = idOf(s.old);
-      let bytes = null;
-      try { bytes = chainOk && id === s.oldId ? fsOps.read(s.old) : null; } catch { bytes = null; }
       // The update is committed by now: a cleanup that fails (a locked
       // file, a permission change, a file that cannot be read) leaves the
       // original in place and is reported, it never turns a finished update
       // into a failure. Only a name that is provably empty is "already gone".
-      if (bytes && sha(bytes) === s.a.hash) {
-        try { fsOps.rm(s.old); } catch { s.a.kept = s.old; }
+      if (chainOk && id === s.oldId) {
+        // Checked under a name only this run knows: the file is first moved
+        // to it, so what is verified is exactly what gets deleted, even if
+        // something new appears at the old name in between.
+        const trash = `${s.old}.${randomUUID()}.rm`;
+        let moved = false;
+        try { renameSync(s.old, trash); moved = true; } catch { s.a.kept = s.old; }
+        if (moved) {
+          let ours = false;
+          try { ours = idOf(trash) === s.oldId && sha(fsOps.read(trash)) === s.a.hash; } catch { ours = false; }
+          if (ours) {
+            try { fsOps.rm(trash); } catch { s.a.kept = trash; }
+          } else {
+            // Not ours after all (edited, or replaced before the move): put
+            // it back without overwriting anything, else report where it is.
+            try { fsOps.link(trash, s.old); fsOps.rm(trash); s.a.kept = s.old; } catch { s.a.kept = trash; }
+          }
+        }
       } else if (chainOk && id === null) { /* already gone */ } else s.a.kept = s.old;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {
