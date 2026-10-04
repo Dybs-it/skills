@@ -2245,3 +2245,14 @@ test('items opening with code, link destinations, escapes and escaped title quot
   // An escaped quote does not close a link title.
   assert.ok(validateDoc('prd', VALID_PRD + '\nT[O](foo "x\\")")DO\n').rules.includes('placeholder'));
 });
+
+test('--accept falls back to copies where link() answers EISDIR (Windows exFAT)', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  mod.fsOps.link = () => { throw Object.assign(new Error('EISDIR: illegal operation on a directory, link'), { code: 'EISDIR' }); };
+  let r;
+  try { r = mod.acceptDoc(dir, 'prd', '2026-10-04'); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(r.ok, true, (r.errors || []).join(' '));
+  rmSync(dir, { recursive: true });
+});
