@@ -605,3 +605,11 @@ test('CLI help shows --accept', () => {
   const out = execFileSync('node', [join(PKG_ROOT, 'bin/dybs-skills.mjs'), '--help'], { encoding: 'utf8' });
   assert.match(out, /--accept <doc>/);
 });
+
+test('the gate is bound to committed evidence, and dybs-test-plan writes a missing plan', () => {
+  const gate = readFileSync(join(SKILLS_SRC, 'dybs-gate', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(gate, /The evidence must be committed first/);
+  assert.match(gate, /`commit: uncommitted`/);
+  assert.match(readFileSync(join(SKILLS_SRC, 'dybs-pr', SKILL), 'utf8').replace(/\s+/g, ' '), /says `uncommitted`/);
+  assert.match(readFileSync(join(SKILLS_SRC, 'dybs-test-plan', SKILL), 'utf8').replace(/\s+/g, ' '), /when you are `dybs-test-plan`, that is your job now/);
+});

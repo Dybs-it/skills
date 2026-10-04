@@ -89,10 +89,11 @@ so do not assume the others are present.
 - **No `dybs/context/`:** work without it. Say in the check-in which context
   was missing (requirements, domain rules, architecture boundaries, UX
   rules), because findings that depend on it could not be made.
-- **No test plan** in `dybs/work/<task>/`: suggest `dybs-test-plan`. If it is
-  not installed, agree the acceptance criteria, risks and seams with the
-  human in one round and write them to `dybs/work/<task>/test-plan.md`, using
-  the sections `quality.md` describes.
+- **No test plan** in `dybs/work/<task>/`: `dybs-test-plan` writes it (when
+  you are `dybs-test-plan`, that is your job now). Any other quality skill
+  suggests `dybs-test-plan`; if it is not installed, agree the acceptance
+  criteria, risks and seams with the human in one round and write them to
+  `dybs/work/<task>/test-plan.md`, using the sections `quality.md` describes.
 - **No gate script, or no Node:** the gate is not decided. Write
   `Decision: not computed (no gate script)`, list what looks blocking against
   the rules in `quality.md`, and say it must be computed before merging. It

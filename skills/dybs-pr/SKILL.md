@@ -44,8 +44,9 @@ Before and after, as concrete as the environment allows:
 - the test that failed before and passes now, or command output (good)
 - the gate decision with its coverage numbers: run the gate script on
   `gate.md` again now, and compare its `commit:` with `HEAD`. If code or
-  tests changed since, the result is **stale**: say so and suggest running
-  `dybs-gate` again rather than quoting the old decision
+  tests changed since, if `commit:` says `uncommitted`, or if the working
+  tree has uncommitted changes, the result is **stale**: say so and suggest
+  running `dybs-gate` again rather than quoting the old decision
 
 Say plainly what was **not** verified.
 
@@ -70,10 +71,11 @@ so do not assume the others are present.
 - **No `dybs/context/`:** work without it. Say in the check-in which context
   was missing (requirements, domain rules, architecture boundaries, UX
   rules), because findings that depend on it could not be made.
-- **No test plan** in `dybs/work/<task>/`: suggest `dybs-test-plan`. If it is
-  not installed, agree the acceptance criteria, risks and seams with the
-  human in one round and write them to `dybs/work/<task>/test-plan.md`, using
-  the sections `quality.md` describes.
+- **No test plan** in `dybs/work/<task>/`: `dybs-test-plan` writes it (when
+  you are `dybs-test-plan`, that is your job now). Any other quality skill
+  suggests `dybs-test-plan`; if it is not installed, agree the acceptance
+  criteria, risks and seams with the human in one round and write them to
+  `dybs/work/<task>/test-plan.md`, using the sections `quality.md` describes.
 - **No gate script, or no Node:** the gate is not decided. Write
   `Decision: not computed (no gate script)`, list what looks blocking against
   the rules in `quality.md`, and say it must be computed before merging. It
