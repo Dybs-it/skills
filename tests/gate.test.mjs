@@ -562,3 +562,13 @@ test('more gate refusals: entity headings, deep-indented fences, link-only waive
   }
   assert.equal(run({ items: [gap('a', 'P0')], waivers: [waiver('a')] }).decision, 'WAIVED');
 });
+
+test('formatted headings and inline HTML anywhere are refused', () => {
+  const base = gate({ items: [full('a', 'P0')] });
+  const has = (text, s) => parseGate(text).problems.some((p) => p.includes(s));
+  assert.ok(has(base.replace('## Risks', '## **Items**\n\n## Risks'), 'headings must be plain text'));
+  assert.ok(has(base.replace('## Items', 'text <details>\n\n## Items').replace('## Risks', 'text </details>\n\n## Risks'), 'raw HTML'));
+  // Code spans and autolinks are not tags.
+  assert.ok(!has(base.replace('## Risks', 'See `<task>` and <https://dybs.it>.\n\n## Risks'), 'raw HTML'));
+  assert.equal(parseGate(base).problems.length, 0);
+});

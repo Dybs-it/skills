@@ -129,6 +129,8 @@ export function markdownHazards(text) {
     // A heading inside a list item or quote (`- ## Archived`) still ends a
     // section on screen, so it is refused rather than modelled.
     if (/^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}([ \t]|$)/.test(line)) problems.push('headings may not sit inside a list item or a quote');
+    // `## **Items**` renders as Items too: headings must be plain text.
+    if (/^ {0,3}#{1,6}[ \t]+.*[*_`[\]<>\\~]/.test(line)) problems.push('headings must be plain text (no *, _, `, [ ], < >, \\ or ~)');
     // `## I&#116;ems` renders as Items: a heading is matched as written, so
     // character references in one are refused rather than decoded.
     if (/^ {0,3}#{1,6}[ \t].*&[#A-Za-z0-9]+;/.test(line)) problems.push('headings may not contain character references such as &#116; or &amp;');
@@ -270,7 +272,14 @@ export function parseGate(text) {
   // (<pre>, <details>, <table>). gate.md needs none, so any is refused.
   // Also behind a list marker or a quote (`- <pre>`, `> <div>`): there it
   // still starts an HTML block that swallows what follows.
-  const html = visible(text).split(/\r?\n/).filter((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*<[A-Za-z/!?]/.test(l));
+  // Anywhere in a line, not only at its start: inline HTML stays raw in
+  // GFM, and `text <details>` ... `</details>` collapses what is between.
+  // Code spans and escaped `\<` are text; autolinks (`<https://…>`) are not
+  // tags.
+  const html = visible(text).split(/\r?\n/).filter((l) => {
+    const t = l.replace(/(`+)[\s\S]*?\1/g, '').replace(/\\</g, '');
+    return /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<[!?]/.test(t);
+  });
   if (html.length) problems.push(`gate.md may not contain raw HTML (found: ${html[0].trim().slice(0, 40)})`);
   // GitHub also renders a table whose rows do not start with "|"; this parser
   // reads only rows that do. So any other visible line with an unescaped pipe
