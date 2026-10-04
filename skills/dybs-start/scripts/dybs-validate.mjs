@@ -979,10 +979,22 @@ function readmeProblem(root) {
 
 // Reads a file only if it is a regular file. Opened without blocking, so a
 // FIFO or a device at a doc's name never hangs the check, and judged on the
-// open descriptor, not on a separate look at the name. null otherwise.
+// open descriptor, not on a separate look at the name. Never through a
+// link at its own name (O_NOFOLLOW), and only while the opened file is what
+// the name itself is (same device and inode, not a link). null otherwise.
 function readRegular(p) {
-  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
-  try { return fstatSync(fd).isFile() ? readFileSync(fd, 'utf8') : null; } finally { closeSync(fd); }
+  let fd;
+  try { fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+    if (e.code === 'ELOOP' || e.code === 'EMLINK') return null;
+    throw e;
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) return null;
+    const own = lstatSync(p);
+    if (own.isSymbolicLink() || own.dev !== st.dev || own.ino !== st.ino) return null;
+    return readFileSync(fd, 'utf8');
+  } finally { closeSync(fd); }
 }
 // The same for a doc that was already checked to be a regular file: one
 // swapped since is an error, never a read that can hang.
@@ -1001,8 +1013,9 @@ function lookup(p) {
   }
 }
 
-// Test seam: runs right after project.md is read for its settings.
-export const validateHooks = { afterSettings: null };
+// Test seams: right after project.md is read for its settings, and right
+// before each doc is read.
+export const validateHooks = { afterSettings: null, beforeRead: null };
 
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
@@ -1059,7 +1072,15 @@ export function validateProject(root, only) {
     }
     // project.md is validated from the very bytes its settings came from:
     // a save in between would otherwise mix two versions in one result.
+    if (!(name === 'project' && projectText !== null)) validateHooks.beforeRead?.(path);
     const text = name === 'project' && projectText !== null ? projectText : readRegular(path);
+    // The name itself is read without following a link; a folder on the way
+    // swapped for one around the read is caught by asking again after it.
+    const swapped = text !== null && unsafePath(root, `dybs/${spec.file}`);
+    if (swapped) {
+      results.push({ name, file: spec.file, status: null, words: 0, errors: [`${swapped}: keep the docs as real files in dybs/`], warnings: [] });
+      continue;
+    }
     if (text === null) {
       results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });
       continue;
