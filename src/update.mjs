@@ -414,9 +414,13 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     const cur = readNoFollow(join(dir, rel));
     if (!cur) { actions.push({ op: 'unsafe', rel, why: 'it changed into something other than a regular file while it was read' }); continue; }
     const curHash = sha(cur);
-    actions.push(isKnownFile(rel, cur)
-      ? { op: 'remove', rel, hash: curHash }
-      : { op: 'keep', rel, why: 'changed after install, no longer shipped' });
+    // An edited file this release no longer ships needs the user too: the
+    // skill stays unchanged unless --force, which keeps the file (never
+    // deleting an edit) and updates the rest.
+    if (isKnownFile(rel, cur)) actions.push({ op: 'remove', rel, hash: curHash });
+    else actions.push(force
+      ? { op: 'keep', rel, why: 'changed after install, no longer shipped; kept as you left it' }
+      : { op: 'conflict', rel, why: 'changed after install, no longer shipped; --force keeps it and updates the rest' });
   }
 
   const blocked = actions.some((a) => a.op === 'conflict' || a.op === 'unsafe');

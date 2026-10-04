@@ -98,7 +98,13 @@ test('a file no longer shipped is removed only if untouched', () => {
   writeFileSync(join(dir, 'retired.md'), 'as shipped');
   writeFileSync(join(dir, 'notes.md'), 'edited by user');
   const known = { ...knownHashes(), 'dybs-prd/retired.md': [sha('as shipped')], 'dybs-prd/notes.md': [sha('as shipped')] };
-  const r = ops(updateInstall(findInstalls([root])[0], { known }));
+  // An edited file no longer shipped needs the user: nothing in the skill
+  // changes until --force, which keeps it and updates the rest.
+  const blocked = updateInstall(findInstalls([root])[0], { known });
+  assert.equal(ops(blocked)['notes.md'], 'conflict');
+  assert.equal(blocked.applied, false);
+  assert.equal(existsSync(join(dir, 'retired.md')), true, 'nothing changed while blocked');
+  const r = ops(updateInstall(findInstalls([root])[0], { known, force: true }));
   assert.equal(r['retired.md'], 'remove');
   assert.equal(r['notes.md'], 'keep');
   assert.equal(existsSync(join(dir, 'retired.md')), false);
