@@ -689,7 +689,7 @@ export function placeNoClobber(from, to) {
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
-export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforePlace, beforeCleanup } = {}) {
+export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforePlace, beforePlacedCheck, beforeCleanup } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -792,6 +792,14 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     placedId = how === 'link' ? tmpId : pathId(path);
     pinned();
     rmIfOurs(tmp, tmpId);
+    // Until that unlink, a link placement left two names for one file, and a
+    // write through the temporary name would land in the doc. So the doc is
+    // read once more now that it is the only name.
+    beforePlacedCheck?.(path);
+    pinned();
+    if (pathId(path) !== placedId || readFileSync(path, 'utf8') !== next) {
+      throw new Error(`${rel} changed while it was being accepted; run --accept again`);
+    }
     // The original is deleted only while it is provably ours: reached
     // through the pinned folders, the very file we moved aside, and still
     // holding what was validated. Otherwise it is kept and reported.

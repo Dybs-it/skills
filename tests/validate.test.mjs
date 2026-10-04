@@ -1342,3 +1342,21 @@ test('more CommonMark boundaries: ordered fences, comment blocks after lists, se
   assert.equal(wordCount('Heading\n===\n    code words\n'), 1);
   assert.equal(wordCount('Heading\n--\n    code words\n'), 1);
 });
+
+test('--accept catches a write through the temporary name after a link placement', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const realLink = mod.fsOps.link;
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  let wrote = false;
+  // A watcher writes into the shared inode through the temporary name,
+  // after placement and before that name is gone.
+  mod.fsOps.link = (from, to) => { const r = realLink(from, to); if (from.endsWith('.tmp')) { writeFileSync(from, 'a watcher wrote this'); wrote = true; } return r; };
+  try {
+    assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /changed while it was being accepted/);
+  } finally { mod.fsOps.link = realLink; }
+  assert.ok(wrote);
+  // The changed file is someone's now: kept, never deleted.
+  assert.equal(readFileSync(path, 'utf8'), 'a watcher wrote this');
+  rmSync(dir, { recursive: true });
+});
