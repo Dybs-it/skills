@@ -1915,3 +1915,25 @@ test('a placeholder written with character references in frontmatter is still a 
   const t = VALID_PRD.replace(/^---\n/, '---\nnote: T&#79;DO\n');
   assert.ok(validateDoc('prd', t).rules.includes('placeholder'));
 });
+
+test('--doc accepts only real doc names, and stray arguments are refused', async () => {
+  const { main } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const err = console.error; const log = console.log;
+  console.error = () => {}; console.log = () => {};
+  try {
+    for (const args of [['--doc', 'toString'], ['--doc', 'constructor'], ['/not/the/project'], ['--bogus']]) {
+      assert.equal(main(['node', 'dybs-validate.mjs', SAMPLE, ...args]), 2, args.join(' '));
+    }
+  } finally { console.error = err; console.log = log; }
+});
+
+test('--accept accepts only real doc names', async () => {
+  const { main } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const err = console.error; const log = console.log;
+  console.error = () => {}; console.log = () => {};
+  try {
+    for (const name of ['toString', 'constructor', '__proto__']) {
+      assert.equal(main(['node', 'dybs-validate.mjs', SAMPLE, '--accept', name]), 2, name);
+    }
+  } finally { console.error = err; console.log = log; }
+});

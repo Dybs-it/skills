@@ -1982,3 +1982,55 @@ test('a folder swapped during the move-aside link leaves no name outside the ins
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('without hard links, a staged file swapped for a link is never copied into place', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'secret'), 'outside bytes');
+  let swapped = false;
+  mod.fsOps.link = (from) => {
+    if (!swapped && from.endsWith('.new')) {
+      swapped = true;
+      rmSync(from);
+      symlinkSync(join(outside, 'secret'), from);
+    }
+    throw Object.assign(new Error('no hard links'), { code: 'EPERM' });
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /no longer a regular file|changed/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.notEqual(readFileSync(prd(root), 'utf8'), 'outside bytes');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('cleanup recovery removes its trash name by identity, never a replacement', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let replaced = null;
+  // The moved-aside original is edited in place before cleanup, so cleanup
+  // puts it back; right after that link, a watcher replaces the trash name.
+  const beforeCleanup = (s) => { if (s.a.rel === SKILL) writeFileSync(s.old, 'edited in place'); };
+  mod.fsOps.link = (from, to) => {
+    const r = real.link(from, to);
+    if (!replaced && /\.old\.[0-9a-f-]{36}\.rm$/.test(from)) {
+      replaced = from;
+      writeFileSync(`${from}.x`, 'someone else');
+      renameSync(`${from}.x`, from);
+    }
+    return r;
+  };
+  try { mod.applyPlan(plan, { beforeCleanup }); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(replaced, 'the recovery link ran');
+  assert.equal(readFileSync(replaced, 'utf8'), 'someone else');
+  rmSync(root, { recursive: true });
+});

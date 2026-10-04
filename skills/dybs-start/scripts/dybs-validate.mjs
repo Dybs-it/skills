@@ -1233,7 +1233,7 @@ export function main(argv) {
     if (o.given && !o.value) { console.error(`${flag} needs a doc name. Known: ${ORDER.join(', ')}`); return 2; }
   }
   const only = doc.value;
-  if (only && !DOCS[only]) {
+  if (only && !ORDER.includes(only)) {
     console.error(`unknown doc "${only}". Known: ${ORDER.join(', ')}`);
     return 2;
   }
@@ -1241,7 +1241,7 @@ export function main(argv) {
   const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--doc' && args[i - 1] !== '--accept');
   const root = resolve(positional[0] || '.');
   if (accept) {
-    if (!DOCS[accept]) { console.error(`unknown doc "${accept}". Known: ${ORDER.join(', ')}`); return 2; }
+    if (!ORDER.includes(accept)) { console.error(`unknown doc "${accept}". Known: ${ORDER.join(', ')}`); return 2; }
     let r;
     try {
       r = acceptDoc(root, accept);

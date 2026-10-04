@@ -409,14 +409,14 @@ export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write
 // with O_EXCL, so a file or link that appears there at any moment is
 // refused, never replaced. A check followed by rename() would overwrite
 // whatever appeared in between.
-export function placeNoClobber(from, to, check) {
+export function placeNoClobber(from, to, check, fromId) {
   try {
     fsOps.link(from, to);
     return 'link';
   } catch (err) {
     if (err.code === 'EEXIST') throw err;
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    copyExclusive(from, to, check);
+    copyExclusive(from, to, check, fromId);
     return 'copy';
   }
 }
@@ -426,14 +426,29 @@ export function placeNoClobber(from, to, check) {
 // copy that fails halfway (disk full, I/O) leaves a partial file only this
 // call can prove is its own, so it is removed here, by identity and after
 // `check`, before the error reaches the caller. Returns the copy's identity.
-function copyExclusive(from, to, check) {
+function copyExclusive(from, to, check, fromId) {
   // The folders are checked before anything is read or created, not only
   // when a partial copy has to be cleaned up.
   check?.();
-  const data = fsOps.read(from);
+  // The source is opened without following a link at its name, and only
+  // the very file expected (`fromId`, when given) is copied: a link or a
+  // replacement swapped in is refused, never read through.
+  let fd;
+  try { fd = openSync(from, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+    if (e.code === 'ELOOP' || e.code === 'EMLINK') throw new Error(`${from} is no longer a regular file; nothing was copied`);
+    throw e;
+  }
+  let data;
+  let mode;
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile() || (fromId && idOfStat(st) !== fromId)) throw new Error(`${from} changed before it was copied; nothing was copied`);
+    mode = st.mode & 0o7777;
+    data = readFileSync(fd);
+  } finally { closeSync(fd); }
   let id = null;
   try {
-    writeOwnFile(to, data, lstatSync(from).mode & 0o7777, (made) => { id = made; });
+    writeOwnFile(to, data, mode, (made) => { id = made; });
   } catch (e) {
     if (id) {
       try { rmIfOurs(to, id, check); } catch (e2) { e.message += `; the partial copy is kept: ${e2.message}`; }
@@ -583,7 +598,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // it meanwhile is not ours. A copy that fails halfway is removed.
           let copyId;
           try {
-            copyId = copyExclusive(s.p, old, chainCheck(s));
+            copyId = copyExclusive(s.p, old, chainCheck(s), origId);
           } catch (e) {
             if (e.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
             throw e;
@@ -639,7 +654,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         }
         let how;
         try {
-          how = placeNoClobber(s.tmp, s.p, chainCheck(s));
+          how = placeNoClobber(s.tmp, s.p, chainCheck(s), s.tmpId);
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`${s.a.rel} appeared since the update was planned; nothing was changed, run update again`);
           throw err;
@@ -747,7 +762,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // A link puts the very file back, so the moved-aside name can go.
           // A copy is a snapshot: an editor still holding the original could
           // write to it after the copy, so the original itself is kept.
-          if (placeNoClobber(s.old, s.p, chainCheck(s)) === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s));
+          if (placeNoClobber(s.old, s.p, chainCheck(s), s.oldId) === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s));
           else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
         });
       }
@@ -810,7 +825,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           } else {
             // Not ours after all (edited, or replaced before the move): put
             // it back without overwriting anything, else report where it is.
-            try { fsOps.link(trash, s.old); fsOps.rm(trash); s.a.kept = s.old; } catch { s.a.kept = trash; }
+            // The trash name goes only by identity: a file that replaced it
+            // after the link is never ours to delete.
+            const trashId = idOf(trash);
+            try {
+              fsOps.link(trash, s.old);
+              s.a.kept = s.old;
+              try { rmIfOurs(trash, trashId, chainCheck(s)); } catch (e) { s.a.kept = `${s.old} (and ${e.keptAt ?? trash})`; }
+            } catch { s.a.kept = trash; }
           }
         }
       } else if (chainOk && id === null) { /* already gone */ } else s.a.kept = s.old;
