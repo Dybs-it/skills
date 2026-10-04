@@ -210,3 +210,14 @@ test('frontmatter dates must exist in the calendar', () => {
   assert.ok(r2.rules.includes('accepted-date'));
   rmSync(dir, { recursive: true });
 });
+
+test('fences in a block quote or a list item are code; an unclosed comment hides its placeholder', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('one two\n\n> ```\n> three four five\n> ```\n'), 2);
+  assert.equal(wordCount('one two\n\n- ```js\n  three four five\n  ```\n'), 2);
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t + '\n<!-- TODO never closed\n');
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(!r.rules.includes('placeholder'));
+  rmSync(dir, { recursive: true });
+});

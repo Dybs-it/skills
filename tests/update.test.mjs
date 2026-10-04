@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
-  PKG_ROOT, SKILLS_SRC, findInstalls, update, updateInstall, skillNames, shippedFiles, knownHashes, sha,
+  PKG_ROOT, SKILLS_SRC, findInstalls, discover, update, updateInstall, skillNames, shippedFiles, knownHashes, sha,
 } from '../src/update.mjs';
 import { DOCS, ORDER } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 import { rulesBlock } from '../scripts/sync-rules.mjs';
@@ -583,4 +583,46 @@ test('a skill folder replaced by a link after the plan stops the update before a
   assert.equal(readFileSync(join(outside, SKILL), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
+});
+
+test('a nested folder swapped for a link after staging stops the update; nothing outside is touched', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  writeFileSync(join(dir, 'scripts/retired.mjs'), 'as shipped');
+  const known = { ...knownHashes(), 'dybs-start/scripts/retired.mjs': [sha('as shipped')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  assert.equal(ops(plan)['scripts/retired.mjs'], 'remove');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'retired.mjs'), 'as shipped');
+  let swapped = false;
+  const beforePin = () => {
+    if (swapped) return;
+    swapped = true;
+    cpSync(join(dir, 'scripts'), join(root, 'scripts.moved'), { recursive: true });
+    rmSync(join(dir, 'scripts'), { recursive: true });
+    symlinkSync(outside, join(dir, 'scripts'));
+  };
+  assert.throws(() => applyPlan(plan, { beforePin }), /changed during the update/);
+  assert.equal(readFileSync(join(outside, 'retired.mjs'), 'utf8'), 'as shipped');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('one folder claimed by two skill names is skipped, never updated as either', () => {
+  const root = project(['dybs-scope']);
+  symlinkSync('../../.agents/skills/dybs-scope', join(root, '.agents/skills/dybs-prd'));
+  const { installs, skipped } = discover([root]);
+  assert.ok(!installs.some((i) => i.dir.endsWith('dybs-scope')));
+  assert.ok(skipped.some((s) => s.skill === 'dybs-prd'));
+  assert.ok(skipped.some((s) => s.skill === 'dybs-scope'));
+  rmSync(root, { recursive: true });
+});
+
+test('--global from the home folder lists each install once', async () => {
+  const { rootsFor } = await import('../src/update.mjs');
+  const { homedir } = await import('node:os');
+  assert.deepEqual(rootsFor(homedir(), { global: true }), [homedir()]);
+  assert.equal(rootsFor('/tmp', { global: true }).length, 2);
 });

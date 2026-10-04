@@ -123,7 +123,9 @@ function stripComments(line) {
 // runs to the end. An indented code block (four spaces or a tab) starts only
 // after a blank line and outside a list, since an indented line there
 // continues a paragraph or a list item instead.
-export function visibleText(body) {
+// With `keepCode`, code stays in (only comments are dropped): placeholders in
+// code still count, as the rule exempts HTML comments alone.
+export function visibleText(body, { keepCode = false } = {}) {
   const out = [];
   let fence = null;
   let indented = false;
@@ -141,16 +143,19 @@ export function visibleText(body) {
     const blank = line.trim() === '';
     const isIndented = /^( {4}|\t)/.test(line);
     if (indented) {
-      if (blank || isIndented) { prevBlank = blank; continue; }
+      if (blank || isIndented) { prevBlank = blank; if (keepCode) out.push(line); continue; }
       indented = false;
     }
-    const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    // A fence may sit in a block quote or start a list item (`> ```` or
+    // `- ```js`); the container prefix does not hide it.
+    const m = line.match(/^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(`{3,}|~{3,})(.*)$/);
     if (fence) {
       if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
+      if (keepCode) out.push(line);
       continue;
     }
-    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; continue; }
-    if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; continue; }
+    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; if (keepCode) out.push(line); continue; }
+    if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; if (keepCode) out.push(line); continue; }
     const stripped = stripComments(line);
     inComment = stripped.open;
     line = stripped.text;
@@ -210,7 +215,7 @@ export function validateDoc(name, text) {
     warnings.push(`${words} words, close to the cap of ${spec.maxWords}`);
   }
 
-  if (PLACEHOLDER.test(body.replace(/<!--[\s\S]*?-->/g, ''))) {
+  if (PLACEHOLDER.test(visibleText(body, { keepCode: true }))) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);
