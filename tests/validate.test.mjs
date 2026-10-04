@@ -1477,3 +1477,43 @@ test('doc skills stop without the method README and fingerprint each acceptance'
     assert.ok(t.includes(`when the human accepts, \`--accept ${doc}\``), doc);
   }
 });
+
+test('--accept undoes an acceptance whose required input changed while it ran', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  for (const [hook, input] of [['beforeWrite', 'dybs/context/ux.md'], ['beforePlacedCheck', 'dybs/project.md']]) {
+    const dir = copySample();
+    const path = join(dir, 'dybs/context/ui.md');
+    const before = readFileSync(path, 'utf8');
+    assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', {
+      [hook]: () => writeFileSync(join(dir, input), 'not a valid doc any more'),
+    }), new RegExp(`${input} changed while`));
+    // The acceptance does not stand: the doc is back as it was.
+    assert.equal(readFileSync(path, 'utf8'), before, hook);
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('--accept rollback never deletes a save that replaces the placed doc', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync } = await import('node:fs');
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  let saved = false;
+  let failing = false;
+  // An editor saves atomically (temp file + rename) after the rollback has
+  // checked the placed doc and before it is removed.
+  mod.testHooks.afterLook = (p) => {
+    if (saved || !failing || p !== path) return;
+    saved = true;
+    writeFileSync(`${p}.x`, 'the editor saved this');
+    renameSync(`${p}.x`, p);
+  };
+  try {
+    assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', {
+      beforePlacedCheck: () => { failing = true; throw new Error('fail after placement'); },
+    }), /fail after placement/);
+  } finally { mod.testHooks.afterLook = null; }
+  assert.ok(saved);
+  assert.equal(readFileSync(path, 'utf8'), 'the editor saved this');
+  rmSync(dir, { recursive: true });
+});

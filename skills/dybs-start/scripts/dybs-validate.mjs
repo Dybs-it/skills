@@ -720,6 +720,17 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
+  // What this acceptance was validated against (project.md and the required
+  // docs), checked again right before and right after the doc is placed: an
+  // input edited meanwhile undoes the acceptance instead of standing behind it.
+  const inputs = [];
+  const inputsUnchanged = () => {
+    for (const [r, t] of inputs) {
+      let same = false;
+      try { same = !unsafePath(root, r) && readFileSync(join(root, r), 'utf8') === t; } catch { same = false; }
+      if (!same) throw new Error(`${r} changed while ${rel} was being accepted; run --accept again`);
+    }
+  };
   // A doc is accepted under project.md's settings (its depth and cap), so
   // those settings must themselves be valid first.
   if (name !== 'project') {
@@ -730,6 +741,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (projectUnsafe) return { ok: false, errors: [`refusing to accept: ${projectUnsafe}`] };
     {
       const projectText = readFileSync(projectPath, 'utf8');
+      inputs.push(['dybs/project.md', projectText]);
       const project = validateDoc('project', projectText, depthFor('project', parseFrontmatter(projectText).data));
       if (project.errors.length) return { ok: false, errors: project.errors.map((e) => `project.md: ${e}`) };
       // A doc is never accepted without the docs it cannot be written
@@ -741,8 +753,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
         if (!existsSync(depPath)) return { ok: false, errors: [`${depRel} is missing: ${name} cannot be written without it. Write ${dep} first.`] };
         const depUnsafe = unsafePath(root, depRel);
         if (depUnsafe) return { ok: false, errors: [`refusing to accept: ${depUnsafe}`] };
-        const r = validateDoc(dep, readFileSync(depPath, 'utf8'), depthFor(dep, projectData), projectData?.checkins);
+        const depText = readFileSync(depPath, 'utf8');
+        const r = validateDoc(dep, depText, depthFor(dep, projectData), projectData?.checkins);
         if (r.errors.length) return { ok: false, errors: r.errors.map((e) => `${DOCS[dep].file}: ${e}`) };
+        inputs.push([depRel, depText]);
       }
     }
   }
@@ -850,6 +864,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (pathId(tmp) !== tmpId || readFileSync(tmp, 'utf8') !== next) {
       throw new Error(`the temporary copy of ${rel} changed before it was placed; nothing was kept, run --accept again`);
     }
+    inputsUnchanged();
     const how = placeNoClobber(tmp, path);
     placed = true;
     placedId = how === 'link' ? tmpId : pathId(path);
@@ -863,14 +878,17 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (pathId(path) !== placedId || readFileSync(path, 'utf8') !== next) {
       throw new Error(`${rel} changed while it was being accepted; run --accept again`);
     }
+    inputsUnchanged();
     // The original is deleted only while it is provably ours: reached
     // through the pinned folders, the very file we moved aside, and still
     // holding what was validated. Otherwise it is kept and reported.
     beforeCleanup?.(old);
     let ours = false;
     try { ours = folderChain(root, rel) === dirs && pathId(old) === oldId && readFileSync(old, 'utf8') === text; } catch { ours = false; }
-    if (ours) rmSync(old);
-    else return { ok: true, warnings: [`the previous version changed or could not be confirmed during acceptance; kept at ${old}`] };
+    if (ours) {
+      try { rmIfOurs(old, oldId); } catch { ours = false; }
+    }
+    if (!ours) return { ok: true, warnings: [`the previous version changed or could not be confirmed during acceptance; kept at ${old}`] };
   } catch (err) {
     // Undo through the same paths: a file that went through a swapped link
     // comes back the same way. Only what is provably ours is removed.
@@ -879,7 +897,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       try {
         ours = folderChain(root, rel) === dirs && pathId(path) === placedId && readFileSync(path, 'utf8') === next;
       } catch { ours = false; }
-      if (ours) { try { rmSync(path); } catch { /* reported below */ } }
+      // Removed by identity through a private name, never by a separate
+      // look followed by an unlink: a save that replaces the doc in between
+      // is kept, and the original is then not put back over it.
+      if (ours) {
+        try { rmIfOurs(path, placedId); } catch (e) { err.message += `; ${e.message}`; }
+      }
     }
     try { rmIfOurs(tmp, tmpId); } catch { /* reported below */ }
     // Never leave the doc stranded under its temporary name.
