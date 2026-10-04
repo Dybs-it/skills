@@ -673,3 +673,10 @@ test('a heading indented with a mix of spaces and a tab is refused too', () => {
     assert.match(parseGate(moved).problems.join(' '), /headings may not be indented/, JSON.stringify(lead));
   }
 });
+
+test('compact comments <!--> and <!---> are refused', () => {
+  for (const c of ['<!-->', '<!--->']) {
+    const text = gate({ items: [full('a', 'P0')] }).replace('## Risks', `${c}\n\n## Risks`);
+    assert.match(parseGate(text).problems.join(' '), /not <!--> or <!--->/, c);
+  }
+});

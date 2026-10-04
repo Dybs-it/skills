@@ -118,6 +118,9 @@ export function markdownHazards(text) {
       if (line.slice(end + 3).trim()) problems.push('put nothing after a comment\'s closing --> on the same line');
       continue;
     }
+    // `<!-->` and `<!--->` are complete comments in CommonMark, while this
+    // parser would read them as unclosed: refused rather than modelled.
+    if (/<!---?>/.test(line)) problems.push('write HTML comments as <!-- ... -->, not <!--> or <!--->');
     const start = line.match(/^ {0,3}<!--/);
     if (start) {
       lastComment = true;
