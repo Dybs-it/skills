@@ -860,19 +860,23 @@ function folderChain(root, rel) {
   for (const part of ['', ...rel.split('/').slice(0, -1)]) {
     p = part ? join(p, part) : p;
     let st;
-    try { st = part ? lstatSync(p) : statSync(p); } catch { return null; }
+    try { st = part ? lstatSync(p, BIG) : statSync(p, BIG); } catch { return null; }
     if (!st.isDirectory()) return null;
     ids.push(idOf(st));
   }
   return ids.join('/');
 }
 
-const idOf = (st) => `${st.dev}:${st.ino}`;
+// Device, inode and birth time, from a bigint stat: a freed inode number is
+// reused at once (ext4), so device and inode alone can make a later file
+// look like one this run created and removed.
+const idOf = (st) => `${st.dev}:${st.ino}:${st.birthtimeNs ?? ''}`;
+const BIG = { bigint: true };
 function isRegularFile(p) {
   try { return lstatSync(p).isFile(); } catch { return false; }
 }
 function pathId(p) {
-  try { return idOf(lstatSync(p)); } catch { return null; }
+  try { return idOf(lstatSync(p, BIG)); } catch { return null; }
 }
 
 // Removes `p` only while it is still the file we created.
@@ -948,16 +952,16 @@ function copyExclusive(from, to, check, fromId) {
   let data;
   let mode;
   try {
-    const st = fstatSync(src);
+    const st = fstatSync(src, BIG);
     if (!st.isFile() || (fromId && idOf(st) !== fromId)) throw new Error(`${from} changed before it was copied; nothing was copied`);
-    mode = st.mode & 0o7777;
+    mode = Number(st.mode) & 0o7777;
     data = readFileSync(src);
   } finally { closeSync(src); }
   let id = null;
   try {
     const fd = openSync(to, 'wx', mode);
     try {
-      id = idOf(fstatSync(fd));
+      id = idOf(fstatSync(fd, BIG));
       fsOps.write(fd, data);
       // The mode exactly as the source had it: open() applies the umask.
       fchmodSync(fd, mode);
@@ -1080,7 +1084,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   try {
     const fd = openSync(tmp, 'wx', mode);
     try {
-      tmpId = idOf(fstatSync(fd));
+      tmpId = idOf(fstatSync(fd, BIG));
       writeFileSync(fd, next);
       fchmodSync(fd, mode);
     } finally { closeSync(fd); }
