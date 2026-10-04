@@ -824,3 +824,29 @@ test('a malformed link never hides raw HTML from the check', () => {
   // A well-formed one is still fine.
   assert.ok(!validateDoc('prd', VALID_PRD + '\n[x](<details>)\n').rules.includes('html'));
 });
+
+test('only a well-formed reference definition is left out of the HTML scan, the headings and the word count', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // Trailing text makes this no definition: `<details>` is rendered raw HTML.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n[x]: <details> garbage\n').rules.includes('html'));
+  // Inside a paragraph it is no definition either.
+  assert.ok(validateDoc('prd', VALID_PRD + '\ntext\n[x]: <details>\n').rules.includes('html'));
+  // A well-formed one, also with a title, is still fine.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\n[x]: <details> "a title"\n').rules.includes('html'));
+  // `## [Goals](bad destination)` renders the brackets and the destination.
+  const broken = VALID_PRD.replace('## Goals', '## [Goals](bad destination)');
+  assert.ok(validateDoc('prd', broken).rules.includes('sections'));
+  const linked = VALID_PRD.replace('## Goals', '## [Goals](https://example.com/goals "t")');
+  assert.ok(!validateDoc('prd', linked).rules.includes('sections'));
+  // A reference link renders its text only when the label is defined.
+  const undefinedRef = VALID_PRD.replace('## Goals', '## [Goals][g]');
+  assert.ok(validateDoc('prd', undefinedRef).rules.includes('sections'));
+  assert.ok(!validateDoc('prd', undefinedRef + '\n[g]: https://example.com\n').rules.includes('sections'));
+  // A title on the line after the destination is not shown.
+  assert.equal(wordCount('text\n\n[r]: /url\n  "a long title here"\n'), 1);
+  assert.equal(wordCount('text\n\n[r]: /url\n(a long title)\n'), 1);
+  // Only directly after a definition without a title of its own.
+  assert.equal(wordCount('text\n\n[r]: /url "t"\n"shown words"\n'), 3);
+  // A label of only whitespace defines nothing.
+  assert.equal(wordCount("[ ]: /u\n"), 1);
+});
