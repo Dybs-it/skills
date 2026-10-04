@@ -65,7 +65,7 @@ export const MANUAL_RULES = [
   { id: 'sections', text: 'Every required `##` section is present (see the template or the doc contract).' },
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
   { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.' },
-  { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change.)' },
+  { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
   { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), and no doc is both `quick` and `thorough`.' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
@@ -161,6 +161,9 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
       if (data.checkins !== undefined && !CHECKINS.includes(data.checkins)) {
         fail('checkins', `"checkins" must be one of ${CHECKINS.join('|')} (found "${data.checkins}")`);
       }
+    }
+    if (data.status === 'accepted' && !data['accepted-hash']) {
+      warnings.push('accepted without a fingerprint, so a later change cannot be detected: run --accept again to record it');
     }
     if (data.status === 'accepted' && data['accepted-hash'] && data['accepted-hash'] !== acceptedHash(data, body)) {
       fail('accepted-hash', 'changed after it was accepted: set status: draft, remove accepted and accepted-hash, and ask the human to accept again');
@@ -294,12 +297,28 @@ export function unsafePath(root, rel) {
   return null;
 }
 
+// Today as the person running the command sees it (local time, not UTC), so
+// an acceptance at 23:30 is not stamped with tomorrow's date.
+export function localDate(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 // Marks a doc accepted on the human's word: status, date and a fingerprint of
 // its content. Refuses a doc that would not validate as accepted.
-export function acceptDoc(root, name, today = new Date().toISOString().slice(0, 10)) {
+export function acceptDoc(root, name, today = localDate()) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
+  // A doc is accepted under project.md's settings (its depth and cap), so
+  // those settings must themselves be valid first.
+  if (name !== 'project') {
+    const projectPath = join(root, 'dybs', DOCS.project.file);
+    if (existsSync(projectPath)) {
+      const project = validateDoc('project', readFileSync(projectPath, 'utf8'));
+      if (project.errors.length) return { ok: false, errors: project.errors.map((e) => `project.md: ${e}`) };
+    }
+  }
   const path = join(root, rel);
   const text = readFileSync(path, 'utf8');
   const { data, body } = parseFrontmatter(text);
