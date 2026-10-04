@@ -794,10 +794,15 @@ test('--accept --json reports an operational failure as JSON', async () => {
   assert.equal(out.ok, false);
   assert.equal(out.accept, 'ui');
   assert.match(out.errors.join(' '), /EIO/);
-  // The failed accept left the doc as it was, with no stray files.
+  // The failed accept left the doc as it was. With links failing it was put
+  // back by copy, so the original itself is kept and named, nothing else.
   assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
   const { readdirSync } = await import('node:fs');
-  assert.deepEqual(readdirSync(join(dir, 'dybs/context')).filter((n) => n.includes('.dybs-')), []);
+  const stray = readdirSync(join(dir, 'dybs/context')).filter((n) => n.includes('.dybs-'));
+  assert.equal(stray.length, 1);
+  assert.ok(stray[0].endsWith('.old'));
+  assert.match(out.errors.join(' '), new RegExp(`kept at .*${stray[0].replace(/[.]/g, '\\.')}`));
+  assert.match(readFileSync(join(dir, 'dybs/context', stray[0]), 'utf8'), /status: draft/);
   rmSync(dir, { recursive: true });
 });
 
@@ -1166,4 +1171,17 @@ test('a dybs/README.md that is not a file is an error', async () => {
   assert.equal(r.ok, false);
   assert.ok(r.results.find((x) => x.name === 'readme').errors[0].includes('not a file'));
   rmSync(dir, { recursive: true });
+});
+
+test('a thematic break ends a code span like any other block', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(visibleText('open `\n***\n<!-- TODO -->\nclose `\n', { keepCode: true }), 'open `\n***\n\nclose `\n');
+  assert.equal(visibleText('open `\n___\n<!-- TODO -->\nclose `\n', { keepCode: true }), 'open `\n___\n\nclose `\n');
+});
+
+test('an indented code block may follow a heading or a closed fence directly', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('## Heading\n    code one two three\n\nafter'), 2);
+  assert.equal(wordCount('```\nx\n```\n    code a b\n'), 0);
+  assert.equal(wordCount('para one\n    still para\n'), 4);
 });

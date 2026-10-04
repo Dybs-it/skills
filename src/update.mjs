@@ -490,8 +490,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           if (chainOf(dir, s.a.rel) !== s.chain || idOf(s.old) !== s.oldId) {
             throw new Error(`a folder on the way changed; the original was not put back, it is at ${s.old}`);
           }
-          placeNoClobber(s.old, s.p);
-          rmIfOurs(s.old, s.oldId);
+          // A link puts the very file back, so the moved-aside name can go.
+          // A copy is a snapshot: an editor still holding the original could
+          // write to it after the copy, so the original itself is kept.
+          if (placeNoClobber(s.old, s.p) === 'link') rmIfOurs(s.old, s.oldId);
+          else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
         });
       }
     }

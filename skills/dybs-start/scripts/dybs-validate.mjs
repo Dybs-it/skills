@@ -182,6 +182,9 @@ export function visibleText(body, { keepCode = false } = {}) {
   // indented code block inside it sits four columns past that.
   let listIndent = 0;
   let prevBlank = true;
+  // A heading, a thematic break or a closed fence is not a paragraph, so an
+  // indented code block may follow it with no blank line in between.
+  let afterBlock = false;
   let inComment = false;
   const st = { span: null };
   const lines = body.split(/\r?\n/);
@@ -196,7 +199,7 @@ export function visibleText(body, { keepCode = false } = {}) {
       for (let k = n + 1; k < lines.length; k++) {
         const rest = lines[k].replace(/^(?: {0,3}>[ \t]?)+/, '');
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
-        if (/^ {0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S)/.test(rest)) return false;
+        if (/^ {0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
         if (closer(run).test(lines[k])) return true;
       }
       return false;
@@ -236,7 +239,7 @@ export function visibleText(body, { keepCode = false } = {}) {
       // indent (four spaces under `10. `), so it may be indented up to three
       // spaces past where the opening fence started.
       const c = line.match(/^( *)((?:>[ \t]?)*) {0,3}(`{3,}|~{3,})[ \t]*$/);
-      if (c && c[1].length <= fence.indent + 3 && quoteDepth(line) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) fence = null;
+      if (c && c[1].length <= fence.indent + 3 && quoteDepth(line) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) { fence = null; afterBlock = true; }
       if (keepCode) out.push(line);
       continue;
     }
@@ -255,7 +258,7 @@ export function visibleText(body, { keepCode = false } = {}) {
     }
     const lead = line.match(/^ */)[0].length;
     const codeAt = inList ? listIndent + 4 : 4;
-    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && prevBlank) {
+    if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock)) {
       indented = true;
       prevBlank = false;
       if (keepCode) out.push(line);
@@ -271,6 +274,7 @@ export function visibleText(body, { keepCode = false } = {}) {
       inList = Boolean(item) || (inList && !prevBlank);
     }
     prevBlank = nowBlank;
+    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(line);
     out.push(line);
   }
   return out.join('\n');
@@ -678,11 +682,14 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
     pinned();
     if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
     if (readFileSync(old, 'utf8') !== text) {
-      placeNoClobber(old, path);
+      // A link puts the very file back; a copy is only a snapshot, so the
+      // original itself (which an editor may still be writing) is kept.
+      const how = placeNoClobber(old, path);
       moved = false;
-      rmIfOurs(old, oldId);
+      if (how === 'link') rmIfOurs(old, oldId);
       rmIfOurs(tmp, tmpId);
-      return { ok: false, errors: ['the doc changed while it was being accepted; nothing was written, run --accept again'] };
+      const kept = how === 'link' ? '' : `; it was put back as a copy, the file itself is kept at ${old}`;
+      return { ok: false, errors: [`the doc changed while it was being accepted; nothing was written, run --accept again${kept}`] };
     }
     // Identity cannot show an edit made in place, so the bytes are checked
     // too, right before the copy is placed.
@@ -728,16 +735,21 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
       err.message += `; a folder on the way changed, so the original was not put back: it was moved aside to ${old} in the folder as it was`;
     } else if (moved && taken(old)) {
       let restored = false;
+      let how = null;
       try {
-        try { placeNoClobber(old, path); } catch (e) {
+        try { how = placeNoClobber(old, path); } catch (e) {
           // The failure that brought us here may be the link itself: fall
           // back to an exclusive copy, still never over an existing entry.
           if (e.code === 'EEXIST') throw e;
           fsOps.copyFile(old, path, fsConstants.COPYFILE_EXCL);
+          how = 'copy';
         }
         restored = true;
       } catch { restored = false; }
-      if (restored) rmIfOurs(old, oldId);
+      // A copy is a snapshot: the original itself is kept, since an editor
+      // may still be writing to it.
+      if (restored && how === 'link') rmIfOurs(old, oldId);
+      else if (restored) err.message += `; the doc was put back as a copy, the file itself is kept at ${old}`;
       else err.message += `; something appeared at ${rel} meanwhile, the original is kept at ${old}`;
     }
     throw err;
