@@ -682,11 +682,14 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
     pinned();
     if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
     if (readFileSync(old, 'utf8') !== text) {
-      placeNoClobber(old, path);
+      // A link puts the very file back; a copy is only a snapshot, so the
+      // original itself (which an editor may still be writing) is kept.
+      const how = placeNoClobber(old, path);
       moved = false;
-      rmIfOurs(old, oldId);
+      if (how === 'link') rmIfOurs(old, oldId);
       rmIfOurs(tmp, tmpId);
-      return { ok: false, errors: ['the doc changed while it was being accepted; nothing was written, run --accept again'] };
+      const kept = how === 'link' ? '' : `; it was put back as a copy, the file itself is kept at ${old}`;
+      return { ok: false, errors: [`the doc changed while it was being accepted; nothing was written, run --accept again${kept}`] };
     }
     // Identity cannot show an edit made in place, so the bytes are checked
     // too, right before the copy is placed.
@@ -732,16 +735,21 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
       err.message += `; a folder on the way changed, so the original was not put back: it was moved aside to ${old} in the folder as it was`;
     } else if (moved && taken(old)) {
       let restored = false;
+      let how = null;
       try {
-        try { placeNoClobber(old, path); } catch (e) {
+        try { how = placeNoClobber(old, path); } catch (e) {
           // The failure that brought us here may be the link itself: fall
           // back to an exclusive copy, still never over an existing entry.
           if (e.code === 'EEXIST') throw e;
           fsOps.copyFile(old, path, fsConstants.COPYFILE_EXCL);
+          how = 'copy';
         }
         restored = true;
       } catch { restored = false; }
-      if (restored) rmIfOurs(old, oldId);
+      // A copy is a snapshot: the original itself is kept, since an editor
+      // may still be writing to it.
+      if (restored && how === 'link') rmIfOurs(old, oldId);
+      else if (restored) err.message += `; the doc was put back as a copy, the file itself is kept at ${old}`;
       else err.message += `; something appeared at ${rel} meanwhile, the original is kept at ${old}`;
     }
     throw err;

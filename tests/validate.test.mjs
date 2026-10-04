@@ -794,10 +794,15 @@ test('--accept --json reports an operational failure as JSON', async () => {
   assert.equal(out.ok, false);
   assert.equal(out.accept, 'ui');
   assert.match(out.errors.join(' '), /EIO/);
-  // The failed accept left the doc as it was, with no stray files.
+  // The failed accept left the doc as it was. With links failing it was put
+  // back by copy, so the original itself is kept and named, nothing else.
   assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
   const { readdirSync } = await import('node:fs');
-  assert.deepEqual(readdirSync(join(dir, 'dybs/context')).filter((n) => n.includes('.dybs-')), []);
+  const stray = readdirSync(join(dir, 'dybs/context')).filter((n) => n.includes('.dybs-'));
+  assert.equal(stray.length, 1);
+  assert.ok(stray[0].endsWith('.old'));
+  assert.match(out.errors.join(' '), new RegExp(`kept at .*${stray[0].replace(/[.]/g, '\\.')}`));
+  assert.match(readFileSync(join(dir, 'dybs/context', stray[0]), 'utf8'), /status: draft/);
   rmSync(dir, { recursive: true });
 });
 
