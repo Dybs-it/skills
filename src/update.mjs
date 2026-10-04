@@ -927,7 +927,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // it was removed.
     for (const a of actions) {
       if (a.op !== 'remove') continue;
-      if (idOf(join(dir, a.rel)) !== null) throw new Error(`${a.rel} appeared again while it was being removed; nothing was kept, run update again`);
+      // Free only when provably absent: a lookup that fails otherwise (EIO,
+      // ESTALE) may hide a file that came back.
+      if (!provablyGone(join(dir, a.rel))) throw new Error(`${a.rel} appeared again while it was being removed, or could not be checked; nothing was kept, run update again`);
     }
     for (const a of actions) {
       if (a.op !== 'same') continue;

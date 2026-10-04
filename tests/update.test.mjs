@@ -2921,3 +2921,21 @@ test('a --force backup that went outside through a folder swapped and restored i
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a removed file whose name cannot be checked at the commit point stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  writeFileSync(join(dir, 'scripts/retired.mjs'), 'as shipped');
+  const known = { ...knownHashes(), 'dybs-start/scripts/retired.mjs': [sha('as shipped')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  assert.equal(plan.actions.find((a) => a.rel === 'scripts/retired.mjs').op, 'remove');
+  let committing = false;
+  mod.fsOps.lstat = (p, o) => {
+    if (committing && p === join(dir, 'scripts/retired.mjs')) throw Object.assign(new Error('I/O error'), { code: 'EIO' });
+    return real.lstat(p, o);
+  };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeCommit: () => { committing = true; } }), /could not be checked/); } finally { Object.assign(mod.fsOps, real); }
+  rmSync(root, { recursive: true });
+});
