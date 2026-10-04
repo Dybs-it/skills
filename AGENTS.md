@@ -14,7 +14,11 @@
   validator's `MANUAL_RULES`) and the readiness checklists in `dybs-check`
   (from each doc skill). After changing either source run
   `npm run sync-rules`.
-- `interview.md` is edited in `dybs-start` and copied to every skill.
+- `interview.md` is edited in `dybs-start` and copied to every Getting
+  Started skill; `quality.md` is edited in `dybs-test-plan` and copied to
+  every quality skill. The groups live in `src/update.mjs`.
+- The gate decision is code (`skills/dybs-gate/scripts/dybs-gate.mjs`), not
+  agent judgement. Change a rule there, in `quality.md`, and in the tests.
 - After changing anything under `skills/`, run `npm run record-hashes`.
   `src/known-hashes.json` is append-only. `npm test` must pass.
 - Practise what the skills preach: short, plain, no invented facts.

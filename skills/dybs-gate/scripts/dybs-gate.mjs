@@ -1,0 +1,159 @@
+#!/usr/bin/env node
+// Computes the quality gate decision from a dybs/work/<task>/gate.md file.
+// Usage: node dybs-gate.mjs <gate.md> [--today YYYY-MM-DD] [--json]
+// Exit code 0 = PASS, CONCERNS or WAIVED; 1 = FAIL; 2 = usage or format problem.
+//
+// The rules live here, as code, so the decision is arithmetic rather than an
+// agent's judgement. quality.md describes the same rules in words.
+
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+export const COVERAGE = ['FULL', 'PARTIAL', 'NONE'];
+export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const LOCATION = /\S+:\d+/;
+
+// Rows of the first Markdown table under "## <heading>", as objects keyed by
+// lower-cased header names.
+export function tableUnder(text, heading) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((l) => l.trim().toLowerCase() === `## ${heading.toLowerCase()}`);
+  if (start < 0) return null;
+  const rows = [];
+  let header = null;
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('## ')) break;
+    if (!line.startsWith('|')) { if (header) break; continue; }
+    const cells = line.slice(1, line.endsWith('|') ? -1 : undefined).split('|').map((c) => c.trim());
+    if (!header) { header = cells.map((c) => c.toLowerCase()); continue; }
+    if (cells.every((c) => /^:?-{3,}:?$/.test(c))) continue;
+    if (cells.every((c) => c === '')) continue;
+    rows.push(Object.fromEntries(header.map((h, j) => [h, cells[j] ?? ''])));
+  }
+  return rows;
+}
+
+const yes = (v) => /^(yes|y|true)$/i.test((v || '').trim());
+const pct = (part, all) => (all === 0 ? 100 : Math.round((part / all) * 1000) / 10);
+
+export function parseGate(text) {
+  const problems = [];
+  const itemRows = tableUnder(text, 'Items');
+  if (!itemRows) problems.push('missing "## Items" table');
+  const items = (itemRows || []).map((r) => {
+    const priority = (r.priority || '').toUpperCase();
+    let coverage = (r.coverage || '').toUpperCase();
+    const evidence = r.evidence || '';
+    const notes = [];
+    if (!PRIORITIES.includes(priority)) problems.push(`item ${r.item}: priority must be one of ${PRIORITIES.join('|')}`);
+    if (!COVERAGE.includes(coverage)) problems.push(`item ${r.item}: coverage must be one of ${COVERAGE.join('|')}`);
+    if (coverage === 'FULL' && !LOCATION.test(evidence)) {
+      coverage = 'PARTIAL';
+      notes.push('FULL without a test location (path:line) counts as PARTIAL');
+    }
+    return { id: r.item, priority, coverage, evidence, security: yes(r.security), notes };
+  });
+  const risks = (tableUnder(text, 'Risks') || []).map((r) => {
+    const score = Number(r.score);
+    if (!Number.isInteger(score) || score < 1 || score > 9) problems.push(`risk ${r.risk}: score must be 1 to 9`);
+    return { id: r.risk, category: (r.category || '').toLowerCase(), score, open: !/^mitigated$/i.test(r.status || '') };
+  });
+  const waivers = (tableUnder(text, 'Waivers') || []).map((r) => ({
+    id: r.item, reason: r.reason || '', by: r['approved by'] || '', approved: r.approved || '', expires: r.expires || '',
+  }));
+  return { items, risks, waivers, problems };
+}
+
+export function waiverIssue(w, today) {
+  if (!w) return 'no waiver';
+  if (!w.reason || !w.by) return 'waiver needs a reason and the name of the human who approved it';
+  if (!DATE.test(w.approved) || !DATE.test(w.expires)) return 'waiver needs approved and expires dates (YYYY-MM-DD)';
+  if (w.expires < today) return `waiver expired on ${w.expires}`;
+  return null;
+}
+
+export function decide({ items, risks, waivers }, today = new Date().toISOString().slice(0, 10)) {
+  const full = (list) => list.filter((i) => i.coverage === 'FULL').length;
+  const p0 = items.filter((i) => i.priority === 'P0');
+  const p1 = items.filter((i) => i.priority === 'P1');
+  const stats = {
+    items: items.length,
+    overall: pct(full(items), items.length),
+    p0: pct(full(p0), p0.length),
+    p1: pct(full(p1), p1.length),
+  };
+
+  const fail = [];
+  const concerns = [];
+  const blocking = new Map(); // id -> { kind, security }
+  const block = (x, kind) => blocking.set(x.id, { kind, security: x.security || x.category === 'security' });
+
+  const p0Gaps = p0.filter((i) => i.coverage !== 'FULL');
+  if (p0Gaps.length) {
+    fail.push(`P0 not fully covered: ${p0Gaps.map((i) => i.id).join(', ')}`);
+    p0Gaps.forEach((i) => block(i, 'item'));
+  }
+  const blockers = risks.filter((r) => r.open && r.score === 9);
+  if (blockers.length) {
+    fail.push(`open risk scored 9: ${blockers.map((r) => r.id).join(', ')}`);
+    blockers.forEach((r) => block(r, 'risk'));
+  }
+  if (stats.overall < 80) {
+    fail.push(`only ${stats.overall}% of items fully covered (needs 80%)`);
+    items.filter((i) => i.coverage !== 'FULL').forEach((i) => block(i, 'item'));
+  }
+  if (p1.length && stats.p1 < 80) {
+    fail.push(`only ${stats.p1}% of P1 items fully covered (needs 80% to pass the floor)`);
+    p1.filter((i) => i.coverage !== 'FULL').forEach((i) => block(i, 'item'));
+  }
+  if (p1.length && stats.p1 >= 80 && stats.p1 < 90) concerns.push(`${stats.p1}% of P1 items fully covered (90% expected)`);
+  const watch = risks.filter((r) => r.open && r.score >= 6 && r.score <= 8);
+  if (watch.length) concerns.push(`open risk scored 6 to 8: ${watch.map((r) => r.id).join(', ')}`);
+
+  const computed = fail.length ? 'FAIL' : concerns.length ? 'CONCERNS' : 'PASS';
+  let decision = computed;
+  const waiverProblems = [];
+  if (computed === 'FAIL') {
+    for (const [id, b] of blocking) {
+      if (b.security) { waiverProblems.push(`${id}: security gaps are never waived`); continue; }
+      const issue = waiverIssue(waivers.find((w) => w.id === id), today);
+      if (issue) waiverProblems.push(`${id}: ${issue}`);
+    }
+    if (!waiverProblems.length) decision = 'WAIVED';
+  }
+  return { decision, computed, fail, concerns, waiverProblems: computed === 'FAIL' ? waiverProblems : [], stats };
+}
+
+export function main(argv) {
+  const args = argv.slice(2);
+  const json = args.includes('--json');
+  const t = args.indexOf('--today');
+  const today = t >= 0 ? args[t + 1] : new Date().toISOString().slice(0, 10);
+  const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--today');
+  if (!file) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--today YYYY-MM-DD] [--json]'); return 2; }
+  const parsed = parseGate(readFileSync(resolve(file), 'utf8'));
+  if (parsed.problems.length) {
+    if (json) console.log(JSON.stringify({ schema: 1, decision: null, problems: parsed.problems }, null, 2));
+    else console.error(`gate.md has problems:\n  ${parsed.problems.join('\n  ')}`);
+    return 2;
+  }
+  const r = decide(parsed, today);
+  if (json) {
+    console.log(JSON.stringify({ schema: 1, ...r, items: parsed.items }, null, 2));
+  } else {
+    console.log(`Decision: ${r.decision}${r.decision !== r.computed ? ` (computed ${r.computed}, waived by the human)` : ''}`);
+    console.log(`Coverage: ${r.stats.overall}% overall, P0 ${r.stats.p0}%, P1 ${r.stats.p1}% (${r.stats.items} items)`);
+    for (const f of r.fail) console.log(`  fail:     ${f}`);
+    for (const c of r.concerns) console.log(`  concern:  ${c}`);
+    for (const w of r.waiverProblems) console.log(`  waiver:   ${w}`);
+    for (const i of parsed.items) for (const n of i.notes) console.log(`  note:     ${i.id}: ${n}`);
+  }
+  return r.decision === 'FAIL' ? 1 : 0;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  process.exitCode = main(process.argv);
+}

@@ -60,6 +60,13 @@ dybs/roadmap.md         an ordered list of links to accepted ideas, nothing else
 
 ## 4. Work loop
 
+**Built ahead of the loop (v0.4):** `dybs-test-plan`, `dybs-tests`,
+`dybs-review`, `dybs-gate` and `dybs-pr` work on any task or part of the
+code, writing to `dybs/work/<task>/`. The loop below will create `task.md`
+there and call them; a task is a folder, not a single file. See decision
+0004.
+
+
 ```
 dybs/work/<id>.md       one file per task; status lives in its frontmatter
 ```

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
-  PKG_ROOT, SKILLS_SRC, findInstalls, update, updateInstall, skillNames, shippedFiles, knownHashes, sha,
+  PKG_ROOT, SKILLS_SRC, GETTING_STARTED, QUALITY, findInstalls, update, updateInstall, skillNames, shippedFiles, knownHashes, sha,
 } from '../src/update.mjs';
 import { DOCS, ORDER } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 import { rulesBlock, checklistsBlock, checklistOf } from '../scripts/sync-rules.mjs';
@@ -138,19 +138,19 @@ test('every skill except dybs-start carries the same standalone section', () => 
     assert.ok(i >= 0, `${s} lacks the standalone section`);
     return t.slice(i);
   };
-  const others = skillNames().filter((s) => s !== 'dybs-start');
+  const others = GETTING_STARTED.filter((s) => s !== 'dybs-start');
   for (const s of others) assert.equal(block(s), block(others[0]), s);
 });
 
 test('every skill carries an identical interview.md', () => {
   const base = readFileSync(join(SKILLS_SRC, 'dybs-start', 'interview.md'), 'utf8');
-  for (const s of skillNames()) {
+  for (const s of GETTING_STARTED) {
     assert.equal(readFileSync(join(SKILLS_SRC, s, 'interview.md'), 'utf8'), base, s);
   }
 });
 
 test('every doc skill points to interview.md and has core and thorough checklists', () => {
-  for (const s of skillNames().filter((n) => !['dybs-start', 'dybs-check'].includes(n))) {
+  for (const s of GETTING_STARTED.filter((n) => !['dybs-start', 'dybs-check'].includes(n))) {
     const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
     assert.match(t, /interview\.md/, s);
     assert.match(t, /\*\*core\*\*\n- \[ \]/, `${s} core checklist`);
@@ -264,7 +264,7 @@ test('a missing file in a conflicted skill is not added either', () => {
 });
 
 test('every skill carries the generated manual rules, word for word', () => {
-  for (const s of skillNames().filter((n) => n !== 'dybs-start')) {
+  for (const s of GETTING_STARTED.filter((n) => n !== 'dybs-start')) {
     const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
     assert.ok(t.includes(rulesBlock()), `${s}: run node scripts/sync-rules.mjs`);
   }
@@ -304,7 +304,7 @@ test('dybs-check ships every readiness checklist, so it works installed alone', 
   cpSync(join(SKILLS_SRC, 'dybs-check'), join(root, 'dybs-check'), { recursive: true });
   const alone = readFileSync(join(root, 'dybs-check', SKILL), 'utf8');
   assert.ok(alone.includes(checklistsBlock()), 'run node scripts/sync-rules.mjs');
-  for (const s of skillNames().filter((n) => !['dybs-start', 'dybs-check'].includes(n))) {
+  for (const s of GETTING_STARTED.filter((n) => !['dybs-start', 'dybs-check'].includes(n))) {
     const items = checklistOf(s).split('\n').filter((l) => l.startsWith('- [ ]'));
     assert.ok(items.length > 0, s);
     for (const item of items) assert.ok(alone.includes(item), `${s}: ${item}`);
@@ -317,4 +317,34 @@ test('interview.md defines how depth and check-ins combine', () => {
   for (const setting of ['each-doc', 'end', 'none']) assert.match(t, new RegExp(`\\| \`${setting}\` \\|`));
   assert.match(t, /Thorough needs the human's answers, so it does not combine with `none`/);
   assert.match(t, /## Changing an accepted doc/);
+});
+
+// --- quality skills ---
+
+test('every skill belongs to exactly one group', () => {
+  assert.deepEqual([...GETTING_STARTED, ...QUALITY].sort(), skillNames());
+});
+
+test('every quality skill carries an identical quality.md', () => {
+  const base = readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'quality.md'), 'utf8');
+  for (const s of QUALITY) assert.equal(readFileSync(join(SKILLS_SRC, s, 'quality.md'), 'utf8'), base, s);
+});
+
+test('quality skills point to quality.md and to dybs/work/<task>/', () => {
+  for (const s of QUALITY) {
+    const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
+    assert.match(t, /quality\.md/, s);
+    assert.match(t, /dybs\/work\/<task>\//, s);
+  }
+});
+
+test('quality.md carries the attribution for adapted text', () => {
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'quality.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /Copyright \(c\) 2025 BMad Code, LLC/);
+  assert.match(t, /Copyright \(c\) 2026 Matt Pocock/);
+});
+
+test('the gate template parses and computes', () => {
+  const r = execFileSync('node', [join(PKG_ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), join(PKG_ROOT, 'tests/fixtures/gate-pass.md'), '--json'], { encoding: 'utf8' });
+  assert.equal(JSON.parse(r).decision, 'PASS');
 });

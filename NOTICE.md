@@ -14,6 +14,17 @@ This project is original work inspired by:
   adapted from his `grilling` skill. The domain disciplines in `dybs-domain`
   and the three tests for a decision record in `dybs-architecture` are
   adapted from his `domain-modeling` skill.
+- **BMad Test Architect module**, MIT License, Copyright (c) 2025 BMad Code,
+  LLC, https://github.com/bmad-code-org/bmad-method-test-architecture-enterprise.
+  Risk scoring, priorities, test levels, test quality rules and the quality
+  gate in `quality.md` and the quality skills are adapted from it. BMad,
+  BMAD-CORE and BMAD-METHOD are trademarks of BMad Code, LLC and are not
+  used as names here.
+- Matt Pocock's `code-review`, `tdd` and `pr` skills (MIT, as above) shaped
+  `dybs-review`, `dybs-tests` and `dybs-pr`.
+- The idea of choosing one small picture to summarise a change comes from
+  Dex Horthy's `show-me` skill (humanlayer, Apache License 2.0). No text is
+  taken from it.
 - From the BMad Method also: the brain dump before questions, the concern
   scan, journeys with a named person, and a decision log.
 

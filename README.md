@@ -80,6 +80,22 @@ Every decision lands in `dybs/log.md`.
 Every skill works on its own. Without `dybs-start` installed, a skill says
 which one to add; without the validator, it checks the doc by hand.
 
+## Quality: test, review, gate, PR
+
+Five skills for any task or part of the code. Results go in
+`dybs/work/<task>/`, one folder per piece of work.
+
+| Skill | Does | Writes |
+|---|---|---|
+| `dybs-test-plan` | Risks (probability × impact), P0 to P3, the lowest test level that proves each behaviour, seams agreed with you, given/when/then scenarios, and a mechanical hunt for unhandled edge cases | `test-plan.md` |
+| `dybs-tests` | Red then green, one slice at a time; for existing code each new test is proven by breaking the code on purpose. Never skips or weakens a test | tests, plan status |
+| `dybs-review` | Separate axes, never ranked against each other: standards, spec, your `dybs/context` rules, and changed behaviour no test would catch | `review.md` |
+| `dybs-gate` | Requirement → test matrix that counts only tests that really prove it; PASS, CONCERNS or FAIL computed by a script. Only you can waive, with a reason and an expiry; security gaps never | `gate.md` |
+| `dybs-pr` | PR text: one small picture of the change, before and after evidence, the gate result, one-way or two-way door and blast radius | `pr.md` |
+
+They share one vocabulary, `quality.md`, copied into each so every skill
+works on its own.
+
 ## The dybs-skills CLI
 
 For what a package manager can't do. Until it is on npm, run it from GitHub:
@@ -88,6 +104,7 @@ For what a package manager can't do. Until it is on npm, run it from GitHub:
 npx github:Dybs-it/skills validate                # check the project's dybs/ context
 npx github:Dybs-it/skills validate --doc prd --json
 npx github:Dybs-it/skills validate . --accept prd      # on your word: accepted, dated, fingerprinted
+npx github:Dybs-it/skills gate dybs/work/invites/gate.md   # compute the quality gate
 npx github:Dybs-it/skills update --dry-run        # what a safe update would change
 npx github:Dybs-it/skills update                  # update installed Dybs skills
 npx github:Dybs-it/skills status                  # where they are installed
