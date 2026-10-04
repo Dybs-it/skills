@@ -506,6 +506,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           s.old = old;
           done.push(s);
           beforeAside?.(s);
+          // Re-pinned right before the move: through a folder swapped for a
+          // link, the rename would take someone else's file off its name.
+          pinned(s);
           const aside = `${s.p}.${randomUUID()}.rm`;
           renameSync(s.p, aside);
           let same = false;

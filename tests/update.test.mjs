@@ -1477,3 +1477,33 @@ test('dropping the original name re-checks the pinned folders right before the m
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('without hard links, the fallback move re-checks the pinned folders first', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, SKILL), 'someone else');
+  let swapped = false;
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  try {
+    // After the exclusive copy, the skill folder becomes a link to an
+    // outside folder with its own SKILL.md.
+    const beforeAside = (st) => {
+      if (swapped || st.a.rel !== SKILL) return;
+      swapped = true;
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    };
+    assert.throws(() => mod.applyPlan(plan, { beforeAside }), /changed/);
+  } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.equal(readFileSync(join(outside, SKILL), 'utf8'), 'someone else', 'the outside file keeps its name');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
