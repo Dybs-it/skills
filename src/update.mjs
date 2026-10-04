@@ -67,22 +67,41 @@ function skillFolders(root) {
     .filter((p) => existsSync(p) && statSync(p).isDirectory());
 }
 
+const within = (p, root) => p === root || p.startsWith(root + sep);
+
 // Installed Dybs skills, deduplicated by real path (symlinks followed).
-export function findInstalls(roots) {
+// A skill whose real folder lies outside every requested root is reported in
+// `skipped`, never updated: a linked `.claude` or `.claude/skills` must not
+// let a project update reach a shared or home-level install (that takes
+// --global).
+export function discover(roots) {
+  const realRoots = roots.filter((r) => existsSync(r)).map((r) => realpathSync(r));
   const byReal = new Map();
+  const skipped = [];
   for (const root of roots) {
     for (const folder of skillFolders(root)) {
       for (const skill of skillNames()) {
         const dir = join(folder, skill);
         if (!existsSync(join(dir, 'SKILL.md'))) continue;
         const real = realpathSync(dir);
+        if (!realRoots.some((r) => within(real, r))) {
+          skipped.push({ skill, dir: real, via: dir, why: 'resolves outside the requested folder' });
+          continue;
+        }
         const seen = byReal.get(real);
         if (seen) seen.via.push(dir);
         else byReal.set(real, { skill, dir: real, via: [dir] });
       }
     }
   }
-  return [...byReal.values()].sort((a, b) => a.dir.localeCompare(b.dir));
+  return {
+    installs: [...byReal.values()].sort((a, b) => a.dir.localeCompare(b.dir)),
+    skipped,
+  };
+}
+
+export function findInstalls(roots) {
+  return discover(roots).installs;
 }
 
 export function rootsFor(projectRoot, { global = false } = {}) {
@@ -169,36 +188,72 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
   return { ...install, actions, blocked, want };
 }
 
-// Applies a plan. New content is written to temporary files next to their
-// targets first and only then renamed into place, so a failure while
-// writing leaves the skill as it was. rename() replaces a path, it never
-// follows a link at the destination.
-export function applyPlan(plan) {
+// Applies a plan as one transaction. New content is written to temporary
+// files next to the targets first. Then every file that will be replaced or
+// removed is moved aside before its new version is renamed in. If any step
+// fails, everything done so far is undone (new files out, originals back),
+// so the skill never holds files from two releases. rename() replaces a
+// path, it never follows a link at the destination.
+// `failAt` is a test hook: throw just before the n-th rename.
+export function applyPlan(plan, { failAt } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
+  const tag = `dybs-${process.pid}-${Date.now()}`;
   const staged = [];
+  const backups = [];
+  const done = [];
+  const createdDirs = [];
+  let step = 0;
+  const tick = () => { if (failAt !== undefined && step++ === failAt) throw new Error('injected failure'); };
   try {
     for (const a of actions) {
-      if (!['add', 'update', 'replace'].includes(a.op)) continue;
+      if (!['add', 'update', 'replace', 'remove'].includes(a.op)) continue;
       const p = join(dir, a.rel);
-      mkdirSync(dirname(p), { recursive: true });
-      const tmp = `${p}.dybs-tmp-${process.pid}`;
+      if (a.op === 'remove') { staged.push({ a, p }); continue; }
+      const made = mkdirSync(dirname(p), { recursive: true });
+      if (made) createdDirs.push({ deepest: dirname(p), stop: dirname(made) });
+      const tmp = `${p}.${tag}.new`;
       writeFileSync(tmp, want[a.rel], { flag: 'wx' });
       staged.push({ a, p, tmp });
+      if (a.op === 'replace') {
+        const b = backupPath(p);
+        copyFileSync(p, b, fsConstants.COPYFILE_EXCL);
+        backups.push(b);
+        a.backup = b;
+      }
+    }
+    for (const s of staged) {
+      if (s.a.op !== 'add') {
+        tick();
+        s.old = `${s.p}.${tag}.old`;
+        renameSync(s.p, s.old);
+        done.push(s);
+      }
+      if (s.tmp) {
+        tick();
+        renameSync(s.tmp, s.p);
+        s.placed = true;
+        if (s.a.op === 'add') done.push(s);
+      }
     }
   } catch (err) {
-    for (const s of staged) rmSync(s.tmp, { force: true });
+    const stuck = [];
+    const undo = (what, fn) => { try { fn(); } catch (e) { stuck.push(`${what}: ${e.message}`); } };
+    for (const s of done.reverse()) {
+      if (s.placed) undo(s.a.rel, () => rmSync(s.p, { force: true }));
+      if (s.old) undo(s.a.rel, () => renameSync(s.old, s.p));
+    }
+    for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmSync(s.tmp, { force: true }));
+    for (const b of backups) undo(b, () => rmSync(b, { force: true }));
+    for (const a of actions) delete a.backup;
+    for (const d of createdDirs) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop));
+    if (stuck.length) err.message += `; could not undo everything, check by hand: ${stuck.join('; ')}`;
     throw err;
   }
-  for (const { a, p, tmp } of staged) {
-    if (a.op === 'replace') { const b = backupPath(p); copyFileSync(p, b, fsConstants.COPYFILE_EXCL); a.backup = b; }
-    renameSync(tmp, p);
-  }
-  for (const a of actions) {
-    if (a.op !== 'remove') continue;
-    const p = join(dir, a.rel);
-    rmSync(p);
-    removeEmptyDirs(dirname(p), dir);
+  // Committed: the moved-aside originals are no longer needed.
+  for (const s of staged) {
+    if (s.old) rmSync(s.old, { force: true });
+    if (s.a.op === 'remove') removeEmptyDirs(dirname(s.p), dir);
   }
   return { ...plan, applied: true };
 }
@@ -210,11 +265,12 @@ export function updateInstall(install, { dryRun = false, ...opts } = {}) {
 }
 
 export function update(roots, opts = {}) {
-  const installs = findInstalls(roots);
+  const { installs, skipped } = discover(roots);
   const installed = new Set(installs.map((i) => i.skill));
   return {
     results: installs.map((i) => updateInstall(i, opts)),
     notInstalled: skillNames().filter((s) => !installed.has(s)),
+    skipped,
   };
 }
 
