@@ -405,3 +405,9 @@ test('an indented code block may follow a heading or a closed fence directly', a
   assert.equal(wordCount('```\nx\n```\n    code a b\n'), 0);
   assert.equal(wordCount('para one\n    still para\n'), 4);
 });
+
+test('a fence in a nested list item ends where that item ends', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('10. outer\n    - nested\n      ```\n      code here\n    back to outer content\n'), 7);
+  assert.equal(wordCount('- a\n  - b\n    ```\n    hidden words\n    ```\n  after\n'), 3);
+});

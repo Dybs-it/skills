@@ -68,8 +68,11 @@ export const MANUAL_RULES = [
 const PLACEHOLDER = /\{\{[^}]*\}\}|\bTODO\b|\bTBD\b/;
 
 export function parseFrontmatter(text) {
-  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  if (!m) return { data: null, body: text };
+  // The block ends at the first line that starts with `---`, and that line
+  // must be exactly `---`: `---oops` is not a closer, and the block is then
+  // not frontmatter at all (never extended to a later `---`).
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n(---[^\r\n]*)(?:\r?\n|$)/);
+  if (!m || m[2].trim() !== '---') return { data: null, body: text };
   const data = {};
   for (const line of m[1].split(/\r?\n/)) {
     const kv = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
@@ -162,6 +165,10 @@ export function visibleText(body, { keepCode = false } = {}) {
   // Where a list item's content starts (2 under `- `, 4 under `10. `): an
   // indented code block inside it sits four columns past that.
   let listIndent = 0;
+  // The content column of every open list item, outermost first: a nested
+  // item (`    - x` under `10. `) is tracked too, so a fence opened in it
+  // ends where that item ends, not where the outer one does.
+  const items = [];
   let prevBlank = true;
   // A heading, a thematic break or a closed fence is not a paragraph, so an
   // indented code block may follow it with no blank line in between.
@@ -231,7 +238,7 @@ export function visibleText(body, { keepCode = false } = {}) {
       // current item's indent when the fence continues one.
       const pre = line.slice(0, at).replace(/^(?: {0,3}>[ \t]?)+/, '');
       const marks = [...pre.matchAll(/(?:[-*+]|\d{1,9}[.)])[ \t]+/g)];
-      const col = marks.length ? marks.at(-1).index + marks.at(-1)[0].length : inList && at >= listIndent ? listIndent : 0;
+      const col = marks.length ? marks.at(-1).index + marks.at(-1)[0].length : inList ? (items.filter((c) => c <= at).at(-1) ?? 0) : 0;
       fence = { ch: m[1][0], len: m[1].length, indent: at, quote: quoteDepth(line), col };
       prevBlank = false;
       if (keepCode) out.push(line);
@@ -254,6 +261,18 @@ export function visibleText(body, { keepCode = false } = {}) {
       if (item) listIndent = item[0].length;
       inList = Boolean(item) || (inList && !prevBlank);
     }
+    if (!nowBlank) {
+      const at = line.match(/^ */)[0].length;
+      const marker = line.match(/^ *(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)/);
+      if (marker && at < (items.at(-1) ?? 0) + 4) {
+        while (items.length && items.at(-1) > at) items.pop();
+        items.push(marker[0].length);
+      } else if (prevBlank) {
+        // After a blank line, a less indented line has left those items.
+        while (items.length && items.at(-1) > at) items.pop();
+      }
+    }
+    if (!inList) items.length = 0;
     prevBlank = nowBlank;
     afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(line);
     out.push(line);
