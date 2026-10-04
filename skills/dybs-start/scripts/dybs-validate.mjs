@@ -237,6 +237,19 @@ function containerPrefix(line) {
   return m.replace(/[-*+]|\d{1,9}[.)]/g, (x) => ' '.repeat(x.length));
 }
 
+// The content column of every list item a line opens, outermost first:
+// `- - item` opens two, at columns 2 and 4.
+function markerCols(line, first) {
+  const cols = [first[0].length];
+  let rest = line.slice(first[0].length);
+  let m;
+  while ((m = rest.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| )(?=\S)/))) {
+    cols.push(cols.at(-1) + m[0].length);
+    rest = rest.slice(m[0].length);
+  }
+  return cols;
+}
+
 function expandTabs(line) {
   if (!line.includes('\t')) return line;
   let out = '';
@@ -464,7 +477,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     if (!nowBlank && !/^( {4}|\t)/.test(qline)) {
       // `2. x` after paragraph text continues the paragraph: no list starts.
       const item = breaksList || !interrupts ? null : qline.match(/^ {0,3}(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| |$)/);
-      if (item) listIndent = item[0].length;
+      if (item) listIndent = markerCols(qline, item).at(-1);
       // A line left of the item's content stays in it only as a lazy
       // continuation of a paragraph: after a comment block or code it is
       // outside the list.
@@ -479,7 +492,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
       const marker = breaksList || !interrupts ? null : qline.match(/^ *(?:[-*+]|\d{1,9}[.)])(?: {1,4}(?! )| |$)/);
       if (marker && at < (items.at(-1) ?? 0) + 4) {
         while (items.length && items.at(-1) > at) items.pop();
-        items.push(marker[0].length);
+        items.push(...markerCols(qline, marker));
         listQuote = quoteDepth(line);
       } else if (prevBlank) {
         // After a blank line, a less indented line has left those items.

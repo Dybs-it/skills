@@ -740,3 +740,9 @@ test('list items, quotes and formatting cannot hide a placeholder or raw HTML (r
   // `- - <!--`: the comment sits in the inner item, which `  TODO` leaves.
   assert.match(visibleText('- - <!--\n  TODO visible\n', { keepCode: true }), /TODO visible/);
 });
+
+test('every list marker on one line counts: `- - item` content sits at column 4', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // commonmark.js: "more words here" is a paragraph in the inner item.
+  assert.equal(wordCount('- - item\n\n      more words here\n'), 4);
+});
