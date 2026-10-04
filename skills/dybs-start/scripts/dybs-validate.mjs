@@ -6,10 +6,10 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, chmodSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export const DOCS = {
   project: {
@@ -411,6 +411,13 @@ export function main(argv) {
   return report.ok ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Run when called directly, also through a linked skill folder: Node gives
+// import.meta.url as the real path, argv[1] as the path that was typed.
+function calledDirectly() {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+if (calledDirectly()) {
   process.exit(main(process.argv));
 }
