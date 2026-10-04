@@ -2714,3 +2714,9 @@ test('a dybs/ folder that is a link is rejected before its README is opened', (t
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('only the outermost ordered marker must start at 1 to interrupt a paragraph', () => {
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n1. 2. ## Goals')).rules.includes('sections'));
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n- 2. ## Goals')).rules.includes('sections'));
+  assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n2. 1. ## Goals')).rules.includes('sections'));
+});
