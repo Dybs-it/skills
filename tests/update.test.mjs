@@ -1047,7 +1047,8 @@ test('an original that cannot be read at cleanup is reported as kept', async () 
   const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
   const [install] = findInstalls([root]);
   const plan = mod.planInstall(install, { known });
-  mod.fsOps.read = (p, o) => { if (/\.old(\.[^.]+\.rm)?$/.test(String(p))) throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); return real.read(p, o); };
+  // Only at cleanup, where the original is read under its trash name.
+  mod.fsOps.open = (p) => { if (/\.old\.[^.]+\.rm$/.test(String(p))) throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); return real.open(p); };
   let result;
   try { result = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
   assert.equal(result.applied, true);
@@ -1269,11 +1270,11 @@ test('cleanup deletes only the file it verified, never one that appears at the n
   const plan = mod.planInstall(findInstalls([root])[0], { known });
   let oldName;
   // While the original is being read for verification, a new file takes its name.
-  mod.fsOps.read = (p, o) => {
-    const bytes = real.read(p, o);
+  mod.fsOps.open = (p) => {
+    const fd = real.open(p);
     const m = String(p).match(/^(.*\.old)(\.[^.]+\.rm)?$/);
     if (m && !oldName) { oldName = m[1]; writeFileSync(`${oldName}.x`, 'someone else'); renameSync(`${oldName}.x`, oldName); }
-    return bytes;
+    return fd;
   };
   let result;
   try { result = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
@@ -2219,3 +2220,89 @@ for (const stage of ['read', 'write']) {
     rmSync(outside, { recursive: true });
   });
 }
+
+test('the placed file is read as itself, never through a link that replaced it', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'shipped'), plan.want[SKILL]);
+  let placed = false;
+  let swapped = false;
+  mod.fsOps.link = (from, to) => { const r = real.link(from, to); if (to === prd(root)) placed = true; return r; };
+  // Between the identity check of the placed file and its read, a link to
+  // a file holding the shipped bytes (which can change later) takes its name.
+  const swap = (p) => {
+    if (!placed || swapped || String(p) !== prd(root)) return;
+    swapped = true;
+    symlinkSync(join(outside, 'shipped'), `${prd(root)}.lnk`);
+    renameSync(`${prd(root)}.lnk`, prd(root));
+  };
+  mod.fsOps.open = (p) => { swap(p); return real.open(p); };
+  mod.fsOps.read = (p, o) => { swap(p); return readFileSync(p, o); };
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); delete mod.fsOps.read; }
+  assert.ok(swapped);
+  assert.match(String(err?.message), /changed while it was being placed/);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a folder swapped while the rollback puts the original back leaves no name outside the install', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let rollingBack = false;
+  let swapped = false;
+  mod.fsOps.link = (from, to) => {
+    if (rollingBack && !swapped && from.endsWith('.old') && to === prd(root)) {
+      swapped = true;
+      // The replacement folder shows the original under its moved-aside name.
+      linkSync(from, join(outside, from.split('/').at(-1)));
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    }
+    return real.link(from, to);
+  };
+  const beforeCommit = () => { rollingBack = true; throw new Error('injected failure'); };
+  let err;
+  try { mod.applyPlan(plan, { beforeCommit }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.ok(err);
+  assert.ok(!existsSync(join(outside, SKILL)), 'no name left outside the install');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('without hard links, a file that replaced one being removed is put back at its own name', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let replaced = null;
+  // Right after the first look at the staging name, a user's file takes it.
+  mod.testHooks.afterLook = (p) => {
+    if (replaced || !String(p).endsWith('.new')) return;
+    replaced = String(p);
+    writeFileSync(`${p}.x`, 'theirs');
+    renameSync(`${p}.x`, p);
+  };
+  try { try { mod.applyPlan(plan); } catch { /* reported */ } } finally { mod.testHooks.afterLook = null; Object.assign(mod.fsOps, real); }
+  assert.ok(replaced);
+  assert.equal(readFileSync(replaced, 'utf8'), 'theirs', 'their file is back at its own name');
+  rmSync(root, { recursive: true });
+});
