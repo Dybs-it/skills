@@ -1100,3 +1100,9 @@ test('--doc on a missing doc is a failure, a project-wide run is not', () => {
   assert.equal(validateProject(dir).ok, true);
   rmSync(dir, { recursive: true });
 });
+
+test('log recovery follows the check-in setting', () => {
+  const skill = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(skill, /`end`: do not ask now; list the recovered lines in `dybs-check`/);
+  assert.match(skill, /`none`: ask nothing; list the recovered lines in the final report/);
+});

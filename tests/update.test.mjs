@@ -1013,3 +1013,26 @@ test('a cleanup failure after a finished update is reported, not thrown', async 
   assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
   rmSync(root, { recursive: true });
 });
+
+test('removing the staging file never follows a folder swapped for a link', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const { renameSync: mv } = await import('node:fs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  rmSync(join(dir, 'scripts'), { recursive: true });
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let decoy;
+  const beforeStageRm = (s) => {
+    if (decoy || !s.a.rel.startsWith('scripts/')) return;
+    decoy = join(outside, s.tmp.slice(join(dir, 'scripts').length + 1));
+    writeFileSync(decoy, 'someone else');
+    mv(join(dir, 'scripts'), join(root, 'scripts.moved'));
+    symlinkSync(outside, join(dir, 'scripts'));
+  };
+  assert.throws(() => applyPlan(plan, { beforeStageRm }), /changed during the update/);
+  assert.equal(readFileSync(decoy, 'utf8'), 'someone else');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
