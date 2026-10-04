@@ -336,6 +336,11 @@ export function parseGate(text) {
     return /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<[!?]/.test(t);
   });
   if (html.length) problems.push(`gate.md may not contain raw HTML (found: ${html[0].trim().slice(0, 40)})`);
+  // A code span that runs over a line break pairs its backticks across
+  // lines, which this line-by-line reader does not follow: a backtick left
+  // unpaired on a line is refused (escape a literal one as \`).
+  const openSpan = visible(text).split(/\r?\n/).find((l) => textOutsideCodeSpans(l).includes('`'));
+  if (openSpan !== undefined) problems.push(`code spans must open and close on the same line (found: ${openSpan.trim().slice(0, 40)})`);
   // GitHub also renders a table whose rows do not start with "|"; this parser
   // reads only rows that do. So any other visible line with an unescaped pipe
   // is refused, or a second table could be shown but never counted.

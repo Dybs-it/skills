@@ -696,3 +696,11 @@ test('the freshness check reads non-ASCII task paths as they are', () => {
   assert.match(out, /Decision: PASS/);
   rmSync(repo, { recursive: true });
 });
+
+test('a code span that runs over a line break is refused', () => {
+  const real = gate({ items: [full('a', 'P0')] });
+  const text = real.replace('## Items', 'Open `x\n` <details> `\ny` here.\n\n## Items');
+  assert.match(parseGate(text).problems.join(' '), /code spans must open and close on the same line/);
+  // Spans on one line, and an escaped backtick, are fine.
+  assert.doesNotMatch(parseGate(real.replace('## Items', 'See `a` and \\` here.\n\n## Items')).problems.join(' '), /code spans/);
+});
