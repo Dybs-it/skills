@@ -216,6 +216,11 @@ const idOfStat = (st) => `${st.dev}:${st.ino}`;
 function idOf(p) {
   try { return idOfStat(lstatSync(p)); } catch { return null; }
 }
+// Only a regular file is what the plan saw: a link that replaced it keeps
+// its own identity through link() and rename(), while reads follow it.
+function isRegular(p) {
+  try { return lstatSync(p).isFile(); } catch { return false; }
+}
 
 // Creates `p` exclusively and writes `data` to it. `onCreate(id)` runs as
 // soon as the file exists, before any write that can fail, so the caller
@@ -484,6 +489,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // while it is still the same file.
         try {
           fsOps.link(s.p, old);
+          if (!isRegular(old)) {
+            const strayId = idOf(old);
+            try { rmIfOurs(old, strayId); } catch { /* reported below */ }
+            throw new Error(`${s.a.rel} changed since the update was planned (it is no longer a regular file); nothing was changed, run update again`);
+          }
           s.old = old;
           s.oldId = idOf(old);
           done.push(s);
@@ -497,6 +507,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // with the same bytes as the copy. No rename ever targets a name
           // someone else could use.
           const origId = idOf(s.p);
+          if (!isRegular(s.p)) throw new Error(`${s.a.rel} changed since the update was planned (it is no longer a regular file); nothing was changed, run update again`);
           try {
             fsOps.copyFile(s.p, old, fsConstants.COPYFILE_EXCL);
           } catch (e) {
@@ -512,7 +523,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           const aside = `${s.p}.${randomUUID()}.rm`;
           renameSync(s.p, aside);
           let same = false;
-          try { same = idOf(aside) === origId && sha(fsOps.read(aside)) === sha(fsOps.read(old)); } catch { same = false; }
+          try { same = isRegular(aside) && idOf(aside) === origId && sha(fsOps.read(aside)) === sha(fsOps.read(old)); } catch { same = false; }
           if (!same) throw new Error(`${s.a.rel} changed while it was being moved aside; your version is kept at ${aside}`);
           rmSync(aside);
         }
