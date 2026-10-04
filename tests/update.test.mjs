@@ -569,3 +569,32 @@ test('without hard links, update and rollback still work', async () => {
     mod.fsOps.link = real;
   }
 });
+
+test('a missing folder level that became a link is never followed when creating folders', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  rmSync(join(dir, 'scripts'), { recursive: true });
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  // the first recheck passes; the link appears between it and the folder creation
+  let swapped = false;
+  assert.throws(() => applyPlan(plan, { beforeMkdir: () => { if (!swapped) { symlinkSync(outside, join(dir, 'scripts')); swapped = true; } } }), /not a real folder/);
+  assert.deepEqual(readdirSync(outside), []);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('CLI: update --json reports an update that stopped as JSON', async () => {
+  const { run } = await import('../bin/dybs-skills.mjs');
+  const out = [];
+  const log = console.log;
+  console.log = (x) => out.push(x);
+  let code;
+  try {
+    code = run(['update', '.', '--json'], { update: () => { throw new Error('scripts/x changed since the update was planned'); } });
+  } finally { console.log = log; }
+  assert.equal(code, 1);
+  assert.match(JSON.parse(out.join('\n')).error, /changed since the update was planned/);
+});
