@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -342,7 +342,9 @@ test('a test location must be a whole path:line token', () => {
 test('the gate script runs when called through a linked skill folder', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dybs-link-'));
   symlinkSync(join(ROOT, 'skills/dybs-gate'), join(dir, 'dybs-gate'));
-  const out = execFileSync('node', [join(dir, 'dybs-gate/scripts/dybs-gate.mjs'), join(ROOT, 'tests/fixtures/gate-pass.md')], { encoding: 'utf8' });
+  // A copy outside any git repository: this test is about the link, not freshness.
+  writeFileSync(join(dir, 'gate.md'), readFileSync(join(ROOT, 'tests/fixtures/gate-pass.md')));
+  const out = execFileSync('node', [join(dir, 'dybs-gate/scripts/dybs-gate.mjs'), join(dir, 'gate.md')], { encoding: 'utf8' });
   assert.match(out, /Decision: PASS/);
   rmSync(dir, { recursive: true });
 });
@@ -630,5 +632,44 @@ test('an emphasized TODO or TBD is no waiver reason or approver', () => {
   for (const v of ['_TODO_', '__TBD__']) {
     assert.match(waiverIssue({ reason: v, by: 'Alice', approved: '2026-10-01', expires: '2026-12-01' }, '2026-10-04') ?? '', /real reason/, v);
     assert.match(waiverIssue({ reason: 'ok', by: v, approved: '2026-10-01', expires: '2026-12-01' }, '2026-10-04') ?? '', /real reason/, v);
+  }
+});
+
+test('the gate refuses to decide on evidence that is not the committed state gate.md names', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const head = g('rev-parse', '--short=7', 'HEAD');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  const body = gate({ items: [full('a', 'P0')] });
+  const withCommit = (c) => body.replace(/^---\n/, `---\ncommit: ${c}\n`);
+  const run = () => { try { return { code: 0, out: execFileSync('node', [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  // Fresh: commit: names the evidence; gate.md itself may be uncommitted.
+  writeFileSync(gatePath, withCommit(head));
+  assert.equal(run().code, 0);
+  // Committing gate.md moves HEAD but no evidence: still fresh.
+  g('add', '.'); g('commit', '-qm', 'gate');
+  assert.equal(run().code, 0);
+  // The code moves on: stale until commit: is checked and updated.
+  writeFileSync(join(repo, 'code.js'), 'two');
+  let r = run();
+  assert.equal(r.code, 3); assert.match(r.out, /STALE: uncommitted changes/);
+  g('commit', '-qam', 'more code');
+  r = run();
+  assert.equal(r.code, 3); assert.match(r.out, /STALE: gate\.md says commit/);
+  writeFileSync(gatePath, withCommit('uncommitted'));
+  assert.equal(run().code, 3);
+  rmSync(repo, { recursive: true });
+});
+
+test('a heading indented with a mix of spaces and a tab is refused too', () => {
+  const real = gate({ items: [full('a', 'P0')] });
+  const table = real.match(/## Items\n\n([\s\S]*?)\n\n## Risks/)[1];
+  for (const lead of ['   \t', ' \t', '\t']) {
+    const moved = real.replace(`## Items\n\n${table}`, `## Items\n\n1. item\n${lead}## Archived\n\n${table}`);
+    assert.match(parseGate(moved).problems.join(' '), /headings may not be indented/, JSON.stringify(lead));
   }
 });

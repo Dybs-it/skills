@@ -347,8 +347,13 @@ test('quality.md carries the attribution for adapted text', () => {
 });
 
 test('the gate template parses and computes', () => {
-  const r = execFileSync('node', [join(PKG_ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), join(PKG_ROOT, 'tests/fixtures/gate-pass.md'), '--json'], { encoding: 'utf8' });
+  // Computed on a copy outside any git repository: this checks the format,
+  // not the freshness of this checkout.
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
+  writeFileSync(join(dir, 'gate.md'), readFileSync(join(PKG_ROOT, 'tests/fixtures/gate-pass.md')));
+  const r = execFileSync('node', [join(PKG_ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), join(dir, 'gate.md'), '--json'], { encoding: 'utf8' });
   assert.equal(JSON.parse(r).decision, 'PASS');
+  rmSync(dir, { recursive: true });
 });
 
 test('docs/sources.md describes every skill', () => {

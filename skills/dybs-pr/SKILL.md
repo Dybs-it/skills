@@ -43,7 +43,8 @@ Before and after, as concrete as the environment allows:
 - a screenshot pair for a visible change (best)
 - the test that failed before and passes now, or command output (good)
 - the gate decision with its coverage numbers: run the gate script on
-  `gate.md` again now, and compare its `commit:` with the last commit that
+  `gate.md` again now (in a git repository it reports `STALE` itself, exit
+  3, for the cases below), and compare its `commit:` with the last commit that
   changed anything besides this task's `gate.md` and `pr.md`:
   `git log -1 --format=%h -- . ':(exclude)dybs/work/<task>/gate.md'
   ':(exclude)dybs/work/<task>/pr.md'`. Committing those two outputs moves

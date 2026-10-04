@@ -3,13 +3,16 @@
 // Usage: node dybs-gate.mjs <gate.md> [--json]
 // Waivers are always judged against today's local date: there is no option to
 // pick another date, so an expired waiver can never be made current again.
-// Exit code 0 = PASS, CONCERNS or WAIVED; 1 = FAIL; 2 = usage or format problem.
+// Exit code 0 = PASS, CONCERNS or WAIVED; 1 = FAIL; 2 = usage or format problem;
+// 3 = STALE: the evidence is not the committed state gate.md names (see
+// `freshness`), so no decision is given.
 //
 // The rules live here, as code, so the decision is arithmetic rather than an
 // agent's judgement. quality.md describes the same rules in words.
 
 import { readFileSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname, relative, sep } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const COVERAGE = ['FULL', 'PARTIAL', 'NONE'];
@@ -132,7 +135,10 @@ export function markdownHazards(text) {
     // So does an indented one: under `10. item`, `    ## Archived` is a
     // heading inside the item. Indented headings are refused rather than
     // modelled (gate.md needs no indented code; fences are fine).
-    if (/^(?: {4,}|\t)[ \t]*#{1,6}([ \t]|$)/.test(line)) problems.push('headings may not be indented (under a list item they still render)');
+    // Measured in columns with tab stops every four: `   \t## x` reaches
+    // column four just like four spaces do.
+    const headLead = line.match(/^[ \t]*(?=#{1,6}([ \t]|$))/);
+    if (headLead && [...headLead[0]].reduce((col, ch) => (ch === '\t' ? col + 4 - (col % 4) : col + 1), 0) >= 4) problems.push('headings may not be indented (under a list item they still render)');
     // `## **Items**` renders as Items too: headings must be plain text.
     if (/^ {0,3}#{1,6}[ \t]+.*[*_`[\]<>\\~]/.test(line)) problems.push('headings must be plain text (no *, _, `, [ ], < >, \\ or ~)');
     // `## I&#116;ems` renders as Items: a heading is matched as written, so
@@ -494,6 +500,38 @@ export function decide({ items, risks, waivers }, today = localDate()) {
   return { decision, computed, fail, concerns, waiverProblems: computed === 'FAIL' ? waiverProblems : [], stats };
 }
 
+// Whether gate.md's evidence is the committed state it names. Inside a git
+// repository the gate decides only when nothing but this task's gate.md and
+// pr.md is uncommitted, and when its `commit:` names the last commit that
+// changed anything else: committing those two outputs moves HEAD but no
+// evidence. Outside git nothing can be checked, and the result says so.
+export function freshness(gatePath, text) {
+  const abs = resolve(gatePath);
+  const git = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  let top;
+  try { top = git(dirname(abs), ['rev-parse', '--show-toplevel']); } catch { return { status: 'unchecked', reason: 'not inside a git repository' }; }
+  const rel = (p) => relative(realpathSync(top), realpathSync(p)).split(sep).join('/');
+  const gateRel = rel(abs);
+  const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
+  const changed = git(top, ['status', '--porcelain', '--untracked-files=all']).split('\n').filter(Boolean)
+    .map((l) => l.slice(3).split(' -> ').at(-1).replace(/^"|"$/g, ''))
+    .filter((f) => f !== gateRel && f !== prRel);
+  if (changed.length) return { status: 'stale', reason: `uncommitted changes besides gate.md and pr.md: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}. Commit the evidence first` };
+  let head;
+  try { head = git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude)${gateRel}`, `:(exclude)${prRel}`]); } catch { head = ''; }
+  if (!head) return { status: 'unchecked', reason: 'no commit holds the evidence yet' };
+  const field = (text.match(/^---\r?\n[\s\S]*?^commit:[ \t]*(.*?)[ \t]*$/m) || [])[1] || '';
+  let named = '';
+  if (/^[0-9a-f]{4,40}$/i.test(field)) {
+    try { named = git(top, ['rev-parse', '--verify', '--quiet', `${field}^{commit}`]); } catch { named = ''; }
+  }
+  const short = head.slice(0, 7);
+  if (named !== head) {
+    return { status: 'stale', head: short, reason: `gate.md says commit: ${field || '(not set)'}, but the evidence is at ${short}. Check the tables against ${short}, set commit: ${short}, and run the gate again` };
+  }
+  return { status: 'fresh', head: short };
+}
+
 export function main(argv) {
   const args = argv.slice(2);
   const json = args.includes('--json');
@@ -519,9 +557,16 @@ export function main(argv) {
     else console.error(`gate.md has problems:\n  ${parsed.problems.join('\n  ')}`);
     return 2;
   }
+  // No decision on evidence that is not the committed state gate.md names.
+  const fresh = freshness(file, text);
+  if (fresh.status === 'stale') {
+    if (json) console.log(JSON.stringify({ schema: 1, decision: null, stale: fresh.reason, problems: [] }, null, 2));
+    else console.error(`STALE: ${fresh.reason}.`);
+    return 3;
+  }
   const r = decide(parsed, today);
   if (json) {
-    console.log(JSON.stringify({ schema: 1, ...r, items: parsed.items }, null, 2));
+    console.log(JSON.stringify({ schema: 1, ...r, freshness: fresh, items: parsed.items }, null, 2));
   } else {
     console.log(`Decision: ${r.decision}${r.decision !== r.computed ? ` (computed ${r.computed}, waived by the human)` : ''}`);
     console.log(`Coverage: ${r.stats.overall}% overall, P0 ${r.stats.p0}%, P1 ${r.stats.p1}% (${r.stats.items} items)`);
@@ -529,6 +574,8 @@ export function main(argv) {
     for (const c of r.concerns) console.log(`  concern:  ${c}`);
     for (const w of r.waiverProblems) console.log(`  waiver:   ${w}`);
     for (const i of parsed.items) for (const n of i.notes) console.log(`  note:     ${i.id}: ${n}`);
+    if (fresh.status === 'unchecked') console.log(`  note:     freshness not checked (${fresh.reason})`);
+    else console.log(`  evidence: commit ${fresh.head}`);
   }
   return r.decision === 'FAIL' ? 1 : 0;
 }
