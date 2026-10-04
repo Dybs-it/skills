@@ -1589,3 +1589,37 @@ test('list indentation is measured in tab-expanded columns, and a lazy line keep
   // A real indented block is still code.
   assert.equal(wordCount('-\titem\n\n        code words\n'), 1);
 });
+
+test('--doc checks the docs the named doc cannot be written without', () => {
+  const dir = copySample();
+  const ux = join(dir, 'dybs/context/ux.md');
+  rmSync(ux);
+  let r = validateProject(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.match(r.results.find((x) => x.name === 'ux').errors.join(' '), /ui cannot be written without it/);
+  writeFileSync(ux, 'not a valid doc');
+  r = validateProject(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.ok(r.results.find((x) => x.name === 'ux').errors.length);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept re-checks the folders right before linking the doc aside', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync, readdirSync } = await import('node:fs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'context'));
+  writeFileSync(join(outside, 'context/ui.md'), 'someone else');
+  assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', {
+    beforeMoveAside: () => {
+      renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+      symlinkSync(outside, join(dir, 'dybs'));
+    },
+  }), /changed/);
+  // Nothing was created or removed outside the project.
+  assert.deepEqual(readdirSync(join(outside, 'context')), ['ui.md']);
+  assert.equal(readFileSync(join(outside, 'context/ui.md'), 'utf8'), 'someone else');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
