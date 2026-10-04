@@ -229,6 +229,12 @@ export function parseGate(text) {
   // (<pre>, <details>, <table>). gate.md needs none, so any is refused.
   const html = visible(text).split(/\r?\n/).filter((l) => /^ {0,3}<[A-Za-z/!?]/.test(l));
   if (html.length) problems.push(`gate.md may not contain raw HTML (found: ${html[0].trim().slice(0, 40)})`);
+  // GitHub also renders a table whose rows do not start with "|"; this parser
+  // reads only rows that do. So any other visible line with an unescaped pipe
+  // is refused, or a second table could be shown but never counted.
+  const loose = visible(text).split(/\r?\n/)
+    .filter((l) => !/^( {4}|\t)/.test(l) && !/^ {0,3}\|/.test(l) && /(^|[^\\])(\\\\)*\|/.test(l));
+  if (loose.length) problems.push(`every table row must start with "|" (found: ${loose[0].trim().slice(0, 40)})`);
   const itemTable = tableAt(text, 'Items');
   problems.push(...schemaProblems(text, itemTable, 'Items'));
   const itemRows = itemTable?.rows ?? null;

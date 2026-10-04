@@ -431,3 +431,10 @@ test('a <!-- inside a code fence is text: it never hides the rows after the fenc
   assert.deepEqual(parsed.problems, []);
   assert.equal(decide(parsed, TODAY).decision, 'FAIL');
 });
+
+test('a table row without a leading pipe is refused, never left uncounted', () => {
+  const text = gate({ items: [full('a', 'P0')] }).replace(/(## Risks\n\n[^\n]*\n[^\n]*\n)/, '$1\nRisk | Category | P | I | Score | Status\n--- | --- | --- | --- | --- | ---\nr1 | security | 3 | 3 | 9 | open\n');
+  assert.match(parseGate(text).problems.join(' '), /every table row must start with "\|"/);
+  const ok = gate({ items: [full('a', 'P0')] }) + '\nA reason with an escaped \\| pipe.\n';
+  assert.deepEqual(parseGate(ok).problems, []);
+});
