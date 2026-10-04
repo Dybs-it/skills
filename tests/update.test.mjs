@@ -10,6 +10,7 @@ import {
   PKG_ROOT, SKILLS_SRC, findInstalls, update, updateInstall, skillNames, shippedFiles, knownHashes, sha,
 } from '../src/update.mjs';
 import { DOCS, ORDER } from '../skills/dybs-start/scripts/dybs-validate.mjs';
+import { rulesBlock } from '../scripts/sync-rules.mjs';
 
 const SKILL = 'SKILL.md';
 
@@ -135,7 +136,7 @@ test('every skill except dybs-start carries the same standalone section', () => 
     const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
     const i = t.indexOf('## If something is not installed');
     assert.ok(i >= 0, `${s} lacks the standalone section`);
-    return t.slice(i).replace(/heading[\s\S]*?word cap\./, ''); // the check skill words one line differently
+    return t.slice(i);
   };
   const others = skillNames().filter((s) => s !== 'dybs-start');
   for (const s of others) assert.equal(block(s), block(others[0]), s);
@@ -163,4 +164,112 @@ test('CLI: status, update, validate', () => {
   assert.match(cli('update', empty), /npx skills add Dybs-it\/skills/);
   rmSync(root, { recursive: true });
   rmSync(empty, { recursive: true });
+});
+
+// --- review findings on PR #1 ---
+
+const olderTemplate = 'an older shipped template';
+const knownWithOlder = () => ({ ...knownHashes(), 'dybs-prd/template.md': [...(knownHashes()['dybs-prd/template.md'] || []), sha(olderTemplate)] });
+
+test('a symlinked file inside a skill is never written through, even with --force', () => {
+  const root = project(['dybs-prd']);
+  const outside = join(root, 'outside.md');
+  writeFileSync(outside, olderTemplate);
+  const tpl = join(root, '.agents/skills/dybs-prd/template.md');
+  rmSync(tpl);
+  symlinkSync('../../../outside.md', tpl);
+  for (const force of [false, true]) {
+    const r = updateInstall(findInstalls([root])[0], { known: knownWithOlder(), force });
+    assert.equal(ops(r)['template.md'], 'unsafe');
+    assert.equal(r.blocked, true);
+    assert.equal(readFileSync(outside, 'utf8'), olderTemplate);
+  }
+  rmSync(root, { recursive: true });
+});
+
+test('a symlinked directory inside a skill is never written through', () => {
+  const root = project(['dybs-start']);
+  const elsewhere = join(root, 'elsewhere');
+  mkdirSync(elsewhere);
+  const scripts = join(root, '.agents/skills/dybs-start/scripts');
+  rmSync(scripts, { recursive: true });
+  symlinkSync('../../../elsewhere', scripts);
+  const r = updateInstall(findInstalls([root])[0], { force: true });
+  assert.equal(ops(r)['scripts/dybs-validate.mjs'], 'unsafe');
+  assert.equal(existsSync(join(elsewhere, 'dybs-validate.mjs')), false);
+  rmSync(root, { recursive: true });
+});
+
+test('a dangling symlink is not treated as a missing file', () => {
+  const root = project(['dybs-prd']);
+  const tpl = join(root, '.agents/skills/dybs-prd/template.md');
+  rmSync(tpl);
+  symlinkSync('../../../nowhere.md', tpl);
+  const r = updateInstall(findInstalls([root])[0], { force: true });
+  assert.equal(ops(r)['template.md'], 'unsafe');
+  assert.equal(existsSync(join(root, 'nowhere.md')), false);
+  rmSync(root, { recursive: true });
+});
+
+test('a skill with a conflict is left completely unchanged', () => {
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(join(dir, SKILL), 'my own instructions');      // conflict
+  writeFileSync(join(dir, 'template.md'), olderTemplate);       // would be an update
+  writeFileSync(join(dir, 'retired.md'), 'as shipped');         // would be removed
+  const known = { ...knownWithOlder(), 'dybs-prd/retired.md': [sha('as shipped')] };
+  const r = updateInstall(findInstalls([root])[0], { known });
+  assert.equal(r.blocked, true);
+  assert.equal(r.applied, false);
+  assert.equal(readFileSync(join(dir, SKILL), 'utf8'), 'my own instructions');
+  assert.equal(readFileSync(join(dir, 'template.md'), 'utf8'), olderTemplate);
+  assert.equal(readFileSync(join(dir, 'retired.md'), 'utf8'), 'as shipped');
+  rmSync(root, { recursive: true });
+});
+
+test('a missing file in a conflicted skill is not added either', () => {
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(join(dir, SKILL), 'my own instructions');
+  rmSync(join(dir, 'template.md'));
+  const r = updateInstall(findInstalls([root])[0]);
+  assert.equal(r.blocked, true);
+  assert.equal(existsSync(join(dir, 'template.md')), false);
+  rmSync(root, { recursive: true });
+});
+
+test('every skill carries the generated manual rules, word for word', () => {
+  for (const s of skillNames().filter((n) => n !== 'dybs-start')) {
+    const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
+    assert.ok(t.includes(rulesBlock()), `${s}: run node scripts/sync-rules.mjs`);
+  }
+});
+
+test('CLI: update --json gives a plan and exits 1 when a skill is blocked', () => {
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'edited');
+  let out;
+  try {
+    execFileSync('node', [join(PKG_ROOT, 'bin/dybs-skills.mjs'), 'update', root, '--dry-run', '--json'], { encoding: 'utf8', stdio: 'pipe' });
+    assert.fail('expected exit 1');
+  } catch (err) {
+    out = JSON.parse(err.stdout);
+  }
+  assert.equal(out.schema, 1);
+  assert.equal(out.results[0].blocked, true);
+  assert.equal(out.results[0].actions.find((a) => a.rel === SKILL).op, 'conflict');
+  rmSync(root, { recursive: true });
+});
+
+test('--force never writes its backup through a dangling link', () => {
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own version');
+  symlinkSync('../../../trap.md', `${prd(root)}.bak`);
+  const r = update([root], { force: true }).results[0];
+  const a = r.actions.find((x) => x.rel === SKILL);
+  assert.equal(a.op, 'replace');
+  assert.ok(a.backup.endsWith('.bak1'));
+  assert.equal(readFileSync(a.backup, 'utf8'), 'my own version');
+  assert.equal(existsSync(join(root, 'trap.md')), false);
+  rmSync(root, { recursive: true });
 });

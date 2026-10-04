@@ -63,6 +63,11 @@ folder with `--global`), follows symlinks, and only touches skills that are
 already installed. **It never overwrites your edits:** a file is replaced
 only when it still matches a version this package shipped. Anything you
 changed is reported and left alone; `--force` replaces it and keeps a `.bak`.
+A skill with anything that needs you is left completely unchanged, so it
+never mixes files from two releases. Links inside a skill are never followed
+or written through, `--force` included. `--dry-run --json` prints the plan.
+Discovery covers `.<agent>/skills/` folders directly under the project (and
+home with `--global`), not every place a package manager or plugin can live.
 
 `npx skills update` also works, but replaces skill files whole.
 
@@ -78,6 +83,7 @@ changed is reported and left alone; `--force` replaces it and keeps a `.bak`.
 
 ```
 npm test                 # validator contract, safe update, CLI, skill consistency
+npm run sync-rules       # after changing the validator's MANUAL_RULES
 npm run record-hashes    # after changing any file under skills/ (tests fail until you do)
 claude plugin validate . # plugin and marketplace manifests
 ```

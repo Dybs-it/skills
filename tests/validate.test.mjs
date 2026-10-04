@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync } 
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { DOCS, ORDER, validateDoc, validateProject } from '../skills/dybs-start/scripts/dybs-validate.mjs';
+import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
@@ -133,4 +133,45 @@ test('missing doc is reported as missing, not as an error', () => {
 test('packaged README stays in step with the validator order', () => {
   const readme = readFileSync(join(ROOT, 'skills/dybs-start/assets/README.md'), 'utf8');
   assert.match(readme, new RegExp(ORDER.join(', ')));
+});
+
+// Each manual rule is broken on its own in an otherwise valid doc; the
+// validator must report exactly that rule. This is what keeps checking by
+// hand and the validator equivalent, not just similar text.
+const VALID_PRD = readFileSync(join(SAMPLE, 'dybs/context/prd.md'), 'utf8');
+const BREAK = {
+  'frontmatter': (t) => t.replace(/^---[\s\S]*?---\n/, ''),
+  'doc-name': (t) => t.replace('doc: prd', 'doc: scope'),
+  'status': (t) => t.replace('status: accepted', 'status: done'),
+  'updated': (t) => t.replace(/updated: .*/, 'updated: yesterday'),
+  'accepted-date': (t) => t.replace(/^accepted: .*\n/m, ''),
+  'sections': (t) => t.replace('## Goals', '## Aims'),
+  'cap': (t) => t + '\n' + 'word '.repeat(DOCS.prd.maxWords),
+  'placeholder': (t) => t + '\nTODO\n',
+};
+
+test('every manual rule has a breaking fixture, and the fixtures cover nothing else', () => {
+  assert.deepEqual(Object.keys(BREAK).sort(), MANUAL_RULES.map((r) => r.id).sort());
+});
+
+for (const rule of MANUAL_RULES) {
+  test(`validator enforces manual rule "${rule.id}"`, () => {
+    assert.deepEqual(validateDoc('prd', VALID_PRD).rules, [], 'baseline must be valid');
+    const r = validateDoc('prd', BREAK[rule.id](VALID_PRD));
+    if (rule.id === 'frontmatter') assert.ok(r.rules.includes('frontmatter'));
+    else assert.deepEqual(r.rules, [rule.id]);
+  });
+}
+
+test('validate reports ok, complete and accepted separately', () => {
+  const report = validateProject(SAMPLE);
+  assert.equal(report.ok, true);
+  assert.equal(report.complete, true);
+  assert.equal(report.accepted, false); // ui.md is still a draft
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/context/ui.md'));
+  const partial = validateProject(dir);
+  assert.equal(partial.ok, true);
+  assert.equal(partial.complete, false);
+  rmSync(dir, { recursive: true });
 });
