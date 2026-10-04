@@ -762,3 +762,15 @@ test('balanced link destinations and empty list items read as CommonMark does', 
   // `     <!--` below the heading is indented code.
   assert.match(visibleText('-->\n-\n     <!--\n   TODO\n', { keepCode: true }), /TODO/);
 });
+
+test('quoted link titles and inline comments holding `--` cannot hide a placeholder', () => {
+  // `"x)"` is the link's title: the destination closes after it, so the text reads TODO.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT[O](foo "x)")DO\n').rules.includes('placeholder'));
+  // Inside a paragraph, a comment holding `--` is literal text on the older
+  // grammar GitHub renders with, so its TODO is visible there.
+  assert.ok(validateDoc('prd', VALID_PRD + '\nordinary <!-- TODO -- bad --> text\n').rules.includes('placeholder'));
+  assert.ok(validateDoc('prd', VALID_PRD + '\nordinary <!-- TODO\nstill -- bad --> text\n').rules.includes('placeholder'));
+  // A well-formed inline comment, and any block comment, still hide.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nordinary <!-- TODO --> text\n').rules.includes('placeholder'));
+  assert.ok(!validateDoc('prd', VALID_PRD + '\n<!-- TODO -- block -->\n').rules.includes('placeholder'));
+});

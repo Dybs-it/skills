@@ -192,9 +192,17 @@ function stripComments(line, st, closesLater, block = false, commentClosesLater 
     if (line.startsWith('<!--->', i)) { i += 6; continue; }
     if (line.startsWith('<!--', i)) {
       const end = line.indexOf('-->', i + 4);
+      // Only container markers (`>`, `-`, `1.`) may precede a block opener.
+      const opensBlock = block && /^(?:[ \t]|>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))*$/.test(out);
+      // Inside a paragraph, renderers on the older grammar (GitHub's among
+      // them) refuse a comment whose text holds `--` and show it literally,
+      // so it is read as visible: that can only find more, never less.
+      if (!opensBlock && line.slice(i + 4, end < 0 ? line.length : end).includes('--')) {
+        out += '<!--';
+        i += 4;
+        continue;
+      }
       if (end < 0) {
-        // Only container markers (`>`, `-`, `1.`) may precede a block opener.
-        const opensBlock = block && /^(?:[ \t]|>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t]))*$/.test(out);
         if (opensBlock || hideUnclosed || commentClosesLater()) return { text: out, open: true };
         out += '<!--';
         i += 4;
@@ -323,7 +331,17 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
       return false;
     };
     const closesLater = (run) => laterInParagraph((l) => closer(run).test(l));
-    const commentClosesLater = () => laterInParagraph((l) => l.includes('-->'));
+    // The same older grammar for a comment that closes on a later line: any
+    // `--` before its `-->` leaves it visible text.
+    const commentClosesLater = () => {
+      let dashes = false;
+      const closes = laterInParagraph((l) => {
+        const e = l.indexOf('-->');
+        if (l.slice(0, e < 0 ? l.length : e).includes('--')) dashes = true;
+        return e >= 0;
+      });
+      return closes && !dashes;
+    };
     // A comment opened in a block quote or list item ends with it: a line
     // outside that container (a blank line ends a quote) is read afresh.
     if (inComment && (quoteDepth(line) < inComment.quote || (line.trim() !== '' && line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length < inComment.col))) inComment = false;
@@ -592,6 +610,12 @@ function dropLinkTargets(text) {
       let j = i + 1;
       for (; j < text.length && text[j] !== '\n'; j++) {
         if (text[j] === '\\') { j++; continue; }
+        // A quoted title (`"x)"`, `'x)'`) after the destination holds no
+        // delimiters of its own.
+        if (depth === 1 && (text[j] === '"' || text[j] === "'") && /[ \t]/.test(text[j - 1])) {
+          const q = text.indexOf(text[j], j + 1);
+          if (q > 0 && !text.slice(j, q).includes('\n')) { j = q; continue; }
+        }
         if (text[j] === '(') depth++;
         else if (text[j] === ')' && --depth === 0) break;
       }
