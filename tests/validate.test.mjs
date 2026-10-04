@@ -901,3 +901,41 @@ test('a context folder that cannot be searched fails validation, not "missing"',
   assert.match(out, /EACCES/);
   rmSync(dir, { recursive: true });
 });
+
+test('headings, placeholders and counts follow CommonMark for nesting, escapes, emphasis and reference labels', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // Recursively balanced destinations are one link.
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '## [Goals](foo(bar(baz)))')).rules.includes('sections'));
+  assert.equal(wordCount('x [a](foo(bar(baz(qux)))) y\n'), 3);
+  // Escaped asterisks render literally: `T*O*DO` is no TODO.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nT\\*O\\*DO\n').rules.includes('placeholder'));
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT*O*DO\n').rules.includes('placeholder'));
+  // Single tildes are text in CommonMark; only real emphasis is read through.
+  // Code span content is literal: no emphasis read through inside it.
+  for (const literal of ['G~o~als', 'Goals_', 'Go_al_s', '*Goals', 'G``o***al***s``']) {
+    assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', `## ${literal}`)).rules.includes('sections'), literal);
+  }
+  for (const formatted of ['*Goals*', '_Goals_', 'G*oa*ls', '***Goals***', '`Goals`']) {
+    assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', `## ${formatted}`)).rules.includes('sections'), formatted);
+  }
+  // A full reference link shows its text, not its label.
+  assert.equal(wordCount('[shown][three hidden words]\n\n[three hidden words]: /u\n'), 1);
+  // Not after an escaped opener: then the label is a link of its own, shown.
+  assert.equal(wordCount('\\[x][three hidden words]\n\n[three hidden words]: /u\n'), 4);
+});
+
+test('character references are counted as the text they render', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('A &amp; B\n'), 2);
+  assert.equal(wordCount('Fran&#231;ais\n'), 1);
+  // In code, and after an escaped `&`, a reference is shown as written.
+  assert.equal(wordCount('`A &amp; B`\n'), 3);
+  assert.equal(wordCount('A \\&amp; B\n'), 3);
+  // A code span that may continue on the next line keeps its paragraph raw.
+  assert.equal(wordCount('x `open\n&amp; y`\n'), 4);
+});
+
+test('a heading in a quote inside a list item counts', () => {
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '- > ## Goals')).rules.includes('sections'));
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '> - > ## Goals')).rules.includes('sections'));
+});

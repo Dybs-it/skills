@@ -97,6 +97,42 @@ export function textOutsideCodeSpans(line) {
   return out;
 }
 
+// A line with its character references decoded where they render (`A &amp;
+// B` shows `A & B`): outside code spans and not after an escaped `&`. null
+// when a backtick run stays open: the span may go on to the next line, and
+// decoding inside code would count fewer words than a reader sees.
+function decodeOutsideCode(line) {
+  let out = '';
+  let text = '';
+  const flush = () => {
+    out += decodeReferences(text).replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
+    text = '';
+  };
+  let i = 0;
+  while (i < line.length) {
+    const c = line[i];
+    if (c === '\\' && /[!-\/:-@[-`{-~]/.test(line[i + 1] ?? '')) { text += c + String.fromCharCode(0xe000 + line.charCodeAt(i + 1)); i += 2; continue; }
+    if (c !== '`') { text += c; i += 1; continue; }
+    let n = i;
+    while (line[n] === '`') n += 1;
+    const run = n - i;
+    let close = -1;
+    for (let j = n; j < line.length;) {
+      if (line[j] !== '`') { j += 1; continue; }
+      let k = j;
+      while (line[k] === '`') k += 1;
+      if (k - j === run) { close = k; break; }
+      j = k;
+    }
+    if (close === -1) return null;
+    flush();
+    out += line.slice(i, close);
+    i = close;
+  }
+  flush();
+  return out;
+}
+
 // Character references decoded the way a reader sees them, for the
 // placeholder check: `T&#79;DO` renders as TODO. Numeric references are
 // decoded in full; of the named ones, those that can spell a placeholder
@@ -586,11 +622,12 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
 
 // Headings a reader sees: none inside HTML comments or fenced examples.
 // An optional closing run of `#` (`## Goals ##`) is not part of the text.
-// An H2, also inside block quotes and list items (`> ## X`, `- ## X`). After
+// An H2, also inside block quotes and list items in any nesting (`> ## X`,
+// `- ## X`, `- > ## X`). After
 // a list marker the heading starts within four spaces (five make indented
 // code), and an ordered item other than `1.` cannot interrupt a paragraph,
 // so it needs a blank line (or a block quote line) before it.
-const ATX_H2 = /^(?: {0,3}>[ \t]?)*((?: {0,3}(?:[-*+]|(\d{1,9})[.)]) {1,4})*)( {0,3})##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
+const ATX_H2 = /^((?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})*)( {0,3})##[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
 export function headings(body) {
   // A heading counts only if no reading of an unclosed comment hides it.
   const lines = visibleText(body, { hideUnclosed: true }).split('\n');
@@ -598,8 +635,10 @@ export function headings(body) {
   lines.forEach((l, i) => {
     const m = ATX_H2.exec(l);
     if (!m) return;
-    const [, markers, , indent, text] = m;
-    if (markers && indent) return;
+    const [, prefix, indent, text] = m;
+    // Right after a list marker the heading starts within its four spaces.
+    if (/(?:[-*+]|\d[.)]) {1,4}$/.test(prefix) && indent) return;
+    const markers = prefix;
     const ordered = [...markers.matchAll(/(\d{1,9})[.)]/g)];
     const afterBlank = i === 0 || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]) || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(lines[i - 1]);
     if (ordered.some((o) => Number(o[1]) !== 1) && !afterBlank) return;
@@ -615,7 +654,21 @@ export function wordCount(body) {
   // are never shown either (see definitions()).
   const lines = visibleText(body).split('\n');
   const defs = definitions(lines);
-  const prose = lines.map((l, i) => (defs.has(i) ? '' : dropValidLinkTargets(l))).join('\n');
+  // A full reference link (`[shown][label]`) with a defined label shows
+  // only its text; after an escaped opener the label is a link of its own.
+  const labels = new Set([...defs.values()].filter(Boolean));
+  const dropLabels = (l) => l.replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[([^\[\]\n]+)\]/g, (m, text, l2) => (labels.has(label(l2)) ? text : m));
+  // References are decoded as rendered, except in a paragraph where a code
+  // span may be open across lines: there the raw text is counted (more).
+  let openSpan = false;
+  const prose = lines.map((l, i) => {
+    if (/^(?: {0,3}>[ \t]?)*[ \t]*$/.test(l)) openSpan = false;
+    if (defs.has(i)) return '';
+    const shown = dropLabels(dropValidLinkTargets(l));
+    const decoded = openSpan ? null : decodeOutsideCode(shown);
+    if (decoded === null) { openSpan = true; return shown; }
+    return decoded;
+  }).join('\n');
   return (prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 }
 
@@ -628,7 +681,12 @@ function skipped(projectData) {
 // For counting, only a well-formed inline destination is left out
 // (`](url)`, `](<a b>)`, `](url "title")`): `[b](c d e)` is no link and its
 // words are shown. Leaving a malformed one in can only count more.
-const LINK_DEST = String.raw`(?:<[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*)`;
+// Parentheses in a bare destination nest when balanced (`foo(bar(baz))`):
+// up to eight levels are read, a deeper one is left as text (counts more).
+const BALANCED = (depth) => (depth === 0
+  ? String.raw`(?:[^\s()\\]|\\.)*`
+  : String.raw`(?:[^\s()\\]|\\.|\(${BALANCED(depth - 1)}\))*`);
+const LINK_DEST = String.raw`(?:<[^<>\n]*>|${BALANCED(8)})`;
 const LINK_TITLE = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\))`;
 const INLINE_TARGET = String.raw`\([ \t]*${LINK_DEST}(?:[ \t]+${LINK_TITLE})?[ \t]*\)`;
 // Only after an unescaped `[` opener, with no brackets in the link text: a
@@ -645,7 +703,7 @@ function dropValidLinkTargets(text) {
 // definition), and its title may sit alone on the next line. Returns line
 // index -> normalized label (null for a title line). Missing a definition
 // only counts more words and refuses more HTML.
-const DEF_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*(?:(?: {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})+| {0,3})\[((?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]+)\]:[ \t]*(?:<[^<>\n]*>|(?:[^\s()\\<]|\\.|\((?:[^\s()\\]|\\.)*\))(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*)([ \t]+${LINK_TITLE})?[ \t]*$`);
+const DEF_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*(?:(?: {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})+| {0,3})\[((?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]+)\]:[ \t]*(?:<[^<>\n]*>|(?:[^\s()\\<]|\\.|\(${BALANCED(7)}\))${BALANCED(8)})([ \t]+${LINK_TITLE})?[ \t]*$`);
 const DEF_TITLE_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*[ \t]*${LINK_TITLE}[ \t]*$`);
 const label = (l) => l.trim().replace(/\s+/g, ' ').toLowerCase();
 function definitions(lines) {
@@ -738,7 +796,9 @@ export function validateDoc(name, text) {
 
   const found = headings(body);
   // `## **Goals**` and `## `Goals`` render as Goals: inline markup is
-  // read through when matching a required section.
+  // read through when matching a required section, but only paired markup
+  // that forms emphasis or code (`_` not inside a word). A lone or unpaired
+  // marker, and `~` (CommonMark has no strikethrough), is text.
   // A link shows its text only when it is one: a well-formed inline
   // destination, or a reference whose label is defined.
   const labels = new Set([...definitions(visibleText(body).split('\n')).values()].filter(Boolean));
@@ -746,12 +806,27 @@ export function validateDoc(name, text) {
   // `don\'t` renders as don't, and an escaped marker (`\*`) stays literal:
   // escapes are set aside first and put back as the bare character.
   const ESC = 0xe000;
-  const plain = (h) => decodeReferences(h.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
-    .replace(new RegExp(INLINE_LINK, 'g'), '$1')
-    .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, t, l) => (labels.has(label(l || t)) ? t : m))
-    .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, t) => (labels.has(label(t)) ? t : m))
-    .replace(/[*_~`]/g, ''))
-    .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - ESC)).trim();
+  const CODE = 0xe100;
+  const plain = (h) => {
+    // Code spans first: their content is literal (no escapes, emphasis or
+    // links inside), so it is set aside whole and put back last. An opener
+    // after a backslash is no opener.
+    const code = [];
+    let t = h.replace(/(?<![`\\])(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (m, ticks, c) => {
+      code.push(/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c);
+      return String.fromCharCode(CODE + code.length - 1);
+    });
+    t = t.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
+      .replace(new RegExp(INLINE_LINK, 'g'), '$1')
+      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(l || x)) ? x : m))
+      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(x)) ? x : m))
+      .replace(/(\*{1,3})(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
+      .replace(/(?<![\p{L}\p{N}_])(_{1,3})(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2');
+    return decodeReferences(t)
+      .replace(/[-]/g, (c) => String.fromCharCode(c.charCodeAt(0) - ESC))
+      .replace(/[-]/g, (c) => code[c.charCodeAt(0) - CODE] ?? c)
+      .trim();
+  };
   const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || plain(h).toLowerCase() === s.toLowerCase()));
   for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
@@ -767,7 +842,12 @@ export function validateDoc(name, text) {
   // and link markup removed. That can only find more, never fewer.
   const shown = decodeReferences(visibleText(body, { keepCode: true }));
   // Backslash escapes of punctuation (`\{\{x\}\}`) render as the bare character.
-  const flat = dropLinkTargets(shown).replace(/\\([!-/:-@[-`{-~])/g, '$1').replace(/[*_~`[\]]/g, '');
+  // An escaped marker (`T\\*O\\*DO`) is text, not formatting: escapes are set
+  // aside before the markup is removed and come back as the bare character.
+  const flat = dropLinkTargets(shown)
+    .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
+    .replace(/[*_~`[\]]/g, '')
+    .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
   if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);

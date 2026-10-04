@@ -455,7 +455,9 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
 // Creates the folders of `relDir` below `root` one level at a time, never
 // through a link: an existing level must be a real folder, a missing one is
 // created on its own (not recursively). Returns the first folder it made.
-function mkdirNoFollow(root, relDir) {
+// `onMade(p)` runs for each folder as soon as it exists, so a later level
+// that fails still leaves the earlier ones registered for the rollback.
+function mkdirNoFollow(root, relDir, onMade) {
   if (relDir === '.' || relDir === '') return undefined;
   let p = root;
   let first;
@@ -480,6 +482,7 @@ function mkdirNoFollow(root, relDir) {
     testHooks.afterLook?.(p);
     if (!still()) throw new Error(`a folder on the way to ${posix(relative(root, p))} changed; nothing was changed, run update again`);
     mkdirSync(p);
+    onMade?.(p);
     pins.push([p, idOf(p)]);
     first = first || p;
   }
@@ -622,8 +625,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       const p = join(dir, a.rel);
       if (a.op === 'remove') { staged.push({ a, p, chain: chainOf(dir, a.rel) }); continue; }
       beforeMkdir?.();
-      const made = mkdirNoFollow(dir, dirname(a.rel));
-      if (made) createdDirs.push({ deepest: dirname(p), stop: dirname(made) });
+      let made = null;
+      let deepest = null;
+      try {
+        mkdirNoFollow(dir, dirname(a.rel), (d) => { made = made || d; deepest = d; });
+      } finally {
+        if (made) createdDirs.push({ deepest, stop: dirname(made) });
+      }
       recheck(a);
       beforeStage?.(a);
       // Pin the folders first, then write, then prove the file is where we
@@ -765,10 +773,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
               ? `${s.a.rel} changed while it was being moved aside; it is back at its own name, run update again`
               : `${s.a.rel} changed while it was being moved aside; your version is kept at ${aside}`);
           }
-          // Deleted by identity under yet another private name, never by a
-          // plain unlink after the check: a file that replaced `aside` since
-          // is put back, not deleted.
-          rmIfOurs(aside, origId, chainCheck(s));
+          // Kept, not deleted, until the update is committed: an editor
+          // that still holds the original open writes into this very file,
+          // and the cleanup (or the rollback) then finds the edit and keeps
+          // it, as the moved-aside link does where there are hard links.
+          s.orig = aside;
+          s.origId = origId;
         }
         pinned(s);
         // Checked against the identity recorded at creation, not re-read:
@@ -963,6 +973,20 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
         });
       }
+      // The original itself (no hard links): removed only while unchanged.
+      // One edited through an open file since holds the newest version, so
+      // it is kept and named.
+      if (s.orig) {
+        undo(s.a.rel, () => {
+          let ours = false;
+          try {
+            const x = chainOf(dir, s.a.rel) === s.chain ? readById(s.orig, s.origId) : null;
+            ours = Boolean(x) && sha(x) === s.a.hash;
+          } catch { ours = false; }
+          if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s));
+          else if (idOf(s.orig) !== null) throw new Error(`the original changed during the update (an edit through an open file); that version is kept at ${s.orig}`);
+        });
+      }
     }
     // Remove only what is provably ours: the file at that name must be the
     // one we wrote, or a same-named file reached through a swapped link
@@ -1045,6 +1069,20 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           }
         }
       } else if (chainOk && gone) { /* already gone */ } else s.a.kept = s.old;
+    }
+    if (s.orig) {
+      // The original itself (no hard links): deleted only while it is the
+      // very file moved aside, reached through the pinned folders, and still
+      // holds the planned bytes. An edit made through an open file since is
+      // kept and reported.
+      let ours = false;
+      try {
+        const x = chainOf(dir, s.a.rel) === s.chain ? readById(s.orig, s.origId) : null;
+        ours = Boolean(x) && sha(x) === s.a.hash;
+      } catch { ours = false; }
+      if (ours) {
+        try { rmIfOurs(s.orig, s.origId, chainCheck(s)); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
+      } else if (idOf(s.orig) !== null) s.a.kept = s.a.kept ? `${s.a.kept} (and ${s.orig})` : s.orig;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {
       try { removeEmptyDirs(dirname(s.p), dir); } catch { /* an empty folder left behind is harmless */ }
