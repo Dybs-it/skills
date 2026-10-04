@@ -861,3 +861,48 @@ test('removing the staging file never follows a folder swapped for a link', asyn
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('an original that cannot be read at cleanup is reported as kept', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = mod.planInstall(install, { known });
+  mod.fsOps.read = (p, o) => { if (String(p).endsWith('.old')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); return real.read(p, o); };
+  let result;
+  try { result = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(result.applied, true);
+  const kept = result.actions.find((a) => a.rel === SKILL).kept;
+  assert.ok(kept && existsSync(kept));
+  rmSync(root, { recursive: true });
+});
+
+test('rollback never moves an outside file reached through a swapped folder', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const { renameSync, readdirSync: ls } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const steps = plan.actions.filter((a) => ['update', 'replace', 'remove'].includes(a.op)).length;
+  let decoy;
+  assert.throws(() => applyPlan(plan, {
+    failAt: steps,
+    beforeFail: () => {
+      const old = ls(dir).find((n) => n.endsWith('.old'));
+      decoy = join(outside, old);
+      writeFileSync(decoy, 'old shipped version');
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+    },
+  }), /original was not put back/);
+  assert.equal(readFileSync(decoy, 'utf8'), 'old shipped version');
+  assert.deepEqual(ls(outside), [decoy.slice(outside.length + 1)]);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

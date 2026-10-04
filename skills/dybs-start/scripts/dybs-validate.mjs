@@ -138,6 +138,12 @@ function stripComments(line, st, closesLater) {
   return { text: out, open: false };
 }
 
+// How many block quotes a line sits in (`> > x` is two).
+function quoteDepth(line) {
+  const prefix = line.match(/^(?: {0,3}>[ \t]?)+/);
+  return prefix ? (prefix[0].match(/>/g) || []).length : 0;
+}
+
 // What a reader sees: HTML comments and code blocks dropped, by Markdown's
 // rules, in one pass so each construct is judged where it actually occurs:
 // `<!--` inside a fence, an indented block or a code span is text, not a
@@ -162,11 +168,16 @@ export function visibleText(body, { keepCode = false } = {}) {
   const lines = body.split(/\r?\n/);
   for (let n = 0; n < lines.length; n++) {
     let line = lines[n];
-    // A code span stays inside its paragraph: a blank line, a fence or a
-    // heading ends the paragraph, and with it any chance to close.
+    // A code span stays inside its paragraph: a blank line, a fence, a
+    // heading, a list item or a deeper block quote ends the paragraph, and
+    // with it any chance to close. Each is judged after the line's `>`
+    // markers, so a quoted heading ends it too.
     const closesLater = (run) => {
+      const depth = quoteDepth(lines[n]);
       for (let k = n + 1; k < lines.length; k++) {
-        if (lines[k].trim() === '' || /^ {0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$))/.test(lines[k])) return false;
+        const rest = lines[k].replace(/^(?: {0,3}>[ \t]?)+/, '');
+        if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
+        if (/^ {0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S)/.test(rest)) return false;
         if (closer(run).test(lines[k])) return true;
       }
       return false;
@@ -196,17 +207,29 @@ export function visibleText(body, { keepCode = false } = {}) {
     // After each quote or list marker the fence may again be indented up
     // to three spaces (`>  ```` is a fence inside a quote).
     const m = body0.match(/^ {0,3}(?:(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+) {0,3})*(`{3,}|~{3,})(.*)$/);
+    // A fence lives in the container it opened in: a line outside that
+    // block quote or list item ends the container, and the fence with it
+    // (no lazy continuation for code), so the line is read afresh: a bare
+    // ``` after `> ```` opens a new fence rather than closing the quoted one.
+    if (fence && !blank && (quoteDepth(line) < fence.quote || inner.match(/^ */)[0].length < fence.col)) fence = null;
     if (fence) {
       // Inside a list item the closing fence sits at the item's content
       // indent (four spaces under `10. `), so it may be indented up to three
       // spaces past where the opening fence started.
       const c = line.match(/^( *)((?:>[ \t]?)*) {0,3}(`{3,}|~{3,})[ \t]*$/);
-      if (c && c[1].length <= fence.indent + 3 && c[3][0] === fence.ch && c[3].length >= fence.len) fence = null;
+      if (c && c[1].length <= fence.indent + 3 && quoteDepth(line) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) fence = null;
       if (keepCode) out.push(line);
       continue;
     }
     if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
-      fence = { ch: m[1][0], len: m[1].length, indent: line.length - m[1].length - m[2].length };
+      const at = line.length - m[1].length - m[2].length;
+      // The column where the fence's list item content starts, past its
+      // quote markers: the last list marker before the fence, or the
+      // current item's indent when the fence continues one.
+      const pre = line.slice(0, at).replace(/^(?: {0,3}>[ \t]?)+/, '');
+      const marks = [...pre.matchAll(/(?:[-*+]|\d{1,9}[.)])[ \t]+/g)];
+      const col = marks.length ? marks.at(-1).index + marks.at(-1)[0].length : inList && at >= listIndent ? listIndent : 0;
+      fence = { ch: m[1][0], len: m[1].length, indent: at, quote: quoteDepth(line), col };
       prevBlank = false;
       if (keepCode) out.push(line);
       continue;
