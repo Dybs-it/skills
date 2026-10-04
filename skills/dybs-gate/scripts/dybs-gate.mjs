@@ -142,6 +142,14 @@ export function markdownHazards(text) {
     if (/^ {0,3}(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^ {0,3}(#{1,6}([ \t]|$)|`{3,}|~{3,})/.test(prev) && !prevComment) {
       problems.push('use "##" headings, not underlined ones (a line of = or - under text)');
     }
+    // The same inside a quote or list item (`> Archived` / `> ---`): it ends
+    // the section on screen just the same, so it is refused too.
+    // A list marker needs the space after it, or `> ---` would read as
+    // three markers.
+    const inner = (l) => l.replace(/^\s*(?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)+/, '');
+    if (/^\s*(?:>|(?:[-*+]|\d{1,9}[.)])[ \t])/.test(line) && /^(=+|-+)[ \t]*$/.test(inner(line)) && inner(prev).trim() && !prevComment && !/^(#{1,6}([ \t]|$)|`{3,}|~{3,})/.test(inner(prev).trim())) {
+      problems.push('use "##" headings, not underlined ones (a line of = or - under text)');
+    }
     if (/^ {0,3}(?:>\s?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)+(`{3,}|~{3,})/.test(line)) problems.push('gate.md may not open a code fence inside a list item or a quote');
   }
   return [...new Set(problems)];
@@ -334,6 +342,7 @@ export function parseGate(text) {
     const evidence = r.evidence || '';
     const notes = [];
     if (!r.item) problems.push('an item has no id');
+    else if (idIssue(r.item)) problems.push(`item ${r.item}: ${idIssue(r.item)}`);
     if (!PRIORITIES.includes(priority)) problems.push(`item ${r.item}: priority must be one of ${PRIORITIES.join('|')}`);
     if (!COVERAGE.includes(coverage)) problems.push(`item ${r.item}: coverage must be one of ${COVERAGE.join('|')}`);
     const sec = SECURITY[(r.security || '').trim().toLowerCase()];
@@ -353,6 +362,7 @@ export function parseGate(text) {
   const risks = (riskRows || []).map((r) => {
     const score = Number(r.score);
     if (!r.risk) problems.push('a risk has no id');
+    else if (idIssue(r.risk)) problems.push(`risk ${r.risk}: ${idIssue(r.risk)}`);
     if (!Number.isInteger(score) || score < 1 || score > 9) problems.push(`risk ${r.risk}: score must be 1 to 9`);
     // The score is probability x impact (each 1 to 3); a mistyped score must
     // never turn a blocking risk into a concern.
@@ -379,6 +389,17 @@ export function parseGate(text) {
     id: r.item, reason: r.reason || '', by: r['approved by'] || '', approved: r.approved || '', expires: r.expires || '',
   }));
   return { items, risks, waivers, problems };
+}
+
+// An id is matched as written and shown to readers, so it must render as
+// exactly its source: plain letters, digits and punctuation, no entity
+// (`&nbsp;` renders blank), no Markdown or HTML (`*A1*` renders as A1 and
+// would slip past the uniqueness check).
+export function idIssue(v) {
+  if (/&[#A-Za-z0-9]+;|[[\]<>`*~\\]|^_|_$/.test(v) || !/[\p{L}\p{N}]/u.test(v)) {
+    return 'an id must be plain text with a letter or digit (no entities such as &nbsp;, no Markdown or HTML)';
+  }
+  return null;
 }
 
 export function waiverIssue(w, today) {

@@ -594,3 +594,20 @@ test('text starting with # but no space, or a pipe line, is no exemption from th
     assert.match(parseGate(moved).problems.join(' '), /not underlined ones/, above);
   }
 });
+
+test('an underlined heading inside a quote or list item is refused too', () => {
+  for (const [above, under] of [['> Archived', '> --------'], ['> Archived', '> ===='], ['- Archived', '  ---']]) {
+    const real = gate({ items: [full('a', 'P0')] });
+    const table = real.match(/## Items\n\n([\s\S]*?)\n\n## Risks/)[1];
+    const moved = real.replace(`## Items\n\n${table}`, `## Items\n\n${above}\n${under}\n\n${table}`);
+    assert.match(parseGate(moved).problems.join(' '), /not underlined ones/, `${above} / ${under}`);
+  }
+});
+
+test('item and risk ids must render as written', () => {
+  for (const id of ['&nbsp;', '&#32;', '*a*', '`a`', '[a]()', '~~a~~', '_a_']) {
+    const parsed = parseGate(gate({ items: [full(id, 'P0')] }));
+    assert.match(parsed.problems.join(' '), /an id must be plain text/, id);
+  }
+  assert.doesNotMatch(parseGate(gate({ items: [full('AC1.2', 'P0'), full('FR_3', 'P1')] })).problems.join(' '), /plain text/);
+});
