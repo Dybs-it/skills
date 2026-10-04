@@ -585,7 +585,9 @@ export function freshness(gatePath, text) {
   const before = dirty();
   if (before) return before;
   let head;
-  const evidenceHead = () => git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude)${gateRel}`, `:(exclude)${prRel}`]);
+  // Literal: a task folder named with `*` or `?` must exclude only its own
+  // gate.md and pr.md, never other tasks' (pathspec magic would match them).
+  const evidenceHead = () => git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude,literal)${gateRel}`, `:(exclude,literal)${prRel}`]);
   // Git failing here is never "nothing to check": it is refused.
   try { head = evidenceHead(); } catch {
     return { status: 'stale', reason: 'git could not read the history of the evidence. Fix the repository and run the gate again' };
@@ -600,7 +602,8 @@ export function freshness(gatePath, text) {
   if (commits.length > 1) return { status: 'stale', reason: 'gate.md names commit: more than once. Keep one, set to the evidence commit, and run the gate again' };
   const field = (commits[0] || [])[1] || '';
   let named = '';
-  if (/^[0-9a-f]{4,40}$/i.test(field)) {
+  // Up to 64 hex digits: a SHA-256 repository names commits that long.
+  if (/^[0-9a-f]{4,64}$/i.test(field)) {
     try { named = git(top, ['rev-parse', '--verify', '--quiet', `${field}^{commit}`]); } catch { named = ''; }
   }
   const short = head.slice(0, 7);

@@ -933,3 +933,41 @@ test('changed evidence inside a submodule set to ignore = all is STALE', () => {
   assert.match(r.out, /vendor\/lib/);
   for (const d of [repo, sub]) rmSync(d, { recursive: true });
 });
+
+test('a task folder named with a pathspec wildcard excludes only its own gate', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/*'), { recursive: true });
+  mkdirSync(join(repo, 'dybs/work/other'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const old = g('rev-parse', '--short=7', 'HEAD');
+  // Later evidence: another task's gate.md, committed after the code.
+  writeFileSync(join(repo, 'dybs/work/other/gate.md'), 'other task');
+  g('add', '.'); g('commit', '-qm', 'other task');
+  const gatePath = join(repo, 'dybs/work/*/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${old}\n`));
+  let r;
+  try { r = { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  assert.equal(r.code, 3, r.out);
+  rmSync(repo, { recursive: true });
+});
+
+test('a full SHA-256 commit id names the evidence', (t) => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  try { g('init', '-q', '--object-format=sha256'); } catch { rmSync(repo, { recursive: true }); return t.skip('git without SHA-256 support'); }
+  g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const full64 = g('rev-parse', 'HEAD');
+  assert.equal(full64.length, 64);
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${full64}\n`));
+  let r;
+  try { r = { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  assert.equal(r.code, 0, r.out);
+  rmSync(repo, { recursive: true });
+});
