@@ -1623,3 +1623,16 @@ test('--accept re-checks the folders right before linking the doc aside', async 
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('only paragraph text takes a setext underline, and 2. or a fence with a backtick in its info never interrupts one', async () => {
+  const { wordCount, visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // Each case is checked against commonmark.js.
+  // `==` after a heading starts a paragraph; the indented line continues it.
+  assert.equal(wordCount('# Title\n==\n    many words\n'), 3);
+  // A lazy `==` is paragraph text, not an underline.
+  assert.equal(wordCount('> q\ntext\n==\n    code words\n'), 4);
+  // `2. <!--` after paragraph text is more of that paragraph: the opener is literal.
+  assert.match(visibleText('ordinary\n2. <!--\n   TODO x\n', { keepCode: true }), /TODO x/);
+  // ```` ``` bad` ```` is no fence, so it does not end the open code span.
+  assert.match(visibleText('open ``\n``` bad`\ntext <!-- TODO -->\n``\n', { keepCode: true }), /TODO/);
+});
