@@ -1092,3 +1092,11 @@ test('a fence indented inside a block quote is code', async () => {
   assert.deepEqual(headings(text), ['A', 'B']);
   assert.equal(wordCount(text), 2);
 });
+
+test('--doc on a missing doc is a failure, a project-wide run is not', () => {
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/context/ui.md'));
+  assert.equal(validateProject(dir, 'ui').ok, false);
+  assert.equal(validateProject(dir).ok, true);
+  rmSync(dir, { recursive: true });
+});
