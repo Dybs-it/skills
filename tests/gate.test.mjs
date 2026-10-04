@@ -296,3 +296,10 @@ test('a section that appears twice is a format problem', () => {
   const text = gate({ items: [full('a', 'P0')] }) + '\n## Risks\n\n| Risk | Category | P | I | Score | Status |\n|---|---|---|---|---|---|\n| r | data | 3 | 3 | 9 | open |\n';
   assert.match(parseGate(text).problems.join(' '), /"## Risks" appears more than once/);
 });
+
+test('the gate\'s default today is the local date, not the UTC one', () => {
+  const script = `import { localDate } from ${JSON.stringify(new URL('../skills/dybs-gate/scripts/dybs-gate.mjs', import.meta.url).href)};
+    console.log(localDate(new Date(2026, 9, 4, 23, 30)));`;
+  const out = execFileSync('node', ['--input-type=module', '-e', script], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
+  assert.equal(out.trim(), '2026-10-04');
+});

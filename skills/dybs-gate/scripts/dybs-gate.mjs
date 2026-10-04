@@ -192,7 +192,14 @@ export function waiverIssue(w, today) {
   return null;
 }
 
-export function decide({ items, risks, waivers }, today = new Date().toISOString().slice(0, 10)) {
+// Today as the person running the gate sees it (local time, not UTC), so a
+// waiver that expires today is not already expired at 20:00 west of UTC.
+export function localDate(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function decide({ items, risks, waivers }, today = localDate()) {
   const full = (list) => list.filter((i) => i.coverage === 'FULL').length;
   const p0 = items.filter((i) => i.priority === 'P0');
   const p1 = items.filter((i) => i.priority === 'P1');
@@ -253,7 +260,7 @@ export function main(argv) {
   const args = argv.slice(2);
   const json = args.includes('--json');
   const t = args.indexOf('--today');
-  const today = t >= 0 ? args[t + 1] : new Date().toISOString().slice(0, 10);
+  const today = t >= 0 ? args[t + 1] : localDate();
   if (!isDate(today)) {
     console.error('--today needs a real date (YYYY-MM-DD); without one, waiver expiry cannot be checked');
     return 2;
