@@ -24,26 +24,55 @@ export function visible(text) {
   return text.replace(/<!--[\s\S]*?-->/g, '').replace(/^(```|~~~)[\s\S]*?^\1[^\n]*$/gm, '');
 }
 
-// Rows of the first Markdown table under "## <heading>", as objects keyed by
-// lower-cased header names. null when the heading is missing or has no
-// table under it; [] for a table with a header and no rows.
-export function tableUnder(text, heading) {
+// The first Markdown table under "## <heading>": its lower-cased column
+// names and its rows as objects keyed by them. null when the heading is
+// missing or has no real table under it (a header line followed by a
+// separator row). Indented lines are code, never a table.
+export function tableAt(text, heading) {
   const lines = visible(text).split(/\r?\n/);
   const start = lines.findIndex((l) => l.trim().toLowerCase() === `## ${heading.toLowerCase()}`);
   if (start < 0) return null;
+  const cellsOf = (line) => line.slice(1, line.endsWith('|') ? -1 : undefined).split('|').map((c) => c.trim());
+  const isSeparator = (cells) => cells.every((c) => /^:?-{3,}:?$/.test(c));
   const rows = [];
-  let header = null;
+  let columns = null;
   for (let i = start + 1; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const raw = lines[i];
+    const line = raw.trim();
     if (line.startsWith('## ')) break;
-    if (!line.startsWith('|')) { if (header) break; continue; }
-    const cells = line.slice(1, line.endsWith('|') ? -1 : undefined).split('|').map((c) => c.trim());
-    if (!header) { header = cells.map((c) => c.toLowerCase()); continue; }
-    if (cells.every((c) => /^:?-{3,}:?$/.test(c))) continue;
+    const tableLine = line.startsWith('|') && !/^( {4}|\t)/.test(raw);
+    if (!tableLine) { if (columns) break; continue; }
+    if (!columns) {
+      const next = (lines[i + 1] || '').trim();
+      if (/^( {4}|\t)/.test(lines[i + 1] || '') || !next.startsWith('|') || !isSeparator(cellsOf(next))) return null;
+      columns = cellsOf(line).map((c) => c.toLowerCase());
+      i++;
+      continue;
+    }
+    const cells = cellsOf(line);
     if (cells.every((c) => c === '')) continue;
-    rows.push(Object.fromEntries(header.map((h, j) => [h, cells[j] ?? ''])));
+    rows.push(Object.fromEntries(columns.map((h, j) => [h, cells[j] ?? ''])));
   }
-  return header ? rows : null;
+  return columns ? { columns, rows } : null;
+}
+
+// Rows only, for callers that do not need the column names.
+export function tableUnder(text, heading) {
+  return tableAt(text, heading)?.rows ?? null;
+}
+
+// The columns each table must have, so a stray one-cell table is never
+// read as "no rows".
+export const COLUMNS = {
+  Items: ['item', 'priority', 'coverage', 'evidence', 'security'],
+  Risks: ['risk', 'category', 'p', 'i', 'score', 'status'],
+  Waivers: ['item', 'reason', 'approved by', 'approved', 'expires'],
+};
+
+function schemaProblems(table, heading) {
+  if (!table) return [];
+  const missing = COLUMNS[heading].filter((c) => !table.columns.includes(c));
+  return missing.length ? [`the ${heading} table lacks column(s): ${missing.join(', ')}`] : [];
 }
 
 // Security must be stated explicitly: a blank, a typo or an unfilled
@@ -63,7 +92,9 @@ export function isDate(v) {
 
 export function parseGate(text) {
   const problems = [];
-  const itemRows = tableUnder(text, 'Items');
+  const itemTable = tableAt(text, 'Items');
+  problems.push(...schemaProblems(itemTable, 'Items'));
+  const itemRows = itemTable?.rows ?? null;
   if (!itemRows) problems.push('missing "## Items" table');
   else if (!itemRows.length) problems.push('the Items table is empty: a gate with nothing traced proves nothing');
   const items = (itemRows || []).map((r) => {
@@ -84,12 +115,20 @@ export function parseGate(text) {
   });
   // The Risks table must be there, even when the analysis found no risks:
   // a missing table means the analysis is missing, not that risk is zero.
-  const riskRows = tableUnder(text, 'Risks');
+  const riskTable = tableAt(text, 'Risks');
+  problems.push(...schemaProblems(riskTable, 'Risks'));
+  const riskRows = riskTable?.rows ?? null;
   if (!riskRows) problems.push('missing "## Risks" table (keep it, with no rows, when there are no risks)');
   const risks = (riskRows || []).map((r) => {
     const score = Number(r.score);
     if (!r.risk) problems.push('a risk has no id');
     if (!Number.isInteger(score) || score < 1 || score > 9) problems.push(`risk ${r.risk}: score must be 1 to 9`);
+    // The score is probability x impact (each 1 to 3); a mistyped score must
+    // never turn a blocking risk into a concern.
+    const p = Number(r.p);
+    const im = Number(r.i);
+    if (![p, im].every((n) => Number.isInteger(n) && n >= 1 && n <= 3)) problems.push(`risk ${r.risk}: P and I must each be 1 to 3`);
+    else if (score !== p * im) problems.push(`risk ${r.risk}: score ${r.score} is not P x I = ${p * im}`);
     // An unknown category is a format problem and is treated as security,
     // so a typo can never make a security risk waivable.
     const category = (r.category || '').trim().toLowerCase();
@@ -103,7 +142,9 @@ export function parseGate(text) {
     if (seen.has(id)) problems.push(`id ${id} is used more than once across items and risks; ids must be unique`);
     seen.add(id);
   }
-  const waivers = (tableUnder(text, 'Waivers') || []).map((r) => ({
+  const waiverTable = tableAt(text, 'Waivers');
+  problems.push(...schemaProblems(waiverTable, 'Waivers'));
+  const waivers = (waiverTable?.rows || []).map((r) => ({
     id: r.item, reason: r.reason || '', by: r['approved by'] || '', approved: r.approved || '', expires: r.expires || '',
   }));
   return { items, risks, waivers, problems };

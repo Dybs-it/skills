@@ -35,7 +35,8 @@ secrets, personal data) with `yes` in the Security column.
 
 ## 2. Risks
 
-Copy the plan's risks with score and status. A risk is `mitigated` only when
+Copy the plan's risks with category, P, I, score and status (the script
+checks that the score is P × I). A risk is `mitigated` only when
 its mitigation exists and is proven, not when it is planned.
 
 ## 3. Compute

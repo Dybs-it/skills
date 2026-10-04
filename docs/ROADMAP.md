@@ -1,6 +1,8 @@
 # Roadmap
 
-Only phase 1 is built. Each later phase is drafted here, so its design can be
+Built: phase 1 (Getting Started) and the quality skills (test plan, tests,
+review, gate, PR), which work on their own. The work loop that will connect
+them is not built. Each later phase is drafted here, so its design can be
 argued with before any skill exists. Each phase ships only after the
 previous one passes the field test (`tests/PROTOCOL.md`).
 

@@ -17,9 +17,9 @@ updated: 2026-10-04
 
 ## Risks
 
-| Risk | Category | Score | Status |
-|---|---|---|---|
-| Invite link guessable | security | 6 | mitigated |
+| Risk | Category | P | I | Score | Status |
+|---|---|---|---|---|---|
+| Invite link guessable | security | 2 | 3 | 6 | mitigated |
 
 ## Waivers
 

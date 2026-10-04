@@ -13,9 +13,9 @@ updated: {{YYYY-MM-DD}}
 
 ## Risks
 
-| Risk | Category | Score | Status |
-|---|---|---|---|
-| {{what can go wrong}} | {{security}} | {{6}} | {{open}} |
+| Risk | Category | P | I | Score | Status |
+|---|---|---|---|---|---|
+| {{what can go wrong}} | {{security}} | {{2}} | {{3}} | {{6}} | {{open}} |
 
 ## Waivers
 

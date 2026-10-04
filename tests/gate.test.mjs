@@ -10,13 +10,18 @@ import { parseGate, decide, tableUnder } from '../skills/dybs-gate/scripts/dybs-
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TODAY = '2026-10-04';
 
+// Risks are written as [id, category, score, status]; P and I are filled in
+// to match the score, or left blank when no P x I gives it.
+const PI = { 1: [1, 1], 2: [1, 2], 3: [1, 3], 4: [2, 2], 6: [2, 3], 9: [3, 3] };
+const withPI = (r) => (r.length === 4 ? [r[0], r[1], ...(PI[r[2]] || ['', '']), r[2], r[3]] : r);
+
 // Builds a gate.md from compact rows.
 function gate({ items = [], risks = [], waivers = [] }) {
   const t = (head, rows) => [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n');
   return [
     '---', 'task: t', '---', '', '# Gate: t', '',
     '## Items', '', t(['Item', 'Priority', 'Coverage', 'Evidence', 'Security'], items), '',
-    '## Risks', '', t(['Risk', 'Category', 'Score', 'Status'], risks), '',
+    '## Risks', '', t(['Risk', 'Category', 'P', 'I', 'Score', 'Status'], risks.map(withPI)), '',
     '## Waivers', '', t(['Item', 'Reason', 'Approved by', 'Approved', 'Expires'], waivers), '',
     '## Decision', '',
   ].join('\n');
@@ -68,7 +73,7 @@ test('risks: open 9 FAILs, open 6 to 8 CONCERNS, mitigated does not count', () =
   assert.equal(run({ items, risks: [['r', 'data', '9', 'open']] }).decision, 'FAIL');
   assert.equal(run({ items, risks: [['r', 'data', '6', 'open']] }).decision, 'CONCERNS');
   assert.equal(run({ items, risks: [['r', 'data', '9', 'mitigated']] }).decision, 'PASS');
-  assert.equal(run({ items, risks: [['r', 'data', '5', 'open']] }).decision, 'PASS');
+  assert.equal(run({ items, risks: [['r', 'data', '4', 'open']] }).decision, 'PASS');
 });
 
 test('a complete, current waiver turns FAIL into WAIVED; the gap still counts', () => {
@@ -97,13 +102,13 @@ test('every blocking gap needs its own waiver', () => {
 });
 
 test('a waiver does not turn CONCERNS into anything', () => {
-  const r = run({ items: [full('a', 'P0')], risks: [['r', 'ops', '6', 'open']], waivers: [waiver('r')] });
+  const r = run({ items: [full('a', 'P0')], risks: [['r', 'operations', '6', 'open']], waivers: [waiver('r')] });
   assert.equal(r.decision, 'CONCERNS');
 });
 
 test('format problems are reported, not guessed', () => {
   const p = parseGate(gate({ items: [['a', 'P5', 'MOSTLY', '', 'no']], risks: [['r', 'x', '12', 'open']] }));
-  assert.equal(p.problems.length, 4); // priority, coverage, score, category
+  assert.equal(p.problems.length, 5); // priority, coverage, score, category, P and I
   assert.deepEqual(parseGate('# nothing here').problems, [
     'missing "## Items" table',
     'missing "## Risks" table (keep it, with no rows, when there are no risks)',
@@ -152,7 +157,7 @@ test('the Security column must say yes or no; anything else is a problem and tre
 });
 
 test('ids must be unique across items and risks, so a waiver names one thing', () => {
-  const p = parseGate(gate({ items: [gap('x', 'P0', 'NONE', 'yes')], risks: [['x', 'ops', '9', 'open']] }));
+  const p = parseGate(gate({ items: [gap('x', 'P0', 'NONE', 'yes')], risks: [['x', 'operations', '9', 'open']] }));
   assert.ok(p.problems.some((x) => /id x is used more than once/.test(x)));
   const dupItems = parseGate(gate({ items: [full('a'), full('a')] }));
   assert.ok(dupItems.problems.some((x) => /id a is used more than once/.test(x)));
@@ -161,7 +166,7 @@ test('ids must be unique across items and risks, so a waiver names one thing', (
 test('security is never lost when one id is blocked twice', () => {
   // decide() on hand-built input, bypassing parseGate's uniqueness check
   const items = [{ id: 'x', priority: 'P0', coverage: 'NONE', security: true, notes: [] }, ...Array.from({ length: 4 }, (_, i) => ({ id: `f${i}`, priority: 'P2', coverage: 'FULL', security: false, notes: [] }))];
-  const risks = [{ id: 'x', category: 'ops', score: 9, open: true }];
+  const risks = [{ id: 'x', category: 'operations', score: 9, open: true }];
   const waivers = [{ id: 'x', reason: 'demo', by: 'Jos', approved: '2026-10-01', expires: '2026-11-01' }];
   assert.equal(decide({ items, risks, waivers }, TODAY).decision, 'FAIL');
 });
@@ -239,4 +244,25 @@ test('--today without a real date is a usage error', () => {
   assert.equal(code(['--today', '2026-13-01']), 2);
   assert.equal(code(['--today', TODAY]), 0);
   rmSync(dir, { recursive: true });
+});
+
+// --- Codex review round 3 on PR #3 ---
+
+test('the score must be P x I, so a mistyped score cannot downgrade a blocker', () => {
+  const p = parseGate(gate({ items: [full('a', 'P0')], risks: [['r', 'data', '3', '3', '8', 'open']] }));
+  assert.match(p.problems.join(' '), /score 8 is not P x I = 9/);
+  assert.deepEqual(parseGate(gate({ items: [full('a', 'P0')], risks: [['r', 'data', '3', '3', '9', 'open']] })).problems, []);
+});
+
+test('an indented table is code, never a waiver', () => {
+  const text = gate({ items: [gap('a', 'P0')] }).replace(/## Waivers\n\n[\s\S]*?\n\n## Decision/,
+    '## Waivers\n\n    | Item | Reason | Approved by | Approved | Expires |\n    |---|---|---|---|---|\n    | a | demo | Jos | 2026-10-01 | 2026-11-01 |\n\n## Decision');
+  assert.equal(decide(parseGate(text), TODAY).decision, 'FAIL');
+});
+
+test('a table without the expected columns, or without a separator, is not a table', () => {
+  const oneCell = gate({ items: [full('a', 'P0')] }).replace(/## Risks\n\n[\s\S]*?\n\n## Waivers/, '## Risks\n\n| There are no risks |\n|---|\n\n## Waivers');
+  assert.match(parseGate(oneCell).problems.join(' '), /Risks table lacks column\(s\): risk, category, p, i, score, status/);
+  const noSeparator = gate({ items: [full('a', 'P0')] }).replace(/## Risks\n\n[\s\S]*?\n\n## Waivers/, '## Risks\n\n| There are no risks |\n\n## Waivers');
+  assert.match(parseGate(noSeparator).problems.join(' '), /missing "## Risks" table/);
 });
