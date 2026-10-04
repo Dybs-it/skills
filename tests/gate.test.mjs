@@ -769,3 +769,21 @@ test('git missing or refusing the repository is STALE inside a repository, never
   }
   rmSync(repo, { recursive: true });
 });
+
+test('a repository git cannot read the status of is STALE, never a crash read as FAIL', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  // A corrupt index: rev-parse still finds the repository, status cannot read it.
+  writeFileSync(join(repo, '.git/index'), 'not an index');
+  let r;
+  try { r = { code: 0, out: execFileSync('node', [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: git could not read the working tree/);
+  rmSync(repo, { recursive: true });
+});

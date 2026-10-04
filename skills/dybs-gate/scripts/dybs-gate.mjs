@@ -552,7 +552,13 @@ export function freshness(gatePath, text) {
   const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
   // NUL-separated porcelain: paths come unquoted (no C escapes for
   // non-ASCII names), and a rename lists both of its paths.
-  const raw = execFileSync('git', ['-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  let raw;
+  try {
+    raw = execFileSync('git', ['-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    const said = String(e.stderr || '').trim().split('\n')[0];
+    return { status: 'stale', reason: `git could not read the working tree (${said || e.message}). Fix the repository and run the gate again` };
+  }
   const entries = raw.split('\0');
   const paths = [];
   for (let i = 0; i < entries.length; i++) {
