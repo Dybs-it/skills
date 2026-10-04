@@ -1668,3 +1668,50 @@ test('the moved-aside original is checked against the identity it was created wi
   assert.ok(existsSync(replaced), 'the watcher\'s file is never deleted');
   rmSync(root, { recursive: true });
 });
+
+test('rollback never removes a staging file through a folder swapped for a link', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  const rel = 'scripts/dybs-validate.mjs';
+  writeFileSync(join(dir, rel), 'old shipped version');
+  const known = { [`dybs-start/${rel}`]: [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let kept = null;
+  // After staging, scripts/ becomes a link to an outside folder holding
+  // another name for the very staged file.
+  const beforeStageCheck = (entry) => {
+    if (kept || entry.a.rel !== rel) return;
+    kept = join(outside, entry.tmp.split('/').at(-1));
+    linkSync(entry.tmp, kept);
+    renameSync(join(dir, 'scripts'), join(dir, 'scripts.moved'));
+    symlinkSync(outside, join(dir, 'scripts'));
+  };
+  assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /changed/);
+  assert.ok(kept);
+  assert.ok(existsSync(kept), 'the outside name must survive');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('without hard links, a move-aside copy that fails halfway leaves nothing behind', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  // The copy of the original to its .old name writes part, then fails.
+  mod.fsOps.write = (fd, data) => {
+    if (String(data) === 'old shipped version') { real.write(fd, 'partial'); throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }); }
+    return real.write(fd, data);
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /no space left/); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  assert.deepEqual(readdirSync(dir).filter((n) => n.includes('.old')), []);
+  rmSync(root, { recursive: true });
+});
