@@ -709,7 +709,9 @@ test('without hard links, placement creates the target exclusively and keeps its
     mod.placeNoClobber(join(dir, 'from'), join(dir, 'to'));
     assert.equal(readFileSync(join(dir, 'to'), 'utf8'), 'new');
     assert.equal(statSync(join(dir, 'to')).mode & 0o777, 0o755);
-    assert.ok(!existsSync(join(dir, 'from')));
+    // The source stays until the caller has recorded the placement.
+    assert.equal(readFileSync(join(dir, 'from'), 'utf8'), 'new');
+    rmSync(join(dir, 'from'));
     assert.ok(calls.every((f) => f & fsConstants.COPYFILE_EXCL));
     assert.equal(calls.length, 1);
     // Something that appears at the target is refused, never replaced.
@@ -720,4 +722,40 @@ test('without hard links, placement creates the target exclusively and keeps its
     Object.assign(mod.fsOps, real);
     rmSync(dir, { recursive: true });
   }
+});
+
+test('a failure removing the staging file after placement is still undone', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  try {
+    writeFileSync(prd(root), 'old shipped version');
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const [install] = findInstalls([root]);
+    const plan = mod.planInstall(install, { known });
+    mod.fsOps.rm = () => { throw Object.assign(new Error('locked'), { code: 'EBUSY' }); };
+    assert.throws(() => mod.applyPlan(plan), /locked/);
+    assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  } finally {
+    Object.assign(mod.fsOps, real);
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('a skill folder replaced by a link after the plan stops the update before anything is written', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const dir = join(root, '.agents/skills/dybs-prd');
+  cpSync(dir, outside, { recursive: true });
+  rmSync(dir, { recursive: true });
+  symlinkSync(outside, dir);
+  assert.throws(() => applyPlan(plan), /skill folder was moved or replaced/);
+  assert.equal(readFileSync(join(outside, SKILL), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });

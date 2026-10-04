@@ -136,6 +136,22 @@ function removeEmptyDirs(dir, stopAt) {
   }
 }
 
+// The skill folder as planned: a real directory (not a link) at its own
+// real path, identified by device and inode, so a folder renamed away and
+// replaced by a link or another folder is noticed before anything is written.
+function rootIdentity(dir) {
+  const st = lstatSync(dir);
+  if (!st.isDirectory() || realpathSync(dir) !== dir) return null;
+  return { dev: st.dev, ino: st.ino };
+}
+
+function sameRoot(dir, root) {
+  try {
+    const now = rootIdentity(dir);
+    return Boolean(root && now && now.dev === root.dev && now.ino === root.ino);
+  } catch { return false; }
+}
+
 // What is at `dir/rel`, judged without following any link below `dir`
 // (`dir` itself is the already-resolved skill folder). Only a regular file
 // reached through real directories is ever read or written.
@@ -167,6 +183,7 @@ export function inspectPath(dir, rel) {
 export function planInstall(install, { force = false, known = knownHashes() } = {}) {
   const { skill, dir } = install;
   const want = shippedFiles(skill);
+  const root = rootIdentity(dir);
   const isKnown = (rel, hash) => (known[`${skill}/${rel}`] || []).includes(hash);
   // A checkout with core.autocrlf turns LF into CRLF; that is the same
   // shipped file, so match it with line endings normalised too.
@@ -200,7 +217,7 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
   }
 
   const blocked = actions.some((a) => a.op === 'conflict' || a.op === 'unsafe');
-  return { ...install, actions, blocked, want };
+  return { ...install, actions, blocked, want, root };
 }
 
 // Creates the folders of `relDir` below `root` one level at a time, never
@@ -226,9 +243,11 @@ function mkdirNoFollow(root, relDir) {
 
 // Filesystem calls applyPlan uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { link: linkSync, copyFile: copyFileSync };
+export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync };
 
-// Puts `from` at `to` without overwriting anything there. link() does that
+// Puts a copy of `from` at `to` without overwriting anything there, and
+// leaves `from` for the caller to remove once it has recorded the placement:
+// a failure after placing must still be undone. link() does that
 // atomically; on a filesystem without hard links (exFAT, some network
 // mounts) it falls back to an exclusive copy: COPYFILE_EXCL creates `to`
 // with O_EXCL, so a file or link that appears there at any moment is
@@ -237,12 +256,10 @@ export const fsOps = { link: linkSync, copyFile: copyFileSync };
 export function placeNoClobber(from, to) {
   try {
     fsOps.link(from, to);
-    rmSync(from);
   } catch (err) {
     if (err.code === 'EEXIST') throw err;
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
     fsOps.copyFile(from, to, fsConstants.COPYFILE_EXCL);
-    rmSync(from);
   }
 }
 
@@ -270,6 +287,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
   // swapped for a link since. Check every path again, right before touching
   // it, so nothing is written through a link out of the skill folder.
   const recheck = (a) => {
+    if (!sameRoot(dir, plan.root)) throw new Error(`${dir} changed since the update was planned (the skill folder was moved or replaced); nothing was changed, run update again`);
     const at = inspectPath(dir, a.rel);
     const expected = a.op === 'add' ? ['missing'] : ['file'];
     if (at.state === 'unsafe' || !expected.includes(at.state)) {
@@ -320,6 +338,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
         }
         s.placed = true;
         if (s.a.op === 'add') done.push(s);
+        fsOps.rm(s.tmp);
       }
     }
   } catch (err) {
@@ -339,7 +358,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir } = {}) {
         undo(s.a.rel, () => rmSync(s.p));
       }
       // Put the original back without overwriting anything that appeared.
-      if (s.old) undo(s.a.rel, () => placeNoClobber(s.old, s.p));
+      if (s.old) undo(s.a.rel, () => { placeNoClobber(s.old, s.p); rmSync(s.old); });
     }
     for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmSync(s.tmp, { force: true }));
     for (const b of backups) undo(b, () => rmSync(b, { force: true }));
