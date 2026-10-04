@@ -420,6 +420,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         renameSync(s.p, s.old);
         done.push(s);
         pinned(s);
+        s.oldId = idOf(s.old);
         if (sha(readFileSync(s.old)) !== s.a.hash) throw new Error(`${s.a.rel} changed since the update was planned; nothing was changed, run update again`);
       }
       if (s.tmp) {
@@ -491,12 +492,17 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
   for (const s of staged) {
     if (s.old) {
       beforeCleanup?.(s);
+      // Deleted only when provably ours: reached through the pinned folders,
+      // the very file we moved aside, and still holding the planned bytes.
+      // Anything less is kept and reported.
+      const here = chainOf(dir, s.a.rel) === s.chain && idOf(s.old) === s.oldId;
       let bytes = null;
-      try { bytes = readFileSync(s.old); } catch { bytes = null; }
-      if (bytes && sha(bytes) !== s.a.hash) s.a.kept = s.old;
-      else rmSync(s.old, { force: true });
+      try { bytes = here ? readFileSync(s.old) : null; } catch { bytes = null; }
+      if (here && bytes && sha(bytes) === s.a.hash) rmSync(s.old);
+      else if (here && !bytes) { /* already gone */ }
+      else s.a.kept = s.old;
     }
-    if (s.a.op === 'remove') removeEmptyDirs(dirname(s.p), dir);
+    if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) removeEmptyDirs(dirname(s.p), dir);
   }
   return { ...plan, applied: true };
 }
