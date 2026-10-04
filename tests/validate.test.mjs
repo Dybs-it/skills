@@ -291,3 +291,12 @@ test('raw HTML blocks are refused; comments, code and autolinks are fine', () =>
   rmSync(dir, { recursive: true });
   rmSync(ok, { recursive: true });
 });
+
+test('a fence in a multi-digit list item closes at the item indent', async () => {
+  const { headings, wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const text = '## A\n\n10. ```\n    code here\n    ```\n\n## B\n\nafter words';
+  assert.deepEqual(headings(text), ['A', 'B']);
+  assert.equal(wordCount(text), 4);
+  // At the top level a closing fence indented four spaces is code, not a close.
+  assert.deepEqual(headings('```\nx\n    ```\n## Hidden\n'), []);
+});

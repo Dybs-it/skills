@@ -35,8 +35,8 @@ installs in your home folder.`;
 
 function printSkipped(skipped) {
   if (!skipped.length) return;
-  console.log('\nLeft alone, resolves outside the requested folder:');
-  for (const s of skipped) console.log(`  ${s.via} -> ${s.dir}`);
+  console.log('\nLeft alone:');
+  for (const s of skipped) console.log(`  ${s.via} -> ${s.dir}  (${s.why})`);
 }
 
 const SYMBOL = { add: '+', update: '~', replace: '!', remove: '-', conflict: '?', keep: '=', unsafe: 'x' };
