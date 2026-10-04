@@ -1167,3 +1167,16 @@ test('a dybs/README.md that is not a file is an error', async () => {
   assert.ok(r.results.find((x) => x.name === 'readme').errors[0].includes('not a file'));
   rmSync(dir, { recursive: true });
 });
+
+test('a thematic break ends a code span like any other block', async () => {
+  const { visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(visibleText('open `\n***\n<!-- TODO -->\nclose `\n', { keepCode: true }), 'open `\n***\n\nclose `\n');
+  assert.equal(visibleText('open `\n___\n<!-- TODO -->\nclose `\n', { keepCode: true }), 'open `\n___\n\nclose `\n');
+});
+
+test('an indented code block may follow a heading or a closed fence directly', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('## Heading\n    code one two three\n\nafter'), 2);
+  assert.equal(wordCount('```\nx\n```\n    code a b\n'), 0);
+  assert.equal(wordCount('para one\n    still para\n'), 4);
+});
