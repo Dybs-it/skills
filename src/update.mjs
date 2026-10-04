@@ -233,9 +233,13 @@ function writeOwnFile(p, data, mode, onCreate) {
 // Test seam: runs between the first look at a name and acting on it.
 export const testHooks = { afterLook: null, beforeRmdir: null, beforeUndoRm: null };
 
-function rmIfOurs(p, id) {
+// `check` runs immediately before the move (for example, that the folders
+// on the way are still the pinned ones), so nothing is moved through a
+// folder that changed after an earlier check.
+function rmIfOurs(p, id, check) {
   if (idOf(p) === null) return;
   testHooks.afterLook?.(p);
+  check?.();
   const aside = `${p}.${randomUUID()}.rm`;
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   if (idOf(aside) === id) { rmSync(aside); return; }
@@ -478,7 +482,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           s.old = old;
           s.oldId = idOf(old);
           done.push(s);
-          rmIfOurs(s.p, s.oldId);
+          rmIfOurs(s.p, s.oldId, () => pinned(s));
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
           if (s.old || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
