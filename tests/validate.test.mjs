@@ -188,3 +188,25 @@ test('tilde fences and indented code blocks are left out of the word count', asy
   assert.equal(wordCount('one two\n\n~~~\nthree four five\n~~~\n'), 2);
   assert.equal(wordCount('one two\n\n    three four five\n'), 2);
 });
+
+test('a literal <!-- inside code is text, not a comment that hides the rest', async () => {
+  const { wordCount, headings } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const fenced = '## A\n\n```html\n<!-- start\n```\n\n## B\n\nafter words here';
+  assert.deepEqual(headings(fenced), ['A', 'B']);
+  assert.equal(wordCount(fenced), 5);
+  const span = '## A\n\nUse `<!--` to open a comment.\n\n## B\n';
+  assert.deepEqual(headings(span), ['A', 'B']);
+  const real = '## A\n\n<!-- hidden\n## Hidden\n-->\n## B\n';
+  assert.deepEqual(headings(real), ['A', 'B']);
+});
+
+test('frontmatter dates must exist in the calendar', () => {
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t.replace(/^updated: .*$/m, 'updated: 2026-99-99'));
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(r.rules.includes('updated'));
+  edit(dir, 'context/prd.md', (t) => t.replace(/^updated: .*$/m, 'updated: 2026-10-01').replace(/^accepted: .*$/m, 'accepted: 2026-02-31'));
+  const r2 = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(r2.rules.includes('accepted-date'));
+  rmSync(dir, { recursive: true });
+});

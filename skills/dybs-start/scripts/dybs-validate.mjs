@@ -77,20 +77,67 @@ export function parseFrontmatter(text) {
   return { data, body: text.slice(m[0].length) };
 }
 
-// What a reader sees: HTML comments and fenced code blocks dropped, by
-// Markdown's rules. A fence closes only with the same character, at least
-// as long as it opened, so a ```` block may hold ``` lines; an unclosed
-// comment or fence runs to the end. An indented code block (four spaces or
-// a tab) starts only after a blank line and outside a list, since an
-// indented line there continues a paragraph or a list item instead.
+// A real calendar date in YYYY-MM-DD, not just the right shape.
+export function isDate(v) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v || '')) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
+// One line with HTML comments removed, except inside inline code spans,
+// where `<!--` is literal text. `open` is true when a comment starts here and
+// does not close on this line.
+function stripComments(line) {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === '`') {
+      const run = line.slice(i).match(/^`+/)[0];
+      const close = line.slice(i + run.length).search(new RegExp(`(?<!\`)${run}(?!\`)`));
+      if (close >= 0) {
+        const endAt = i + run.length + close + run.length;
+        out += line.slice(i, endAt);
+        i = endAt;
+      } else {
+        out += run;
+        i += run.length;
+      }
+      continue;
+    }
+    if (line.startsWith('<!--', i)) {
+      const end = line.indexOf('-->', i + 4);
+      if (end < 0) return { text: out, open: true };
+      i = end + 3;
+      continue;
+    }
+    out += line[i++];
+  }
+  return { text: out, open: false };
+}
+
+// What a reader sees: HTML comments and code blocks dropped, by Markdown's
+// rules, in one pass so each construct is judged where it actually occurs:
+// `<!--` inside a fence, an indented block or a code span is text, not a
+// comment. A fence closes only with the same character, at least as long as
+// it opened, so a ```` block may hold ``` lines; an unclosed comment or fence
+// runs to the end. An indented code block (four spaces or a tab) starts only
+// after a blank line and outside a list, since an indented line there
+// continues a paragraph or a list item instead.
 export function visibleText(body) {
-  const noComments = body.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
   const out = [];
   let fence = null;
   let indented = false;
   let inList = false;
   let prevBlank = true;
-  for (const line of noComments.split(/\r?\n/)) {
+  let inComment = false;
+  for (const raw of body.split(/\r?\n/)) {
+    let line = raw;
+    if (inComment) {
+      const end = line.indexOf('-->');
+      if (end < 0) continue;
+      inComment = false;
+      line = line.slice(end + 3);
+    }
     const blank = line.trim() === '';
     const isIndented = /^( {4}|\t)/.test(line);
     if (indented) {
@@ -104,8 +151,12 @@ export function visibleText(body) {
     }
     if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; continue; }
     if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; continue; }
-    if (!blank && !isIndented) inList = /^ {0,3}([-*+]|\d{1,9}[.)])(\s|$)/.test(line) || (inList && !prevBlank);
-    prevBlank = blank;
+    const stripped = stripComments(line);
+    inComment = stripped.open;
+    line = stripped.text;
+    const nowBlank = line.trim() === '';
+    if (!nowBlank && !/^( {4}|\t)/.test(line)) inList = /^ {0,3}([-*+]|\d{1,9}[.)])(\s|$)/.test(line) || (inList && !prevBlank);
+    prevBlank = nowBlank;
     out.push(line);
   }
   return out.join('\n');
@@ -142,8 +193,8 @@ export function validateDoc(name, text) {
   } else {
     if (data.doc !== name) fail('doc-name', `frontmatter "doc" must be "${name}" (found "${data.doc ?? ''}")`);
     if (!STATUSES.includes(data.status)) fail('status', `frontmatter "status" must be one of ${STATUSES.join('|')}`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.updated || '')) fail('updated', 'frontmatter "updated" must be YYYY-MM-DD');
-    if (data.status === 'accepted' && !/^\d{4}-\d{2}-\d{2}$/.test(data.accepted || '')) {
+    if (!isDate(data.updated)) fail('updated', 'frontmatter "updated" must be a real date, YYYY-MM-DD');
+    if (data.status === 'accepted' && !isDate(data.accepted)) {
       fail('accepted-date', 'accepted docs need frontmatter "accepted: YYYY-MM-DD" (set only on the human\'s word)');
     }
   }
