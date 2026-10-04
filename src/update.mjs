@@ -332,7 +332,7 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeCleanup } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStageRm, beforeCleanup } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   const tag = `dybs-${process.pid}-${Date.now()}`;
@@ -444,6 +444,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         s.placedId = how === 'link' ? s.tmpId : idOf(s.p);
         if (s.a.op === 'add') done.push(s);
         pinned(s);
+        // The staging name is removed only while it still leads, through
+        // the pinned folders, to the file we staged: a same-named file
+        // reached through a swapped folder is never ours to delete.
+        beforeStageRm?.(s);
+        if (chainOf(dir, s.a.rel) !== s.chain || idOf(s.tmp) !== s.tmpId) {
+          throw new Error(`a folder on the way to ${s.a.rel} changed during the update; nothing was kept, run update again`);
+        }
         fsOps.rm(s.tmp);
       }
     }
