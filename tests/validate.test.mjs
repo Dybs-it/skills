@@ -685,3 +685,53 @@ test('without hard links, accept places the doc with an exclusive copy and refus
     rmSync(dir, { recursive: true });
   }
 });
+
+test('indented code blocks are left out of the word count, list continuations are not', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('Intro words here.\n\n    alpha beta gamma delta\n    epsilon zeta\n\nAfter.'), 4);
+  assert.equal(wordCount('Para line\n    continued here'), 4);
+  assert.equal(wordCount('- item one\n\n    more of item\n'), 5);
+});
+
+test('placeholders after an unclosed HTML comment are ignored', () => {
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t + '\n<!-- guidance that never closes\nTODO fill this in\n');
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(!r.warnings.some((w) => w.includes('placeholder')) && !r.errors.some((e) => e.includes('placeholder')));
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept refuses a doc whose required input is missing or invalid', () => {
+  const dir = copySample();
+  assert.equal(acceptDoc(dir, 'ui').ok, true, 'the sample ui doc is acceptable while ux.md is there');
+  edit(dir, 'context/ui.md', (t) => t.replace('status: accepted', 'status: draft').replace(/^accepted.*\n/gm, ''));
+  rmSync(join(dir, 'dybs/context/ux.md'));
+  const r = acceptDoc(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join('\n'), /ux\.md is missing/);
+  assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
+  rmSync(dir, { recursive: true });
+  const bad = copySample();
+  writeFileSync(join(bad, 'dybs/context/ux.md'), 'no frontmatter\n');
+  assert.equal(acceptDoc(bad, 'ui').ok, false);
+  rmSync(bad, { recursive: true });
+});
+
+test('validate refuses unknown options and a second folder', () => {
+  const quiet = (fn) => { const e = console.error; const l = console.log; console.error = () => {}; console.log = () => {}; try { return fn(); } finally { console.error = e; console.log = l; } };
+  const dir = copySample();
+  assert.equal(quiet(() => main(['node', 'v', dir, '--accpet', 'ui'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', dir, dir])), 2);
+  assert.equal(quiet(() => main(['node', 'v', dir, '-x'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', dir, '--verbose'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', '--jsno'])), 2);
+  assert.match(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), /status: draft/);
+  assert.equal(quiet(() => main(['node', 'v', dir, '--json'])), 0);
+  rmSync(dir, { recursive: true });
+});
+
+test('dybs-start repairs a partial setup before routing', () => {
+  const skill = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(skill, /No `dybs\/project\.md`: the kickoff never finished/);
+  assert.match(skill, /No `dybs\/README\.md` or `dybs\/team\.md`: copy the missing one from `assets\/`/);
+});

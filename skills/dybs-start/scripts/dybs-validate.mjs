@@ -94,18 +94,32 @@ export function parseFrontmatter(text) {
 // What a reader sees: HTML comments and fenced code blocks dropped, by
 // Markdown's rules. A fence closes only with the same character, at least
 // as long as it opened, so a ```` block may hold ``` lines; an unclosed
-// comment or fence runs to the end.
+// comment or fence runs to the end. An indented code block (four spaces or
+// a tab) starts only after a blank line and outside a list, since an
+// indented line there continues a paragraph or a list item instead.
 export function visibleText(body) {
   const noComments = body.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
   const out = [];
   let fence = null;
+  let indented = false;
+  let inList = false;
+  let prevBlank = true;
   for (const line of noComments.split(/\r?\n/)) {
+    const blank = line.trim() === '';
+    const isIndented = /^( {4}|\t)/.test(line);
+    if (indented) {
+      if (blank || isIndented) { prevBlank = blank; continue; }
+      indented = false;
+    }
     const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       if (m && m[1][0] === fence.ch && m[1].length >= fence.len && m[2].trim() === '') fence = null;
       continue;
     }
-    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; continue; }
+    if (m && !(m[1][0] === '`' && m[2].includes('`'))) { fence = { ch: m[1][0], len: m[1].length }; prevBlank = false; continue; }
+    if (!blank && isIndented && prevBlank && !inList) { indented = true; prevBlank = false; continue; }
+    if (!blank && !isIndented) inList = /^ {0,3}([-*+]|\d{1,9}[.)])(\s|$)/.test(line) || (inList && !prevBlank);
+    prevBlank = blank;
     out.push(line);
   }
   return out.join('\n');
@@ -240,7 +254,7 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
   }
 
   const frontmatterValues = Object.values(data || {}).join('\n');
-  if (PLACEHOLDER.test(body.replace(/<!--[\s\S]*?-->/g, '')) || PLACEHOLDER.test(frontmatterValues)) {
+  if (PLACEHOLDER.test(body.replace(/<!--[\s\S]*?(?:-->|$)/g, '')) || PLACEHOLDER.test(frontmatterValues)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);
@@ -393,6 +407,18 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
       const projectText = readFileSync(projectPath, 'utf8');
       const project = validateDoc('project', projectText, depthFor('project', parseFrontmatter(projectText).data));
       if (project.errors.length) return { ok: false, errors: project.errors.map((e) => `project.md: ${e}`) };
+      // A doc is never accepted without the docs it cannot be written
+      // without: each must exist and validate.
+      const projectData = parseFrontmatter(projectText).data;
+      for (const dep of REQUIRES[name] || []) {
+        const depRel = `dybs/${DOCS[dep].file}`;
+        const depPath = join(root, depRel);
+        if (!existsSync(depPath)) return { ok: false, errors: [`${depRel} is missing: ${name} cannot be written without it. Write ${dep} first.`] };
+        const depUnsafe = unsafePath(root, depRel);
+        if (depUnsafe) return { ok: false, errors: [`refusing to accept: ${depUnsafe}`] };
+        const r = validateDoc(dep, readFileSync(depPath, 'utf8'), depthFor(dep, projectData));
+        if (r.errors.length) return { ok: false, errors: r.errors.map((e) => `${DOCS[dep].file}: ${e}`) };
+      }
     }
   }
   const path = join(root, rel);
@@ -435,6 +461,19 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
 
 export function main(argv) {
   const args = argv.slice(2);
+  // Unknown options and a second folder are refused: a misspelled
+  // `--accpet prd` must not quietly run a plain validation that exits 0.
+  {
+    const positionals = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === '--doc' || a === '--accept') { i++; continue; }
+      if (a === '--json') continue;
+      if (a.startsWith('-') && a !== '-') { console.error(`unknown option ${a}. Options: --doc <name>, --accept <doc>, --json`); return 2; }
+      positionals.push(a);
+    }
+    if (positionals.length > 1) { console.error(`one project folder at most, got: ${positionals.join(' ')}`); return 2; }
+  }
   const json = args.includes('--json');
   // A flag that takes a doc name must get one: a bare `--accept` that
   // silently ran a plain validation would look like it had accepted.
