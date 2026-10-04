@@ -2552,3 +2552,47 @@ test('--accept without hard links puts a changed doc back without replacing a ne
   assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8').startsWith('edited in place'); } catch { return false; } }), 'the edited doc is kept');
   rmSync(dir, { recursive: true });
 });
+
+test('--doc refuses a doc reached through a link, as --accept does', () => {
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const doc = join(dir, 'dybs/context/ui.md');
+  writeFileSync(join(outside, 'ui.md'), readFileSync(doc, 'utf8'));
+  rmSync(doc);
+  symlinkSync(join(outside, 'ui.md'), doc);
+  const r = validateProject(dir, 'ui');
+  assert.equal(r.ok, false);
+  assert.match(r.results.find((x) => x.name === 'ui').errors.join(' '), /symbolic link/);
+  assert.equal(acceptDoc(dir, 'ui', '2026-10-04').ok, false);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('--accept keeps the private name when a put-back landed outside through a folder swapped and restored', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let oldAt = null;
+  let swapped = false;
+  mod.testHooks.beforeMove = (p) => {
+    if (oldAt || !/\.old$/.test(p)) return;
+    oldAt = p;
+    writeFileSync(`${p}.x`, 'a user file');
+    renameSync(`${p}.x`, p);
+  };
+  mod.fsOps.link = (from, to) => {
+    if (swapped || to !== oldAt || !/\.rm$/.test(from)) return real.link(from, to);
+    swapped = true;
+    real.link(from, join(outside, from.split('/').at(-1)));
+    renameSync(ctx, `${ctx}.moved`);
+    symlinkSync(outside, ctx);
+    try { return real.link(from, to); } finally { rmSync(ctx); renameSync(`${ctx}.moved`, ctx); }
+  };
+  try { acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8') === 'a user file'; } catch { return false; } }), 'the user file is still in dybs/context');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

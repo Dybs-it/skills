@@ -1071,6 +1071,14 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
+    // Judged by the rules --accept uses: a doc reached through a link (at
+    // its name or a folder on the way) never passes, or --doc would pass a
+    // doc that cannot be accepted.
+    const unsafe = unsafePath(root, `dybs/${spec.file}`);
+    if (unsafe) {
+      results.push({ name, file: spec.file, status: null, words: 0, errors: [`${unsafe}: keep the docs as real files in dybs/`], warnings: [] });
+      continue;
+    }
     // project.md is validated from the very bytes its settings came from:
     // a save in between would otherwise mix two versions in one result.
     const text = name === 'project' && projectText !== null ? projectText : readRegular(path);
@@ -1265,6 +1273,13 @@ function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
     const now = pathId(p);
     if (now !== null && now === (how === 'copy' ? copied.id : pathId(aside))) { try { rmIfOurs(p, now); } catch { /* named below */ } }
     throw Object.assign(new Error(`${p} changed while it was being removed, and a folder on the way changed while it was put back; it is kept at ${aside}`), { keptAt: aside });
+  }
+  // The name must now be the very file put back (or the copy just made): a
+  // folder swapped for a link and restored around the link passes the pins
+  // while the name landed outside. Then the private name is all that is
+  // left inside, and it stays.
+  if (pathId(p) !== (how === 'copy' ? copied.id : theirs)) {
+    throw Object.assign(new Error(`${p} changed while it was being removed, and it could not be put back at its name; it is kept at ${aside}`), { keptAt: aside });
   }
   if (how === 'copy') throw Object.assign(new Error(`${p} changed while it was being removed; it was put back as a copy, the file itself is kept at ${aside}`), { keptAt: aside });
   // The private name goes only as the very file just put back: one that
