@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Computes the quality gate decision from a dybs/work/<task>/gate.md file.
-// Usage: node dybs-gate.mjs <gate.md> [--today YYYY-MM-DD] [--json]
+// Usage: node dybs-gate.mjs <gate.md> [--json]
+// Waivers are always judged against today's local date: there is no option to
+// pick another date, so an expired waiver can never be made current again.
 // Exit code 0 = PASS, CONCERNS or WAIVED; 1 = FAIL; 2 = usage or format problem.
 //
 // The rules live here, as code, so the decision is arithmetic rather than an
@@ -45,9 +47,16 @@ export function visible(text) {
   return out.join('\n');
 }
 
+// "## <heading>" as Markdown renders it: indented four spaces or a tab, it
+// is code, not a heading.
+function isHeading(line, heading) {
+  const m = line.match(/^ {0,3}##[ \t]+(.*?)[ \t]*$/);
+  return Boolean(m) && m[1].toLowerCase() === heading.toLowerCase();
+}
+
 // How often "## <heading>" appears in what a reader sees.
 export function headingCount(text, heading) {
-  return visible(text).split(/\r?\n/).filter((l) => l.trim().toLowerCase() === `## ${heading.toLowerCase()}`).length;
+  return visible(text).split(/\r?\n/).filter((l) => isHeading(l, heading)).length;
 }
 
 // The first Markdown table under "## <heading>": its lower-cased column
@@ -56,7 +65,7 @@ export function headingCount(text, heading) {
 // separator row). Indented lines are code, never a table.
 export function tableAt(text, heading) {
   const lines = visible(text).split(/\r?\n/);
-  const start = lines.findIndex((l) => l.trim().toLowerCase() === `## ${heading.toLowerCase()}`);
+  const start = lines.findIndex((l) => isHeading(l, heading));
   if (start < 0) return null;
   const cellsOf = (line) => line.slice(1, line.endsWith('|') ? -1 : undefined).split('|').map((c) => c.trim());
   const isSeparator = (cells) => cells.every((c) => /^:?-{3,}:?$/.test(c));
@@ -248,8 +257,11 @@ export function decide({ items, risks, waivers }, today = localDate()) {
   if (computed === 'FAIL') {
     for (const [id, b] of blocking) {
       if (b.security) { waiverProblems.push(`${id}: security gaps are never waived`); continue; }
-      const issue = waiverIssue(waivers.find((w) => w.id === id), today);
-      if (issue) waiverProblems.push(`${id}: ${issue}`);
+      // A renewal can sit below an expired waiver kept as history: the item is
+      // waived when any of its rows is valid today. Otherwise report the latest.
+      const rows = waivers.filter((w) => w.id === id);
+      if (rows.some((w) => !waiverIssue(w, today))) continue;
+      waiverProblems.push(`${id}: ${waiverIssue(rows.at(-1), today)}`);
     }
     if (!waiverProblems.length) decision = 'WAIVED';
   }
@@ -259,14 +271,11 @@ export function decide({ items, risks, waivers }, today = localDate()) {
 export function main(argv) {
   const args = argv.slice(2);
   const json = args.includes('--json');
-  const t = args.indexOf('--today');
-  const today = t >= 0 ? args[t + 1] : localDate();
-  if (!isDate(today)) {
-    console.error('--today needs a real date (YYYY-MM-DD); without one, waiver expiry cannot be checked');
-    return 2;
-  }
-  const file = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--today');
-  if (!file) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--today YYYY-MM-DD] [--json]'); return 2; }
+  const unknown = args.filter((a) => a.startsWith('--') && a !== '--json');
+  if (unknown.length) { console.error(`unknown option ${unknown.join(', ')}. Usage: dybs-gate.mjs <gate.md> [--json]`); return 2; }
+  const today = localDate();
+  const file = args.find((a) => !a.startsWith('--'));
+  if (!file) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--json]'); return 2; }
   let text;
   try {
     text = readFileSync(resolve(file), 'utf8');

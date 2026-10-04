@@ -5,7 +5,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { parseGate, decide, tableUnder } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
+import { parseGate, decide, tableUnder, headingCount } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
+const headingCountFor = (text) => headingCount(text, 'Waivers');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TODAY = '2026-10-04';
@@ -124,7 +125,7 @@ test('CLI: exit 1 on FAIL, 0 on PASS, 2 on a malformed file; dybs-skills gate is
   const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
   const write = (name, spec) => { const p = join(dir, name); writeFileSync(p, typeof spec === 'string' ? spec : gate(spec)); return p; };
   const gateCli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
-  const code = (file, bin = gateCli) => { try { execFileSync('node', [bin, ...(bin === gateCli ? [] : ['gate']), file, '--today', TODAY], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
+  const code = (file, bin = gateCli) => { try { execFileSync('node', [bin, ...(bin === gateCli ? [] : ['gate']), file], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
   assert.equal(code(write('pass.md', { items: [full('a', 'P0')] })), 0);
   assert.equal(code(write('fail.md', { items: [gap('a', 'P0')] })), 1);
   assert.equal(code(write('bad.md', '# no tables')), 2);
@@ -233,16 +234,15 @@ test('tables inside HTML comments or code fences are ignored', () => {
   assert.equal(decide(parseGate(fenced), TODAY).decision, 'FAIL');
 });
 
-test('--today without a real date is a usage error', () => {
+test('the CLI has no way to pick another date: --today is refused', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
   const file = join(dir, 'gate.md');
   writeFileSync(file, gate({ items: [full('a', 'P0')] }));
   const cli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
   const code = (args) => { try { execFileSync('node', [cli, file, ...args], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
-  assert.equal(code(['--today']), 2);
-  assert.equal(code(['--today', '--json']), 2);
-  assert.equal(code(['--today', '2026-13-01']), 2);
-  assert.equal(code(['--today', TODAY]), 0);
+  assert.equal(code(['--today', '2020-01-01']), 2);
+  assert.equal(code(['--json']), 0);
+  assert.equal(code([]), 0);
   rmSync(dir, { recursive: true });
 });
 
@@ -302,4 +302,23 @@ test('the gate\'s default today is the local date, not the UTC one', () => {
     console.log(localDate(new Date(2026, 9, 4, 23, 30)));`;
   const out = execFileSync('node', ['--input-type=module', '-e', script], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
   assert.equal(out.trim(), '2026-10-04');
+});
+
+// --- Codex review round 5 on PR #3 ---
+
+test('a heading indented as code is not a heading', () => {
+  const text = gate({ items: [gap('a', 'P0')] }).replace(/## Waivers\n\n[\s\S]*?\n\n## Decision/,
+    '## Waivers\n\n    ## Waivers\n\n' + waiverRows + '\n\n## Decision');
+  // the real Waivers section has no table; the indented "heading" is code
+  assert.equal(decide(parseGate(text), TODAY).decision, 'FAIL');
+  const tabbed = gate({ items: [gap('a', 'P0')] }).replace('## Waivers', '\t## Waivers').replace(/\| a \| demo/, '| a | demo');
+  assert.equal(headingCountFor(tabbed), 0);
+});
+
+test('a renewed waiver below an expired one counts', () => {
+  const items = [gap('a', 'P0')];
+  const expired = waiver('a', { approved: '2026-08-01', expires: '2026-09-01' });
+  assert.equal(run({ items, waivers: [expired] }).decision, 'FAIL');
+  assert.equal(run({ items, waivers: [expired, waiver('a')] }).decision, 'WAIVED');
+  assert.equal(run({ items, waivers: [waiver('a'), expired] }).decision, 'WAIVED');
 });

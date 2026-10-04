@@ -17,7 +17,7 @@ This CLI adds what a package manager can't:
   dybs-skills validate [dir] [--doc <name>] [--json]   check a project's dybs/ context
   dybs-skills update   [dir] [--global] [--force] [--dry-run] [--json]
                        update installed Dybs skills without overwriting your edits
-  dybs-skills gate     <gate.md> [--today YYYY-MM-DD] [--json]
+  dybs-skills gate     <gate.md> [--json]
                        compute the quality gate for a task
   dybs-skills status   [dir] [--global] [--json]        where Dybs skills are installed
   dybs-skills list                                      skills in this package
