@@ -572,3 +572,16 @@ test('formatted headings and inline HTML anywhere are refused', () => {
   assert.ok(!has(base.replace('## Risks', 'See `<task>` and <https://dybs.it>.\n\n## Risks'), 'raw HTML'));
   assert.equal(parseGate(base).problems.length, 0);
 });
+
+test('a backtick run that finds no equal closer is no code span: the tag stays raw', () => {
+  // Each line leaves <details> raw in CommonMark (checked against commonmark.js).
+  for (const line of ['see `<details>`` here', 'see \\`<details>` here', 'see `x\\` <details> `', 'see ```<details>`` here']) {
+    const text = gate({ items: [full('a', 'P0')] }).replace('## Items', `${line}\n\n## Items`);
+    assert.match(parseGate(text).problems.join(' '), /may not contain raw HTML/, line);
+  }
+  // Real code spans stay text.
+  for (const line of ['see `<details>` here', 'see ``a `<details>` b`` here']) {
+    const text = gate({ items: [full('a', 'P0')] }).replace('## Items', `${line}\n\n## Items`);
+    assert.doesNotMatch(parseGate(text).problems.join(' '), /raw HTML/, line);
+  }
+});

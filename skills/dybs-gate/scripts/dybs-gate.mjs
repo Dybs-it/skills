@@ -266,6 +266,35 @@ export function isDate(v) {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 }
 
+// A line with its code spans and backslash escapes removed, read the way
+// CommonMark reads it, left to right: an escaped character is text, a
+// backtick run opens a span only when a run of exactly the same length
+// follows (`` `<x>`` `` is no span, so the tag stays raw), and inside a span
+// a backslash is literal, so `` `x\` `` closes there.
+export function textOutsideCodeSpans(line) {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    const c = line[i];
+    if (c === '\\' && /[!-\/:-@[-`{-~]/.test(line[i + 1] ?? '')) { out += 'x'; i += 2; continue; }
+    if (c !== '`') { out += c; i += 1; continue; }
+    let n = i;
+    while (line[n] === '`') n += 1;
+    const run = n - i;
+    let close = -1;
+    for (let j = n; j < line.length;) {
+      if (line[j] !== '`') { j += 1; continue; }
+      let k = j;
+      while (line[k] === '`') k += 1;
+      if (k - j === run) { close = k; break; }
+      j = k;
+    }
+    if (close === -1) { out += line.slice(i, n); i = n; continue; }
+    i = close;
+  }
+  return out;
+}
+
 export function parseGate(text) {
   const problems = [...markdownHazards(text)];
   // Raw HTML can hide or show content in ways this parser does not follow
@@ -277,7 +306,7 @@ export function parseGate(text) {
   // Code spans and escaped `\<` are text; autolinks (`<https://…>`) are not
   // tags.
   const html = visible(text).split(/\r?\n/).filter((l) => {
-    const t = l.replace(/(`+)[\s\S]*?\1/g, '').replace(/\\</g, '');
+    const t = textOutsideCodeSpans(l);
     return /<\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|<[!?]/.test(t);
   });
   if (html.length) problems.push(`gate.md may not contain raw HTML (found: ${html[0].trim().slice(0, 40)})`);
