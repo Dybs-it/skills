@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, acceptedHash, nextStep, main } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -461,5 +462,37 @@ test('--accept keeps the doc\'s permissions', () => {
   chmodSync(path, 0o600);
   assert.equal(acceptDoc(dir, 'prd', '2026-10-04').ok, true);
   assert.equal(statSync(path).mode & 0o777, 0o600);
+  rmSync(dir, { recursive: true });
+});
+
+// --- Codex review round 4 on PR #2 ---
+
+test('acceptance is stamped with the local date, not the UTC one', () => {
+  // Run in a zone west of UTC, where 23:30 local is already tomorrow in UTC,
+  // so the test means the same on a machine set to UTC.
+  const script = `import { localDate } from ${JSON.stringify(pathToFileURL(join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs')).href)};
+    console.log(localDate(new Date(2026, 9, 4, 23, 30)), localDate(new Date(2026, 9, 4, 0, 30)));`;
+  const out = execFileSync('node', ['--input-type=module', '-e', script], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
+  assert.equal(out.trim(), '2026-10-04 2026-10-04');
+});
+
+test('--accept refuses while project.md, whose settings it uses, does not validate', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: en'));
+  const before = readFileSync(join(dir, 'dybs/context/prd.md'), 'utf8');
+  const r = acceptDoc(dir, 'prd', '2026-10-04');
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(' '), /project\.md: "checkins"/);
+  assert.equal(readFileSync(join(dir, 'dybs/context/prd.md'), 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
+
+test('an accepted doc without a fingerprint is flagged as not verifiable', () => {
+  const r = validateDoc('prd', VALID_PRD);
+  assert.ok(r.warnings.some((w) => w.includes('without a fingerprint')));
+  const dir = copySample();
+  acceptDoc(dir, 'prd', '2026-10-04');
+  const after = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(!after.warnings.some((w) => w.includes('without a fingerprint')));
   rmSync(dir, { recursive: true });
 });
