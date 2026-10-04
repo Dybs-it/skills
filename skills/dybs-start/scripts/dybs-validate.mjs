@@ -665,7 +665,7 @@ export function placeNoClobber(from, to) {
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
-export function acceptDoc(root, name, today = localDate(), { beforeReplace, beforePlace, beforeCleanup } = {}) {
+export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforePlace, beforeCleanup } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -725,6 +725,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
   let placed = false;
   let placedId = null;
   let oldId = null;
+  // No valid pin, no write: the temporary copy is never created through a
+  // folder that is already a link.
+  beforeWrite?.();
+  pinned();
   try {
     const fd = openSync(tmp, 'wx', mode);
     try {

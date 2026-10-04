@@ -1273,3 +1273,19 @@ test('an HTML block that interrupts a paragraph ends a code span', async () => {
   // An inline tag (type 7) cannot interrupt a paragraph: the span holds.
   assert.equal(visibleText('open `\n<span>\nx <!-- TODO --> y\nclose `\n', { keepCode: true }), 'open `\n<span>\nx <!-- TODO --> y\nclose `\n');
 });
+
+test('--accept writes nothing through a folder swapped for a link before the write', async () => {
+  const { renameSync, readdirSync: ls } = await import('node:fs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', {
+    beforeWrite: () => { renameSync(ctx, `${ctx}.moved`); symlinkSync(outside, ctx); },
+    // Swapped back before the next check: only the pin taken before the
+    // write can notice, and nothing may be left outside.
+    beforeReplace: () => { rmSync(ctx); renameSync(`${ctx}.moved`, ctx); },
+  }), /changed while it was being accepted/);
+  assert.deepEqual(ls(outside), []);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
