@@ -8,7 +8,7 @@
 
 import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, constants as fsConstants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { join, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const DOCS = {
@@ -1252,7 +1252,12 @@ function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
-  if (!id || pathId(p) !== id) return;
+  if (!id) return;
+  // Another file at the name is not ours: it stays, and the caller learns of
+  // it (a temporary name someone replaced is never silently left behind).
+  const at = pathId(p);
+  if (at === null) return;
+  if (at !== id) throw Object.assign(new Error(`${p} is not the file this run wrote; it was left in place`), { keptAt: p, notOurs: true });
   testHooks.afterLook?.(p);
   check?.();
   testHooks.beforeMove?.(p);
@@ -1404,7 +1409,7 @@ function copyExclusive(from, to, check, fromId) {
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
-export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforeMoveAside, beforeAside, beforePlace, beforePlacedCheck, beforeCleanup } = {}) {
+export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforeMoveAside, beforeAside, beforePlace, afterPlace, beforePlacedCheck, beforeCleanup } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -1524,6 +1529,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   let moved = false;
   let placed = false;
   let placedId = null;
+  let tmpWarning = null;
   let oldId = null;
   // No valid pin, no write: the temporary copy is never created through a
   // folder that is already a link.
@@ -1656,12 +1662,22 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       throw new Error(`the temporary copy of ${rel} changed before it was placed; nothing was kept, run --accept again`);
     }
     inputsUnchanged();
+    // The copy carries the doc's permissions as seen when it was written:
+    // tightened since (0644 to 0600), the original (moved aside, the very
+    // file) says so, and acceptance stops rather than undo it.
+    let modeNow = null;
+    try { const st = fsOps.lstat(old, BIG); if (idOf(st) === oldId) modeNow = Number(st.mode) & 0o7777; } catch { modeNow = null; }
+    if (modeNow !== null && modeNow !== mode) throw new Error(`${rel} had its permissions changed during acceptance; nothing was written, run --accept again`);
     // What was actually placed, checked at once (see placeChecked).
     const placedNow = placeChecked(tmp, path, tmpId).id;
     placed = true;
     placedId = placedNow;
+    afterPlace?.(tmp);
     pinned();
-    rmIfOurs(tmp, tmpId, pinned);
+    try { rmIfOurs(tmp, tmpId, pinned); } catch (e) {
+      if (!e.notOurs) throw e;
+      tmpWarning = `${basename(tmp)} was replaced by another file during acceptance; that file was left in place`;
+    }
     // Until that unlink, a link placement left two names for one file, and a
     // write through the temporary name would land in the doc. So the doc is
     // read once more now that it is the only name.
@@ -1683,7 +1699,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // swapped for a link since the check above is never acted through.
       try { rmIfOurs(old, oldId, pinned, { expect: text }); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
     }
-    if (!ours) return { ok: true, warnings: [...check.warnings, `the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
+    if (!ours) return { ok: true, warnings: [...check.warnings, ...(tmpWarning ? [tmpWarning] : []), `the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
   } catch (err) {
     // Undo through the same paths: a file that went through a swapped link
     // comes back the same way. Only what is provably ours is removed.
@@ -1735,7 +1751,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     }
     throw err;
   }
-  return { ok: true, warnings: check.warnings };
+  return { ok: true, warnings: [...check.warnings, ...(tmpWarning ? [tmpWarning] : [])] };
 }
 
 export function main(argv) {
