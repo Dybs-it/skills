@@ -1650,3 +1650,23 @@ test('emphasized placeholders and inline HTML anywhere in a line are caught', ()
     assert.ok(!validateDoc('prd', VALID_PRD + `\n${ok}\n`).rules.includes('html'), ok);
   }
 });
+
+test('--accept refuses a doc swapped for a link to the same text, on both move-aside paths', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  for (const noLinks of [false, true]) {
+    const dir = copySample();
+    const path = join(dir, 'dybs/context/ui.md');
+    const theirs = join(dir, 'their-ui.md');
+    writeFileSync(theirs, readFileSync(path, 'utf8'));
+    if (noLinks) mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+    try {
+      assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', {
+        beforeMoveAside: () => { rmSync(path); symlinkSync(theirs, path); },
+      }), /no longer a regular file/);
+    } finally { Object.assign(mod.fsOps, real); }
+    const { lstatSync } = await import('node:fs');
+    assert.ok(lstatSync(path).isSymbolicLink(), `the user's link stays (noLinks=${noLinks})`);
+    rmSync(dir, { recursive: true });
+  }
+});

@@ -755,6 +755,9 @@ function folderChain(root, rel) {
 }
 
 const idOf = (st) => `${st.dev}:${st.ino}`;
+function isRegularFile(p) {
+  try { return lstatSync(p).isFile(); } catch { return false; }
+}
 function pathId(p) {
   try { return idOf(lstatSync(p)); } catch { return null; }
 }
@@ -907,6 +910,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // through a folder swapped right after the rename.
     oldId = pathId(path);
     beforeMoveAside?.(old);
+    // Only the regular file that was validated may be moved aside: a link
+    // put in its place keeps its own identity through link() and rename(),
+    // while every read follows it to bytes that may match.
+    const notRegular = () => new Error(`${rel} is no longer a regular file; nothing was changed, run --accept again`);
+    if (!isRegularFile(path)) throw notRegular();
     // Moved aside without ever replacing what is at the new name: rename()
     // would silently overwrite a file that appeared there. A link refuses
     // one (EEXIST); then the doc's own name is dropped only while it is
@@ -917,6 +925,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // a folder swapped for a link, either would act outside the project.
       pinned();
       fsOps.link(path, old);
+      if (!isRegularFile(old)) {
+        try { rmIfOurs(old, pathId(old)); } catch { /* reported below */ }
+        throw notRegular();
+      }
       moved = true;
       rmIfOurs(path, oldId, pinned);
     } catch (e) {
@@ -926,6 +938,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // anything), then the doc's own name is moved to a name only this run
       // knows and dropped only while it is the same file with the same
       // bytes. No rename ever targets a name someone else could use.
+      if (!isRegularFile(path)) throw notRegular();
       try {
         fsOps.copyFile(path, old, fsConstants.COPYFILE_EXCL);
       } catch (e2) {
@@ -943,9 +956,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       const aside = `${path}.${randomUUID()}.rm`;
       renameSync(path, aside);
       let same = false;
-      try { same = pathId(aside) === origId && readFileSync(aside, 'utf8') === readFileSync(old, 'utf8'); } catch { same = false; }
+      try { same = isRegularFile(aside) && pathId(aside) === origId && readFileSync(aside, 'utf8') === readFileSync(old, 'utf8'); } catch { same = false; }
       if (!same) throw new Error(`${rel} changed while it was being moved aside; your version is kept at ${aside}`);
-      fsOps.rm(aside);
+      // Deleted by identity under another private name, never by a plain
+      // unlink after the check: a file that replaced `aside` since is kept.
+      rmIfOurs(aside, origId);
     }
     pinned();
     if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
