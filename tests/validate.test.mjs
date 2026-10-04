@@ -1763,3 +1763,15 @@ test('without hard links, --accept never moves a save made after the copy', asyn
   assert.equal(readFileSync(path, 'utf8'), 'saved by the editor');
   rmSync(dir, { recursive: true });
 });
+
+test('a comment opened in a quote inside a list item ends when a line leaves that quote', async () => {
+  const { visibleText, wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // Each case is checked against commonmark.js.
+  assert.match(visibleText('- > <!--\n  TODO visible outside quote\n', { keepCode: true }), /TODO visible/);
+  // A deeper quote under plain text starts its own paragraph: `===` there
+  // underlines nothing, and the indented line after it is prose.
+  assert.equal(wordCount('ordinary\n> ===\n>     hidden words\n'), 3);
+  // A quote outside the list item is not the paragraph inside it: the
+  // indented line stays prose (CommonMark counts 2 words; never fewer).
+  assert.ok(wordCount('- > <!--\n  > more\n> ===\n>     hidden words\n') >= 2);
+});
