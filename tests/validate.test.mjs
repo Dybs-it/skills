@@ -960,3 +960,12 @@ test('raw HTML in a block quote or list item is refused too', () => {
     rmSync(dir, { recursive: true });
   }
 });
+
+test('a fence at a list item content indent, and indented HTML in a quote', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('10. item\n\n    ```\n    code one two\n    ```\n\nafter'), 3);
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t + '\n>   <div>\n');
+  assert.ok(validateProject(dir).results.find((x) => x.name === 'project').rules.includes('html'));
+  rmSync(dir, { recursive: true });
+});
