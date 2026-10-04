@@ -151,7 +151,8 @@ export function validateProject(root, only) {
     if (only && name !== only) continue;
     const spec = DOCS[name];
     const path = join(dir, spec.file);
-    if (skip.has(name)) {
+    // project.md holds the settings, so it can never skip itself.
+    if (skip.has(name) && name !== 'project') {
       results.push({ name, file: spec.file, status: 'skipped', words: 0, errors: [], warnings: [] });
       continue;
     }

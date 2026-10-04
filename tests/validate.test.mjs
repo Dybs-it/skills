@@ -175,3 +175,10 @@ test('validate reports ok, complete and accepted separately', () => {
   assert.equal(partial.complete, false);
   rmSync(dir, { recursive: true });
 });
+
+test('project.md can never be skipped', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: project'));
+  assert.notEqual(validateProject(dir).results.find((x) => x.name === 'project').status, 'skipped');
+  rmSync(dir, { recursive: true });
+});
