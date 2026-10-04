@@ -516,9 +516,18 @@ export function freshness(gatePath, text) {
   const rel = (p) => relative(realpathSync(top), realpathSync(p)).split(sep).join('/');
   const gateRel = rel(abs);
   const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
-  const changed = git(top, ['status', '--porcelain', '--untracked-files=all']).split('\n').filter(Boolean)
-    .map((l) => l.slice(3).split(' -> ').at(-1).replace(/^"|"$/g, ''))
-    .filter((f) => f !== gateRel && f !== prRel);
+  // NUL-separated porcelain: paths come unquoted (no C escapes for
+  // non-ASCII names), and a rename lists both of its paths.
+  const raw = execFileSync('git', ['-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const entries = raw.split('\0');
+  const paths = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (!e) continue;
+    paths.push(e.slice(3));
+    if (e[0] === 'R' || e[0] === 'C') paths.push(entries[++i]);
+  }
+  const changed = paths.filter((f) => f && f !== gateRel && f !== prRel);
   if (changed.length) return { status: 'stale', reason: `uncommitted changes besides gate.md and pr.md: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}. Commit the evidence first` };
   let head;
   try { head = git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude)${gateRel}`, `:(exclude)${prRel}`]); } catch { head = ''; }

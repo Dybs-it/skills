@@ -680,3 +680,19 @@ test('compact comments <!--> and <!---> are refused', () => {
     assert.match(parseGate(text).problems.join(' '), /not <!--> or <!--->/, c);
   }
 });
+
+test('the freshness check reads non-ASCII task paths as they are', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/café'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const head = g('rev-parse', '--short=7', 'HEAD');
+  const gatePath = join(repo, 'dybs/work/café/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${head}\n`));
+  writeFileSync(join(repo, 'dybs/work/café/pr.md'), 'draft');
+  const out = execFileSync('node', [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8' });
+  assert.match(out, /Decision: PASS/);
+  rmSync(repo, { recursive: true });
+});
