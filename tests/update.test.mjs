@@ -5,7 +5,7 @@ import {
   mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync, cpSync, symlinkSync,
   readdirSync, lstatSync, chmodSync, statSync, constants as fsConstants,
 } from 'node:fs';
-import { join, dirname, sep } from 'node:path';
+import { join, dirname, sep, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
@@ -2790,4 +2790,39 @@ test('without hard links, a changed original is put back without replacing a new
   const dir = dirname(prd(root));
   assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('edited in place'); } catch { return false; } }), 'the edited original is kept');
   rmSync(root, { recursive: true });
+});
+
+test('a put-back that landed outside through a folder swapped and restored keeps the private name', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let stagedAt = null;
+  let swapped = false;
+  mod.testHooks.beforeMove = (p) => {
+    if (p !== stagedAt || swapped) return;
+    writeFileSync(`${p}.x`, 'a user file');
+    renameSync(`${p}.x`, p);
+  };
+  // The put-back link goes through the skill folder swapped for a link, and
+  // the folder is back before the link call returns.
+  mod.fsOps.link = (from, to) => {
+    if (swapped || to !== stagedAt || !/\.rm$/.test(from)) return real.link(from, to);
+    swapped = true;
+    linkSync(from, join(outside, basename(from)));
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+    try { return real.link(from, to); } finally { rmSync(dir); renameSync(`${dir}.moved`, dir); }
+  };
+  const beforeStageCheck = (entry) => { stagedAt = entry.tmp; throw new Error('stop after staging'); };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /stop after staging/); } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8') === 'a user file'; } catch { return false; } }), 'the user file is still inside the install');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });
