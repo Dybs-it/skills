@@ -59,9 +59,19 @@ export function knownHashes() {
   return existsSync(KNOWN_HASHES) ? JSON.parse(readFileSync(KNOWN_HASHES, 'utf8')) : {};
 }
 
+// Whether a path exists. Only a path that is really not there counts as
+// absent: existsSync() also says false for one we may not search, which
+// would report an install we could not inspect as an empty one.
+function isPresent(p) {
+  try { statSync(p); return true; } catch (e) {
+    if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false;
+    throw e;
+  }
+}
+
 // Every `.<agent>/skills/` folder under a root holds candidate installs.
 function skillFolders(root) {
-  if (!existsSync(root)) return [];
+  if (!isPresent(root)) return [];
   return readdirSync(root)
     .filter((n) => n.startsWith('.'))
     .map((n) => join(root, n, 'skills'))
@@ -85,7 +95,7 @@ export const within = (p, root) => p === root || p.startsWith(root.endsWith(sep)
 // let a project update reach a shared or home-level install (that takes
 // --global).
 export function discover(roots) {
-  const realRoots = roots.filter((r) => existsSync(r)).map((r) => realpathSync(r));
+  const realRoots = roots.filter((r) => isPresent(r)).map((r) => realpathSync(r));
   const byReal = new Map();
   const skipped = [];
   const clash = new Set();
@@ -203,11 +213,23 @@ function writeOwnFile(p, data, mode, onCreate) {
 }
 
 // Removes `p` only while it is still the file we created (`id`).
+// The file is first moved to a name only this run knows, then checked
+// there: what is verified is exactly what gets deleted, even if something
+// replaces `p` in between. One that is not ours goes back, never over
+// anything, or stays under its new name and the error says where.
+// Test seam: runs between the first look at a name and acting on it.
+export const testHooks = { afterLook: null };
+
 function rmIfOurs(p, id) {
-  const now = idOf(p);
-  if (now === null) return;
-  if (now !== id) throw new Error(`${p} is not the file the update wrote; left in place`);
-  rmSync(p);
+  if (idOf(p) === null) return;
+  testHooks.afterLook?.(p);
+  const aside = `${p}.${randomUUID()}.rm`;
+  try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
+  if (idOf(aside) === id) { rmSync(aside); return; }
+  try { fsOps.link(aside, p); rmSync(aside); } catch {
+    throw new Error(`${p} is not the file the update wrote; it is kept at ${aside}`);
+  }
+  throw new Error(`${p} is not the file the update wrote; left in place`);
 }
 
 // The identity (device and inode) of the skill folder and of every folder

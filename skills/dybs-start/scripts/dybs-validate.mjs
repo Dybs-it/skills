@@ -199,7 +199,7 @@ export function visibleText(body, { keepCode = false } = {}) {
         // as an HTML comment, a heading or a list item, checked below.
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
         if (HTML_INTERRUPT.test(rest)) return false;
-        if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|1[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
+        if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|1[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$|=+[ \t]*$|-+[ \t]*$)/.test(rest)) return false;
         if (closer(run).test(lines[k])) return true;
       }
       return false;
@@ -325,7 +325,9 @@ export function visibleText(body, { keepCode = false } = {}) {
     // Judged after the `>` markers, like blankness and indentation.
     // A setext underline (`===` or `---` under paragraph text) completes a
     // heading too.
-    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
+    // A heading that opens a list item (`- ## Example`) counts as well.
+    const block = qline.replace(/^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+(?=#)/, '');
+    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(block)
       || (!wasBlank && /^ {0,3}(=+|-+)[ \t]*$/.test(qline));
     out.push(line);
   }

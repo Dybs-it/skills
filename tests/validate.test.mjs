@@ -524,3 +524,9 @@ test('more CommonMark boundaries: ordered fences, comment blocks after lists, se
   assert.equal(wordCount('Heading\n===\n    code words\n'), 1);
   assert.equal(wordCount('Heading\n--\n    code words\n'), 1);
 });
+
+test('a heading opening a list item, and a short setext underline, are block boundaries', async () => {
+  const { wordCount, visibleText } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('- ## Example\n      code words here\n'), 1);
+  assert.equal(visibleText('open `\n--\ntext <!-- TODO -->\nclose `\n', { keepCode: true }), 'open `\n--\ntext \nclose `\n');
+});
