@@ -1,6 +1,7 @@
 ---
 task: invites
 updated: 2026-10-04
+commit: 62ca2cc
 ---
 
 # Gate: invites

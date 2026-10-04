@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -121,7 +121,7 @@ test('tableUnder stops at the next heading and skips the separator', () => {
   assert.deepEqual(rows, [{ x: '1', y: '2' }]);
 });
 
-test('CLI: exit 1 on FAIL, 0 on PASS, 2 on a malformed file; dybs-skills gate is the same', () => {
+test('CLI: exit 1 on FAIL, 0 on PASS, 2 on a malformed file', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
   const write = (name, spec) => { const p = join(dir, name); writeFileSync(p, typeof spec === 'string' ? spec : gate(spec)); return p; };
   const gateCli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
@@ -129,7 +129,8 @@ test('CLI: exit 1 on FAIL, 0 on PASS, 2 on a malformed file; dybs-skills gate is
   assert.equal(code(write('pass.md', { items: [full('a', 'P0')] })), 0);
   assert.equal(code(write('fail.md', { items: [gap('a', 'P0')] })), 1);
   assert.equal(code(write('bad.md', '# no tables')), 2);
-  assert.equal(code(join(dir, 'fail.md'), join(ROOT, 'bin/dybs-skills.mjs')), 1);
+  // the gate lives in the skill, not in the dybs-skills binary
+  assert.equal(code(join(dir, 'fail.md'), join(ROOT, 'bin/dybs-skills.mjs')), 2);
   rmSync(dir, { recursive: true });
 });
 
@@ -321,4 +322,22 @@ test('a renewed waiver below an expired one counts', () => {
   assert.equal(run({ items, waivers: [expired] }).decision, 'FAIL');
   assert.equal(run({ items, waivers: [expired, waiver('a')] }).decision, 'WAIVED');
   assert.equal(run({ items, waivers: [waiver('a'), expired] }).decision, 'WAIVED');
+});
+
+// --- Codex review round 6 on PR #3 ---
+
+test('a test location must be a whole path:line token', () => {
+  const cov = (evidence) => parseGate(gate({ items: [['a', 'P0', 'FULL', evidence, 'no']] })).items[0].coverage;
+  assert.equal(cov('tests/a.test.js:1garbage'), 'PARTIAL');
+  assert.equal(cov('see tests/a.test.js:0x'), 'PARTIAL');
+  assert.equal(cov('tests/a.test.js:14'), 'FULL');
+  assert.equal(cov('`tests/a.test.js:14`, tests/b.test.js:3'), 'FULL');
+});
+
+test('the gate script runs when called through a linked skill folder', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-link-'));
+  symlinkSync(join(ROOT, 'skills/dybs-gate'), join(dir, 'dybs-gate'));
+  const out = execFileSync('node', [join(dir, 'dybs-gate/scripts/dybs-gate.mjs'), join(ROOT, 'tests/fixtures/gate-pass.md')], { encoding: 'utf8' });
+  assert.match(out, /Decision: PASS/);
+  rmSync(dir, { recursive: true });
 });

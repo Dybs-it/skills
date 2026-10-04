@@ -42,7 +42,10 @@ Before and after, as concrete as the environment allows:
 
 - a screenshot pair for a visible change (best)
 - the test that failed before and passes now, or command output (good)
-- the gate decision with its coverage numbers from `gate.md`
+- the gate decision with its coverage numbers: run the gate script on
+  `gate.md` again now, and compare its `commit:` with `HEAD`. If code or
+  tests changed since, the result is **stale**: say so and suggest running
+  `dybs-gate` again rather than quoting the old decision
 
 Say plainly what was **not** verified.
 

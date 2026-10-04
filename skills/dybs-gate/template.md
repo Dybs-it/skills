@@ -1,6 +1,7 @@
 ---
 task: {{task}}
 updated: {{YYYY-MM-DD}}
+commit: {{commit the evidence was checked against}}
 ---
 
 # Gate: {{task}}

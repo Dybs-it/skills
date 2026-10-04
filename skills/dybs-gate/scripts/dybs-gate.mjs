@@ -8,15 +8,18 @@
 // The rules live here, as code, so the decision is arithmetic rather than an
 // agent's judgement. quality.md describes the same rules in words.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 export const COVERAGE = ['FULL', 'PARTIAL', 'NONE'];
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-// A test location: a path and a line number from 1 up.
-const LOCATION = /\S+:[1-9]\d*/;
+// A test location: a whole token `path:line`, line from 1 up. Evidence may
+// list several, separated by spaces, commas or semicolons, in backticks or not.
+const LOCATION_TOKEN = /^[^\s:`]+:[1-9]\d*$/;
+export const hasLocation = (evidence) => (evidence || '').split(/[\s,;]+/)
+  .map((t) => t.replace(/^`|`$/g, '')).some((t) => LOCATION_TOKEN.test(t));
 // The risk categories quality.md defines.
 export const CATEGORIES = ['security', 'data', 'business', 'performance', 'technical', 'operations'];
 
@@ -149,7 +152,7 @@ export function parseGate(text) {
     if (!COVERAGE.includes(coverage)) problems.push(`item ${r.item}: coverage must be one of ${COVERAGE.join('|')}`);
     const sec = SECURITY[(r.security || '').trim().toLowerCase()];
     if (sec === undefined) problems.push(`item ${r.item}: security must be yes or no`);
-    if (coverage === 'FULL' && !LOCATION.test(evidence)) {
+    if (coverage === 'FULL' && !hasLocation(evidence)) {
       coverage = 'PARTIAL';
       notes.push('FULL without a test location (path:line) counts as PARTIAL');
     }
@@ -306,6 +309,13 @@ export function main(argv) {
   return r.decision === 'FAIL' ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Run when called directly, also through a linked skill folder: Node gives
+// import.meta.url as the real path, argv[1] as the path that was typed.
+function calledDirectly() {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+}
+
+if (calledDirectly()) {
   process.exitCode = main(process.argv);
 }

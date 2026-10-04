@@ -4,7 +4,6 @@ import {
   update, discover, rootsFor, skillNames, packageVersion, INSTALL_HINT,
 } from '../src/update.mjs';
 import { main as validateMain } from '../skills/dybs-start/scripts/dybs-validate.mjs';
-import { main as gateMain } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
 
 const HELP = `dybs-skills ${packageVersion()}
 
@@ -17,8 +16,6 @@ This CLI adds what a package manager can't:
   dybs-skills validate [dir] [--doc <name>] [--json]   check a project's dybs/ context
   dybs-skills update   [dir] [--global] [--force] [--dry-run] [--json]
                        update installed Dybs skills without overwriting your edits
-  dybs-skills gate     <gate.md> [--json]
-                       compute the quality gate for a task
   dybs-skills status   [dir] [--global] [--json]        where Dybs skills are installed
   dybs-skills list                                      skills in this package
 
@@ -61,7 +58,6 @@ export function run(argv) {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { console.log(HELP); return 0; }
   if (cmd === 'validate') return validateMain(['node', 'dybs-validate', ...rest]);
-  if (cmd === 'gate') return gateMain(['node', 'dybs-gate', ...rest]);
   if (cmd === 'list') { for (const s of skillNames()) console.log(s); return 0; }
 
   const opts = parse(rest);

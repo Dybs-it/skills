@@ -50,9 +50,10 @@ From the project root, when Node is available:
 node <skills>/dybs-gate/scripts/dybs-gate.mjs dybs/work/<task>/gate.md
 ```
 
-(`<skills>` is the folder that holds this skill;
-`npx github:Dybs-it/skills gate dybs/work/<task>/gate.md` does the same.)
-Copy the decision and its reasons into the Decision section. Without Node
+(`<skills>` is the folder that holds this skill.) Copy the decision and its
+reasons into the Decision section, and set `commit:` in the frontmatter to
+the commit the evidence was checked against (`git rev-parse --short HEAD`),
+so a later change makes the result visibly stale. Without Node
 or without the script, **do not decide**: write `Decision: not computed (no
 gate script)`, list what looks blocking against the rules in `quality.md` as
 findings, and say the gate must be computed before merging. A gate that was
