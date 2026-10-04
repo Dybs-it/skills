@@ -498,8 +498,9 @@ test('a block quote that opens with indented code interrupts the paragraph befor
 
 test('frontmatter quotes count only as a matching pair', async () => {
   const { parseFrontmatter } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
-  assert.equal(parseFrontmatter("---\nstatus: 'accepted\n---\n").data.status, "'accepted");
-  assert.equal(parseFrontmatter('---\ndoc: "project\'\n---\n').data.doc, '"project\'');
+  // Never quietly cleaned up into a valid value.
+  assert.notEqual(parseFrontmatter("---\nstatus: 'accepted\n---\n").data.status, 'accepted');
+  assert.notEqual(parseFrontmatter('---\ndoc: "project\'\n---\n').data.doc, 'project');
   assert.equal(parseFrontmatter('---\nstatus: "accepted"\n---\n').data.status, 'accepted');
 });
 
