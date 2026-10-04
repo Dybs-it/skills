@@ -2295,3 +2295,10 @@ test('--accept never hangs on a FIFO where a doc it reads should be', () => {
   assert.equal(r.ok, false);
   rmSync(dir, { recursive: true });
 });
+
+test('a malformed link never hides raw HTML from the check', () => {
+  // Unescaped whitespace makes this no link: `<details>` is rendered raw HTML.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n[x](bad destination <details>)\n').rules.includes('html'));
+  // A well-formed one is still fine.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\n[x](<details>)\n').rules.includes('html'));
+});

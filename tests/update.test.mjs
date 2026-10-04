@@ -2516,3 +2516,30 @@ test('dybs-check declares the writes its check-in makes on the human\'s word', (
   assert.match(decl, /resolved/, 'resolved lines in dybs/log.md');
   assert.match(decl, /acceptance/, 'accepting the docs the human names');
 });
+
+test('rollback never links a file that replaced the moved-aside original into place', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let rollingBack = false;
+  let replaced = false;
+  mod.fsOps.link = (from, to) => {
+    if (rollingBack && !replaced && String(from).endsWith('.old') && to === prd(root)) {
+      // After rollback's identity check, a watcher replaces the .old name.
+      replaced = true;
+      writeFileSync(`${from}.x`, 'watcher');
+      renameSync(`${from}.x`, from);
+    }
+    return real.link(from, to);
+  };
+  let err;
+  try { mod.applyPlan(plan, { beforeCommit: () => { rollingBack = true; throw new Error('injected failure'); } }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(replaced);
+  assert.ok(err);
+  assert.notEqual(existsSync(prd(root)) ? readFileSync(prd(root), 'utf8') : '', 'watcher', 'the watcher\'s file is not installed');
+  rmSync(root, { recursive: true });
+});
