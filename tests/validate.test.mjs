@@ -998,3 +998,33 @@ test('a fence at a list item content indent, and indented HTML in a quote', asyn
   assert.ok(validateProject(dir).results.find((x) => x.name === 'project').rules.includes('html'));
   rmSync(dir, { recursive: true });
 });
+
+test('--accept refuses a temporary copy edited in place before placement', () => {
+  const dir = copySample();
+  const before = readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8');
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', { beforePlace: (tmp) => writeFileSync(tmp, 'tampered') }), /changed before it was placed/);
+  assert.equal(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept never replaces a dangling link that appeared at the doc path', async () => {
+  const { lstatSync: lst, readdirSync: ls } = await import('node:fs');
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(path, 'utf8');
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', { beforePlace: () => symlinkSync('/nonexistent/target', path) }), /original is kept at/);
+  assert.ok(lst(path).isSymbolicLink());
+  const kept = ls(join(dir, 'dybs/context')).find((n) => n.startsWith('ui.md.dybs-') && n.endsWith('.old'));
+  assert.equal(readFileSync(join(dir, 'dybs/context', kept), 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
+
+test('--json names the check as the next step once every doc is written', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace('checkins: each-doc', 'checkins: end'));
+  const logs = [];
+  const l = console.log; console.log = (m) => logs.push(m);
+  try { main(['node', 'v', dir, '--json']); } finally { console.log = l; }
+  assert.equal(JSON.parse(logs.join('\n')).next, 'check');
+  rmSync(dir, { recursive: true });
+});

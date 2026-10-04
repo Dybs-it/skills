@@ -554,7 +554,7 @@ export function placeNoClobber(from, to) {
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
-export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {}) {
+export function acceptDoc(root, name, today = localDate(), { beforeReplace, beforePlace } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -633,6 +633,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
       rmIfOurs(tmp, tmpId);
       return { ok: false, errors: ['the doc changed while it was being accepted; nothing was written, run --accept again'] };
     }
+    // Identity cannot show an edit made in place, so the bytes are checked
+    // too, right before the copy is placed.
+    beforePlace?.(tmp);
+    if (pathId(tmp) !== tmpId || readFileSync(tmp, 'utf8') !== next) {
+      throw new Error(`the temporary copy of ${rel} changed before it was placed; nothing was kept, run --accept again`);
+    }
     const how = placeNoClobber(tmp, path);
     placed = true;
     placedId = how === 'link' ? tmpId : pathId(path);
@@ -653,7 +659,14 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {
     }
     try { rmIfOurs(tmp, tmpId); } catch { /* reported below */ }
     // Never leave the doc stranded under its temporary name.
-    if (moved && existsSync(old) && !existsSync(path)) renameSync(old, path);
+    // lstat, not exists: a dangling link that appeared at the doc's path is
+    // someone's entry too, and is never replaced. Then the original stays
+    // at its temporary name, and the error says where.
+    const taken = (p) => { try { lstatSync(p); return true; } catch { return false; } };
+    if (moved && taken(old)) {
+      if (!taken(path)) renameSync(old, path);
+      else err.message += `; something appeared at ${rel} meanwhile, the original is kept at ${old}`;
+    }
     throw err;
   }
   return { ok: true };
@@ -739,7 +752,10 @@ export function main(argv) {
     // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
     // With --doc only that doc (and project.md) was read, so there is no
     // project-wide next step to give.
-    const next = only ? null : report.parked ? 'kickoff' : nextStep(report.results, report.checkins);
+    // Same next step as the text output: once every doc is written but not
+    // all are accepted at the requested depth, the next step is the check.
+    let next = only ? null : report.parked ? 'kickoff' : nextStep(report.results, report.checkins);
+    if (!only && !report.parked && !report.fatal && !next && !(report.accepted && report.atRequestedDepth)) next = 'check';
     console.log(JSON.stringify({ schema: 2, ...report, next }, null, 2));
     return report.ok ? 0 : 1;
   }
