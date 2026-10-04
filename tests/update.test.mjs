@@ -737,3 +737,42 @@ test('a staged file edited before it is installed stops the update', async () =>
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
 });
+
+test('rollback never deletes an outside file with our bytes reached through a swapped folder', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  rmSync(join(dir, 'scripts'), { recursive: true });
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install);
+  const rel = plan.actions.find((a) => a.op === 'add' && a.rel.startsWith('scripts/')).rel;
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, rel.slice('scripts/'.length)), shippedFiles('dybs-start')[rel]);
+  const calls = {};
+  const beforePin = (s) => {
+    if (s.a.rel !== rel) return;
+    calls[rel] = (calls[rel] || 0) + 1;
+    // After placement: move the real folder away and put a link in its place.
+    if (calls[rel] === 2) {
+      cpSync(join(dir, 'scripts'), join(root, 'scripts.moved'), { recursive: true });
+      rmSync(join(dir, 'scripts'), { recursive: true });
+      symlinkSync(outside, join(dir, 'scripts'));
+    }
+  };
+  assert.throws(() => applyPlan(plan, { beforePin }), /changed during the update/);
+  assert.equal(readFileSync(join(outside, rel.slice('scripts/'.length))).toString(), shippedFiles('dybs-start')[rel].toString());
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('status --json reports a discovery failure as JSON', async () => {
+  const { run } = await import('../bin/dybs-skills.mjs');
+  const out = [];
+  const l = console.log; console.log = (m) => out.push(m);
+  let code;
+  try {
+    code = run(['status', '--json'], { discover: () => { throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); } });
+  } finally { console.log = l; }
+  assert.equal(code, 1);
+  assert.match(JSON.parse(out.join('\n')).error, /EACCES/);
+});

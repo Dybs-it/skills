@@ -186,7 +186,11 @@ export function visibleText(body, { keepCode = false } = {}) {
     }
     // A fence may sit in a block quote or start a list item (`> ```` or
     // `- ```js`); the container prefix does not hide it.
-    const m = line.match(/^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(`{3,}|~{3,})(.*)$/);
+    // Inside a list item, the item's content indent comes first (four
+    // spaces under `10. `), then the usual up-to-three.
+    const lead0 = line.match(/^ */)[0].length;
+    const body0 = inList ? line.slice(Math.min(lead0, listIndent)) : line;
+    const m = body0.match(/^ {0,3}(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(`{3,}|~{3,})(.*)$/);
     if (fence) {
       // Inside a list item the closing fence sits at the item's content
       // indent (four spaces under `10. `), so it may be indented up to three
@@ -269,7 +273,7 @@ export function validateDoc(name, text) {
   // (`<?`), a declaration (`<!DOCTYPE`) or CDATA. Comments are already gone.
   // A block quote or list item does not hide one (`> <div>`, `- <pre>`), and
   // neither does the indentation of a list item's content.
-  const html = visibleText(body).split('\n').find((l) => /^\s*(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
+  const html = visibleText(body).split('\n').find((l) => /^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<\?|<![A-Za-z]|<!\[CDATA\[)/.test(l));
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
