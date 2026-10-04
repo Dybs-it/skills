@@ -495,3 +495,31 @@ test('a block quote that opens with indented code interrupts the paragraph befor
   // Inside the same quote, an indented line still continues the paragraph.
   assert.equal(wordCount('> paragraph\n>     still prose\n'), 3);
 });
+
+test('frontmatter quotes count only as a matching pair', async () => {
+  const { parseFrontmatter } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(parseFrontmatter("---\nstatus: 'accepted\n---\n").data.status, "'accepted");
+  assert.equal(parseFrontmatter('---\ndoc: "project\'\n---\n').data.doc, '"project\'');
+  assert.equal(parseFrontmatter('---\nstatus: "accepted"\n---\n').data.status, 'accepted');
+});
+
+test('--doc reports only the doc it checked, never "all accepted"', async () => {
+  const { main } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const logs = [];
+  const l = console.log; console.log = (m) => logs.push(String(m));
+  try { main(['node', 'v', dir, '--doc', 'project']); } finally { console.log = l; }
+  assert.ok(!logs.join('\n').includes('All Getting Started docs accepted'));
+  assert.match(logs.join('\n'), /project\.md passes/);
+  rmSync(dir, { recursive: true });
+});
+
+test('more CommonMark boundaries: ordered fences, comment blocks after lists, setext headings', async () => {
+  const { headings, wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.deepEqual(headings('para\n2. ```\n## Visible\n'), ['Visible']);
+  assert.deepEqual(headings('para\n2. ```\n   ## Visible\n'), ['Visible']);
+  assert.deepEqual(headings('\n2. ```\n## Hidden\n'), ['Hidden']);
+  assert.equal(wordCount('- item\n<!-- note -->\n    code words\n'), 1);
+  assert.equal(wordCount('Heading\n===\n    code words\n'), 1);
+  assert.equal(wordCount('Heading\n--\n    code words\n'), 1);
+});

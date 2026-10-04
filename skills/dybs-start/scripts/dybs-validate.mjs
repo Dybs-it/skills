@@ -76,7 +76,9 @@ export function parseFrontmatter(text) {
   const data = {};
   for (const line of m[1].split(/\r?\n/)) {
     const kv = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
-    if (kv) data[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
+    // Quotes count only as a matching pair around the whole value; a lone or
+    // mismatched quote (`'accepted`) stays in the value, so it fails.
+    if (kv) { const raw = kv[2].trim(); const q = raw.match(/^(["'])(.*)\1$/); data[kv[1]] = q ? q[2] : raw; }
   }
   return { data, body: text.slice(m[0].length) };
 }
@@ -234,7 +236,11 @@ export function visibleText(body, { keepCode = false } = {}) {
     const body0 = inList ? line.slice(Math.min(lead0, listIndent)) : line;
     // After each quote or list marker the fence may again be indented up
     // to three spaces (`>  ```` is a fence inside a quote).
-    const m = body0.match(/^ {0,3}(?:(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+) {0,3})*(`{3,}|~{3,})(.*)$/);
+    let m = body0.match(/^ {0,3}(?:(?:>[ \t]?|[-*+][ \t]+|\d{1,9}[.)][ \t]+) {0,3})*(`{3,}|~{3,})(.*)$/);
+    // Only an ordered list starting at 1 may interrupt a paragraph: after
+    // paragraph text, `2. ```` is more of that paragraph, not a fence.
+    const ordered = body0.match(/^ {0,3}(?:>[ \t]?)*\s*(\d{1,9})[.)][ \t]/);
+    if (m && !fence && ordered && Number(ordered[1]) !== 1 && !prevBlank && !afterBlock && !inList) m = null;
     // A fence lives in the container it opened in: a line outside that
     // block quote or list item ends the container, and the fence with it
     // (no lazy continuation for code), so the line is read afresh: a bare
@@ -274,7 +280,9 @@ export function visibleText(body, { keepCode = false } = {}) {
       continue;
     }
     // A line that starts with a comment is an HTML block to its end.
-    if (!st.span && /^ {0,3}<!--/.test(line.replace(/^(?: {0,3}>[ \t]?)+/, ''))) htmlTail = true;
+    const blockComment = !st.span && /^ {0,3}<!--/.test(line.replace(/^(?: {0,3}>[ \t]?)+/, ''));
+    const commentLead = line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length;
+    if (blockComment) htmlTail = true;
     const stripped = stripComments(line, st, closesLater);
     // Remember the container the comment opened in (see above).
     if (stripped.open) {
@@ -308,10 +316,17 @@ export function visibleText(body, { keepCode = false } = {}) {
         while (items.length && items.at(-1) > at) items.pop();
       }
     }
+    // A comment block left of the list's content ends the list (an HTML
+    // block interrupts it, blank line or not).
+    if (blockComment && inList && commentLead < listIndent) inList = false;
     if (!inList) items.length = 0;
+    const wasBlank = prevBlank;
     prevBlank = nowBlank;
     // Judged after the `>` markers, like blankness and indentation.
-    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(line.replace(/^(?: {0,3}>[ \t]?)+/, ''));
+    // A setext underline (`===` or `---` under paragraph text) completes a
+    // heading too.
+    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(qline)
+      || (!wasBlank && /^ {0,3}(=+|-+)[ \t]*$/.test(qline));
     out.push(line);
   }
   return out.join('\n');
@@ -481,8 +496,13 @@ export function main(argv) {
     for (const e of r.errors) console.log(`          error: ${e}`);
     for (const w of r.warnings) console.log(`          warn:  ${w}`);
   }
+  // `--doc` checks one doc (and project.md): it says nothing about the rest.
+  if (only) {
+    if (report.ok) console.log(`\n${DOCS[only].file} passes.`);
+    return report.ok ? 0 : 1;
+  }
   const next = nextStep(report.results);
-  console.log(next ? `\nNext: ${next}` : '\nAll Getting Started docs accepted.');
+  console.log(next ? `\nNext: ${next}` : report.accepted ? '\nAll Getting Started docs accepted.' : '');
   return report.ok ? 0 : 1;
 }
 
