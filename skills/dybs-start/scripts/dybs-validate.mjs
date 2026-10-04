@@ -986,11 +986,22 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // Re-pinned right before the move: through a folder swapped for a
       // link, the rename would take someone else's doc off its name.
       pinned();
+      // A save made over the doc since the copy is never moved: acceptance
+      // stops while it is still at its own name.
+      if (pathId(path) !== origId || !isRegularFile(path)) throw new Error(`${rel} changed while it was being moved aside; nothing was changed, run --accept again`);
       const aside = `${path}.${randomUUID()}.rm`;
       renameSync(path, aside);
       let same = false;
       try { same = isRegularFile(aside) && pathId(aside) === origId && readFileSync(aside, 'utf8') === readFileSync(old, 'utf8'); } catch { same = false; }
-      if (!same) throw new Error(`${rel} changed while it was being moved aside; your version is kept at ${aside}`);
+      if (!same) {
+        // Changed in the last instant: put it back at its own name while
+        // that is still free, so the user's version is where they left it.
+        let back = false;
+        try { if (pathId(path) === null) { renameSync(aside, path); back = true; } } catch { back = false; }
+        throw new Error(back
+          ? `${rel} changed while it was being moved aside; it is back at its own name, run --accept again`
+          : `${rel} changed while it was being moved aside; your version is kept at ${aside}`);
+      }
       // Deleted by identity under another private name, never by a plain
       // unlink after the check: a file that replaced `aside` since is kept.
       rmIfOurs(aside, origId);
