@@ -1161,3 +1161,20 @@ test('a skills folder that cannot be entered is a discovery error, not an empty 
   assert.match(JSON.parse(out).error, /EACCES/);
   rmSync(root, { recursive: true });
 });
+
+test('moving an original aside never replaces a file that appeared at the .old name', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  let foreign;
+  const beforePin = (s) => {
+    if (!foreign && s.a.rel === SKILL && s.tmp) { foreign = s.tmp.replace(/\.new$/, '.old'); writeFileSync(foreign, 'someone else'); }
+  };
+  assert.throws(() => applyPlan(plan, { beforePin }), /something appeared at/);
+  assert.equal(readFileSync(foreign, 'utf8'), 'someone else');
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});

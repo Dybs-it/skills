@@ -429,9 +429,27 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       if (s.a.op !== 'add') {
         tick();
         pinned(s);
-        s.old = `${s.p}.${tag}.old`;
-        renameSync(s.p, s.old);
-        done.push(s);
+        const old = `${s.p}.${tag}.old`;
+        // Moved aside without ever replacing what is at the new name:
+        // rename() would silently overwrite a file that appeared there. A
+        // link refuses one (EEXIST); then the original name is dropped only
+        // while it is still the same file.
+        try {
+          fsOps.link(s.p, old);
+          s.old = old;
+          s.oldId = idOf(old);
+          done.push(s);
+          rmIfOurs(s.p, s.oldId);
+        } catch (err) {
+          if (err.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
+          if (s.old || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
+          // No hard links here: refuse an existing name, then rename (the
+          // gap between the two cannot be closed without them).
+          if (idOf(old) !== null) throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
+          renameSync(s.p, old);
+          s.old = old;
+          done.push(s);
+        }
         pinned(s);
         s.oldId = idOf(s.old);
         if (sha(readFileSync(s.old)) !== s.a.hash) throw new Error(`${s.a.rel} changed since the update was planned; nothing was changed, run update again`);

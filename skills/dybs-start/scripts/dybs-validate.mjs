@@ -160,6 +160,11 @@ function stripComments(line, st, closesLater) {
   return { text: out, open: false };
 }
 
+// The HTML blocks that may interrupt a paragraph (CommonMark types 1 to 6):
+// a code span never reaches past one of these.
+const HTML_BLOCK_TAGS = 'address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul';
+const HTML_INTERRUPT = new RegExp(`^ {0,3}(?:<(?:script|pre|style|textarea)(?:[\\s>]|$)|<!--|<\\?|<![A-Za-z]|<!\\[CDATA\\[|</?(?:${HTML_BLOCK_TAGS})(?:[\\s/>]|$))`, 'i');
+
 // How many block quotes a line sits in (`> > x` is two).
 function quoteDepth(line) {
   const prefix = line.match(/^(?: {0,3}>[ \t]?)+/);
@@ -209,11 +214,15 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
         // continuation of it (CommonMark), unless it starts a block, such
         // as an HTML comment, a heading or a list item, checked below.
         if (rest.trim() === '' || quoteDepth(lines[k]) > depth) return false;
+        if (HTML_INTERRUPT.test(rest)) return false;
         if (/^ {0,3}(<!--|`{3,}|~{3,}|#{1,6}([ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|([-*_=])([ \t]*\3){2,}[ \t]*$)/.test(rest)) return false;
         if (closer(run).test(lines[k])) return true;
       }
       return false;
     };
+    // A comment opened in a block quote or list item ends with it: a line
+    // outside that container (a blank line ends a quote) is read afresh.
+    if (inComment && (quoteDepth(line) < inComment.quote || (line.trim() !== '' && line.replace(/^(?: {0,3}>[ \t]?)+/, '').match(/^ */)[0].length < inComment.col))) inComment = false;
     if (inComment) {
       const end = line.indexOf('-->');
       if (end < 0) continue;
@@ -282,7 +291,13 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     // there is never read as raw HTML.
     const inSpan = Boolean(st.span);
     const stripped = stripComments(line, st, closesLater);
-    inComment = stripped.open;
+    // Remember the container the comment opened in (see above).
+    if (stripped.open) {
+      const q = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
+      const mk = q.match(/^ *(?:[-*+]|\d{1,9}[.)])[ \t]+/);
+      const itemCol = inList ? (items.filter((c) => c <= q.match(/^ */)[0].length).at(-1) ?? 0) : 0;
+      inComment = { quote: quoteDepth(line), col: mk ? mk[0].length : itemCol };
+    } else inComment = false;
     line = stripped.text;
     // List markers are read after the `>` markers too (`> 10. item`).
     const qline = line.replace(/^(?: {0,3}>[ \t]?)+/, '');
@@ -650,7 +665,7 @@ export function placeNoClobber(from, to) {
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
-export function acceptDoc(root, name, today = localDate(), { beforeReplace, beforePlace, beforeCleanup } = {}) {
+export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforePlace, beforeCleanup } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -710,6 +725,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
   let placed = false;
   let placedId = null;
   let oldId = null;
+  // No valid pin, no write: the temporary copy is never created through a
+  // folder that is already a link.
+  beforeWrite?.();
+  pinned();
   try {
     const fd = openSync(tmp, 'wx', mode);
     try {
