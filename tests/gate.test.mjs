@@ -611,3 +611,10 @@ test('item and risk ids must render as written', () => {
   }
   assert.doesNotMatch(parseGate(gate({ items: [full('AC1.2', 'P0'), full('FR_3', 'P1')] })).problems.join(' '), /plain text/);
 });
+
+test('an indented heading under a list item is refused', () => {
+  const real = gate({ items: [full('a', 'P0')] });
+  const table = real.match(/## Items\n\n([\s\S]*?)\n\n## Risks/)[1];
+  const moved = real.replace(`## Items\n\n${table}`, `## Items\n\n10. list item\n    ## Archived\n\n${table}`);
+  assert.match(parseGate(moved).problems.join(' '), /headings may not be indented/);
+});

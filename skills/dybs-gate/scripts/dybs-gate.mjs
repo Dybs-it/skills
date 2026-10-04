@@ -129,6 +129,10 @@ export function markdownHazards(text) {
     // A heading inside a list item or quote (`- ## Archived`) still ends a
     // section on screen, so it is refused rather than modelled.
     if (/^\s*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}([ \t]|$)/.test(line)) problems.push('headings may not sit inside a list item or a quote');
+    // So does an indented one: under `10. item`, `    ## Archived` is a
+    // heading inside the item. Indented headings are refused rather than
+    // modelled (gate.md needs no indented code; fences are fine).
+    if (/^(?: {4,}|\t)[ \t]*#{1,6}([ \t]|$)/.test(line)) problems.push('headings may not be indented (under a list item they still render)');
     // `## **Items**` renders as Items too: headings must be plain text.
     if (/^ {0,3}#{1,6}[ \t]+.*[*_`[\]<>\\~]/.test(line)) problems.push('headings must be plain text (no *, _, `, [ ], < >, \\ or ~)');
     // `## I&#116;ems` renders as Items: a heading is matched as written, so
