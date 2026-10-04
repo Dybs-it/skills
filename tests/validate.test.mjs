@@ -354,3 +354,15 @@ test('--doc on a missing doc is a failure, a project-wide run is not', () => {
   assert.equal(validateProject(dir).ok, true);
   rmSync(dir, { recursive: true });
 });
+
+test('--doc also checks project.md, which holds the settings', () => {
+  const dir = copySample();
+  assert.equal(validateProject(dir, 'prd').ok, true);
+  edit(dir, 'project.md', (t) => t.replace('doc: project', 'doc: nope'));
+  assert.equal(validateProject(dir, 'prd').ok, false);
+  rmSync(join(dir, 'dybs/project.md'));
+  const r = validateProject(dir, 'prd');
+  assert.equal(r.ok, false);
+  assert.ok(r.results.find((x) => x.name === 'project').errors.some((e) => e.includes('does not exist yet')));
+  rmSync(dir, { recursive: true });
+});

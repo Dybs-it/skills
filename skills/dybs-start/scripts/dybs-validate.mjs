@@ -317,7 +317,9 @@ export function validateProject(root, only) {
   const skip = skipped(projectData);
 
   for (const name of ORDER) {
-    if (only && name !== only) continue;
+    // project.md is always loaded: it holds the settings every other doc is
+    // checked against, so `--doc <other>` checks it too.
+    if (only && name !== only && name !== 'project') continue;
     const spec = DOCS[name];
     const path = join(dir, spec.file);
     // project.md holds the settings, so it can never skip itself.
@@ -328,7 +330,7 @@ export function validateProject(root, only) {
     if (!existsSync(path)) {
       // A doc asked for by name must exist: `--doc` passing is the check
       // before a check-in, and "it is not there" is not a pass.
-      const errors = only === name ? [`${spec.file} does not exist yet`] : [];
+      const errors = only && (only === name || name === 'project') ? [`${spec.file} does not exist yet`] : [];
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
