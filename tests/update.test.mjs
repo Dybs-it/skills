@@ -1451,3 +1451,29 @@ test('rollback never deletes a file that replaced the placed one after the check
   assert.equal(readFileSync(prd(root), 'utf8'), 'a new user file');
   rmSync(root, { recursive: true });
 });
+
+test('dropping the original name re-checks the pinned folders right before the move', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = false;
+  // The skill folder becomes a link to an outside folder holding another
+  // name for the very same file, after the look and before the move.
+  mod.testHooks.afterLook = (p) => {
+    if (swapped || p !== prd(root)) return;
+    swapped = true;
+    linkSync(p, join(outside, SKILL));
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { mod.testHooks.afterLook = null; }
+  assert.ok(swapped);
+  assert.ok(existsSync(join(outside, SKILL)), 'the outside name must survive');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
