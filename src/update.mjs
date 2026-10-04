@@ -544,7 +544,16 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // link refuses one (EEXIST); then the original name is dropped only
         // while it is still the same file.
         try {
+          pinned(s);
           fsOps.link(s.p, old);
+          // A folder swapped in the instant of the link would put the new
+          // name outside the install: the name this run just created there
+          // is removed again (it is only a second name, the file itself is
+          // untouched) and the update stops.
+          if (chainOf(dir, s.a.rel) !== s.chain) {
+            try { rmIfOurs(old, idOf(old)); } catch { /* reported below */ }
+            throw new Error(`a folder on the way to ${s.a.rel} changed during the update; nothing was changed, run update again`);
+          }
           if (!isRegular(old)) {
             const strayId = idOf(old);
             try { rmIfOurs(old, strayId, chainCheck(s)); } catch { /* reported below */ }
