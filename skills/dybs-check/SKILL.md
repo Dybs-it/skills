@@ -36,7 +36,9 @@ every finding:
    look, and how to verify it? Name the first place it would get stuck.
 
 6. **Readiness.** Using the readiness checklists below (they ship with
-   this skill, so no other skill is needed): every **core** item is
+   this skill, so no other skill is needed), for every doc that
+   `project.md` does not list under `skip:` (a skipped doc has no
+   readiness to check): every **core** item is
    answered, or written as an *(assumption)* with an open question. For a
    doc written at thorough depth, every item is answered or parked by the
    human with a reason. Name each item that is not, by doc and item.

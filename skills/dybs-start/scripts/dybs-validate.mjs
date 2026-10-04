@@ -241,8 +241,10 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     const blank = inner.trim() === '';
     if (blank) st.span = null;
     const isIndented = /^( {4}|\t)/.test(inner);
+    // An indented block continues only at its own code column: inside a
+    // list item that is four past the item's content (`listIndent + 4`).
     if (indented) {
-      if (blank || isIndented) { prevBlank = blank; if (keepCode) out.push(line); continue; }
+      if (blank || inner.match(/^ */)[0].length >= indented || /^\t/.test(inner)) { prevBlank = blank; if (keepCode) out.push(line); continue; }
       indented = false;
     }
     // A fence may sit in a block quote or start a list item (`> ```` or
@@ -291,7 +293,7 @@ export function visibleText(body, { keepCode = false, hideSpanLines = false } = 
     const lead = inner.match(/^ */)[0].length;
     const codeAt = inList ? listIndent + 4 : 4;
     if (!blank && (isIndented && !inList || inList && lead >= codeAt) && (prevBlank || afterBlock || quoteDepth(line) > (n ? quoteDepth(lines[n - 1]) : 0))) {
-      indented = true;
+      indented = codeAt;
       prevBlank = false;
       if (keepCode) out.push(line);
       continue;
@@ -702,7 +704,7 @@ export function placeNoClobber(from, to) {
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
-export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforePlace, beforePlacedCheck, beforeCleanup } = {}) {
+export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforeMoveAside, beforePlace, beforePlacedCheck, beforeCleanup } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -780,8 +782,32 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // a rollback can tell our original from a same-named file reached
     // through a folder swapped right after the rename.
     oldId = pathId(path);
-    renameSync(path, old);
-    moved = true;
+    beforeMoveAside?.(old);
+    // Moved aside without ever replacing what is at the new name: rename()
+    // would silently overwrite a file that appeared there. A link refuses
+    // one (EEXIST); then the doc's own name is dropped only while it is
+    // still the same file. Without hard links the name is reserved first
+    // with an exclusive empty file, and only that reservation is replaced.
+    try {
+      fsOps.link(path, old);
+      moved = true;
+      rmIfOurs(path, oldId);
+    } catch (e) {
+      if (e.code === 'EEXIST') throw new Error(`something appeared at ${old} during the accept; nothing was changed, run --accept again`);
+      if (moved || !['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(e.code)) throw e;
+      let resId;
+      try {
+        const fd = openSync(old, 'wx', 0o600);
+        try { resId = idOf(fstatSync(fd)); } finally { closeSync(fd); }
+      } catch (e2) {
+        if (e2.code === 'EEXIST') throw new Error(`something appeared at ${old} during the accept; nothing was changed, run --accept again`);
+        throw e2;
+      }
+      const st = (() => { try { return lstatSync(old); } catch { return null; } })();
+      if (!st || idOf(st) !== resId || st.size !== 0) throw new Error(`something changed ${old} during the accept; nothing was changed, run --accept again`);
+      renameSync(path, old);
+      moved = true;
+    }
     pinned();
     if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
     if (readFileSync(old, 'utf8') !== text) {
