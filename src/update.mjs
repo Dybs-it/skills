@@ -203,8 +203,9 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
 // fails, everything done so far is undone (new files out, originals back),
 // so the skill never holds files from two releases. rename() replaces a
 // path, it never follows a link at the destination.
-// `failAt` is a test hook: throw just before the n-th rename.
-export function applyPlan(plan, { failAt } = {}) {
+// `failAt` is a test hook: throw just before the n-th rename, after calling
+// `beforeFail` (which lets a test act like a concurrent writer).
+export function applyPlan(plan, { failAt, beforeFail } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   const tag = `dybs-${process.pid}-${Date.now()}`;
@@ -213,7 +214,9 @@ export function applyPlan(plan, { failAt } = {}) {
   const done = [];
   const createdDirs = [];
   let step = 0;
-  const tick = () => { if (failAt !== undefined && step++ === failAt) throw new Error('injected failure'); };
+  const tick = () => {
+    if (failAt !== undefined && step++ === failAt) { beforeFail?.(); throw new Error('injected failure'); }
+  };
   try {
     for (const a of actions) {
       if (!['add', 'update', 'replace', 'remove'].includes(a.op)) continue;
@@ -262,7 +265,18 @@ export function applyPlan(plan, { failAt } = {}) {
     const stuck = [];
     const undo = (what, fn) => { try { fn(); } catch (e) { stuck.push(`${what}: ${e.message}`); } };
     for (const s of done.reverse()) {
-      if (s.placed) undo(s.a.rel, () => rmSync(s.p, { force: true }));
+      // Remove a file we placed only while it still holds exactly what we
+      // wrote: if someone changed it since, it is theirs now. It stays, and
+      // so does the original we moved aside, for a human to sort out.
+      if (s.placed) {
+        let ours = false;
+        try { ours = sha(readFileSync(s.p)) === sha(want[s.a.rel]); } catch { ours = false; }
+        if (!ours) {
+          stuck.push(`${s.a.rel} changed after the update wrote it; kept as is${s.old ? `, the original is at ${s.old}` : ''}`);
+          continue;
+        }
+        undo(s.a.rel, () => rmSync(s.p));
+      }
       // Put the original back without overwriting anything that appeared.
       if (s.old) undo(s.a.rel, () => { linkSync(s.old, s.p); rmSync(s.old); });
     }

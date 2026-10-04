@@ -559,3 +559,21 @@ test('the gate fixes item priority by rule, and the test plan gives every criter
   assert.match(readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'template.md'), 'utf8'), /\*\*AC1\*\* \(\{\{P0\}\}/);
   assert.match(readFileSync(join(SKILLS_SRC, 'dybs-review', SKILL), 'utf8'), /git diff \$\(git merge-base <point> HEAD\)/);
 });
+
+test('rollback never deletes a file someone changed after the update wrote it', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  const files = Object.keys(shippedFiles('dybs-prd'));
+  const known = {};
+  for (const rel of files) { writeFileSync(join(dir, rel), `old ${rel}`); known[`dybs-prd/${rel}`] = [sha(`old ${rel}`)]; }
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { known });
+  const first = plan.actions.find((a) => a.op === 'update').rel;
+  // Fail on the last step, after the first file was placed and then edited.
+  const steps = plan.actions.filter((a) => a.op === 'update').length * 2;
+  assert.throws(() => applyPlan(plan, { failAt: steps - 1, beforeFail: () => writeFileSync(join(dir, first), 'edited after placement') }),
+    /changed after the update wrote it/);
+  assert.equal(readFileSync(join(dir, first), 'utf8'), 'edited after placement');
+  rmSync(root, { recursive: true });
+});

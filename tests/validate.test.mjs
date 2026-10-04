@@ -578,3 +578,10 @@ test('a frontmatter line that is not key: value is an error, so no setting hides
   const multi = VALID_PROJECT.replace(/^skip:.*$/m, 'skip:\nquick:\n  - prd');
   assert.deepEqual(validateDoc('project', multi).rules, ['frontmatter']);
 });
+
+test('project.md can never be skipped', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: project'));
+  assert.notEqual(validateProject(dir).results.find((x) => x.name === 'project').status, 'skipped');
+  rmSync(dir, { recursive: true });
+});
