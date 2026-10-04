@@ -503,11 +503,16 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       const here = chainOf(dir, s.a.rel) === s.chain && idOf(s.old) === s.oldId;
       let bytes = null;
       try { bytes = here ? readFileSync(s.old) : null; } catch { bytes = null; }
-      if (here && bytes && sha(bytes) === s.a.hash) rmSync(s.old);
-      else if (here && !bytes) { /* already gone */ }
-      else s.a.kept = s.old;
+      // The update is committed by now: a cleanup that fails (a locked
+      // file, a permission change) leaves the original in place and is
+      // reported, it never turns a finished update into a failure.
+      if (here && bytes && sha(bytes) === s.a.hash) {
+        try { fsOps.rm(s.old); } catch { s.a.kept = s.old; }
+      } else if (here && !bytes) { /* already gone */ } else s.a.kept = s.old;
     }
-    if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) removeEmptyDirs(dirname(s.p), dir);
+    if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {
+      try { removeEmptyDirs(dirname(s.p), dir); } catch { /* an empty folder left behind is harmless */ }
+    }
   }
   return { ...plan, applied: true };
 }
