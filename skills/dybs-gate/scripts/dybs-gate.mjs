@@ -35,7 +35,14 @@ export function visible(text) {
   const out = [];
   let fence = null;
   let inComment = false;
-  for (const line of text.split(/\r?\n/)) {
+  let inFront = false;
+  const lines = text.split(/\r?\n/);
+  for (let n = 0; n < lines.length; n++) {
+    const line = lines[n];
+    // The frontmatter block (`---` ... `---`) is not Markdown: nothing in it
+    // is a heading or a table, whatever it looks like.
+    if (n === 0 && line.trim() === '---') { inFront = true; out.push(''); continue; }
+    if (inFront) { if (line.trim() === '---') inFront = false; out.push(''); continue; }
     if (inComment) {
       if (line.includes('-->')) inComment = false;
       out.push('');

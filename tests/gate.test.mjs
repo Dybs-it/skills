@@ -490,3 +490,11 @@ test('a waiver with template placeholders is incomplete', async () => {
   assert.match(waiverIssue({ ...w, reason: 'legacy path', by: 'TBD' }, TODAY), /real reason/);
   assert.equal(waiverIssue({ ...w, reason: 'legacy path', by: 'Jos' }, TODAY), null);
 });
+
+test('tables and headings inside the frontmatter are not evidence', () => {
+  const body = gate({ items: [full('a', 'P0')] }).split('\n').slice(4).map((l) => `  ${l}`);
+  const text = ['---', 'task: t', 'note: "', ...body, '  "', '---', '', '# Gate: t', '', '## Decision', ''].join('\n');
+  const g = parseGate(text);
+  assert.equal(g.items.length, 0);
+  assert.ok(g.problems.some((p) => p.includes('missing "## Items" table')));
+});
