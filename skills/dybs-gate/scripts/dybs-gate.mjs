@@ -548,7 +548,9 @@ export function freshness(gatePath, text) {
   try { head = git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude)${gateRel}`, `:(exclude)${prRel}`]); } catch {
     return { status: 'stale', reason: 'git could not read the history of the evidence. Fix the repository and run the gate again' };
   }
-  if (!head) return { status: 'unchecked', reason: 'no commit holds the evidence yet' };
+  // Inside a repository the gate needs committed evidence: with nothing
+  // but gate.md and pr.md ever committed, there is nothing to decide on.
+  if (!head) return { status: 'stale', reason: 'no commit holds the evidence yet. Commit the work, set commit: to that commit, and run the gate again' };
   // `commit:` counts only in the opening frontmatter, never in the body.
   const fm = (text.match(/^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/) || [])[1] ?? '';
   const field = (fm.match(/^commit:[ \t]*(.*?)[ \t]*$/m) || [])[1] || '';

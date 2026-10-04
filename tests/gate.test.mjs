@@ -732,3 +732,18 @@ test('a gate.md linked outside the repository, or naming its commit only in the 
   rmSync(repo, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a repository whose history holds only gate.md and pr.md is refused, never a PASS', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, '---\ncommit: abcdef0\n'));
+  g('add', '.'); g('commit', '-qm', 'gate only');
+  let r;
+  try { r = { code: 0, out: execFileSync('node', [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: no commit holds the evidence/);
+  rmSync(repo, { recursive: true });
+});
