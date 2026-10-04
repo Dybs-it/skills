@@ -926,7 +926,7 @@ test('a cleanup failure after a finished update is reported, not thrown', async 
   const plan = mod.planInstall(install, { known });
   let calls = 0;
   // The first removal is the staging file; fail the cleanup of the original.
-  mod.fsOps.rm = (p, o) => { if (/\.old(\.[^.]+\.rm)?$/.test(String(p))) { calls++; throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); } return real.rm(p, o); };
+  mod.fsOps.rm = (p, o) => { if (/\.old(\.[^/]+\.rm)?$/.test(String(p))) { calls++; throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); } return real.rm(p, o); };
   let result;
   try { result = mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
   assert.equal(calls, 1);
@@ -1824,4 +1824,27 @@ test('committed cleanup re-checks the folders right before moving the old versio
   assert.ok(existsSync(kept), 'the outside name must survive');
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
+});
+
+test('committed cleanup deletes the old version by identity, never a file that replaced it', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let replaced = null;
+  mod.testHooks.afterLook = (p) => {
+    if (replaced || !/\.old\.[0-9a-f-]{36}\.rm$/.test(p)) return;
+    replaced = p;
+    writeFileSync(`${p}.x`, 'someone else');
+    renameSync(`${p}.x`, p);
+  };
+  let r;
+  try { r = mod.applyPlan(plan); } finally { mod.testHooks.afterLook = null; }
+  assert.ok(replaced, 'the hook ran on the trash name');
+  const kept = r.actions.find((a) => a.rel === SKILL).kept;
+  const where = existsSync(replaced) ? replaced : kept;
+  assert.equal(readFileSync(where, 'utf8'), 'someone else');
+  rmSync(root, { recursive: true });
 });
