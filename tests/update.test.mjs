@@ -2509,3 +2509,10 @@ test('a lookup failure on the moved-aside original at cleanup is reported as kep
   assert.ok(kept && existsSync(kept), 'the original is reported where it is kept');
   rmSync(root, { recursive: true });
 });
+
+test('dybs-check declares the writes its check-in makes on the human\'s word', () => {
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-check', 'SKILL.md'), 'utf8');
+  const decl = t.match(/^\*\*Reads:\*\*[\s\S]*?(?=\n\n)/m)?.[0].replace(/\s+/g, ' ') ?? '';
+  assert.match(decl, /resolved/, 'resolved lines in dybs/log.md');
+  assert.match(decl, /acceptance/, 'accepting the docs the human names');
+});

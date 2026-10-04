@@ -628,7 +628,15 @@ export function headings(body) {
 export function wordCount(body) {
   // Count prose only: what a reader sees, without HTML comments (template
   // guidance) or fenced code (``` or ~~~), by the same rules as headings.
-  const prose = visibleText(body);
+  // Link destinations and titles, and reference definitions (`[x]: url`),
+  // are never shown either. A definition cannot interrupt a paragraph, so
+  // only one after a blank line (or another definition) is left out.
+  let prev = '';
+  const prose = visibleText(body).split('\n').map((l) => {
+    const def = /^(?: {0,3}>[ \t]?)* {0,3}\[[^\]\n]+\]:[ \t]*(?:<[^<>\n]*>|[^\s<]\S*)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*$/.test(l) && (prev.trim() === '' || prev === '\u0002');
+    prev = def ? '\u0002' : l;
+    return def ? '' : dropValidLinkTargets(l);
+  }).join('\n');
   return (prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 }
 
@@ -672,10 +680,13 @@ export function acceptedHash(data, body) {
   return createHash('sha256').update(meaning + body.replace(/\r\n/g, '\n')).digest('hex').slice(0, 12);
 }
 
-// requestedDepth is what project.md asks for this doc; documentDepth is what
-// the doc says it was written at. The cap follows the doc. A doc written at
-// quick depth where thorough is requested needs deepening; it is never
-// reported as thorough just because the project setting changed.
+// For counting, only a well-formed inline destination is left out
+// (`](url)`, `](<a b>)`, `](url "title")`): `[b](c d e)` is no link and its
+// words are shown. Leaving a malformed one in can only count more.
+function dropValidLinkTargets(text) {
+  return text.replace(/\]\([ \t]*(?:<[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*)(?:[ \t]+(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\)))?[ \t]*\)/g, ']');
+}
+
 // Removes every `](destination)` and `][label]`, with the destination's
 // parentheses balanced (`](foo(bar))`), so only the text a reader sees is
 // left between the brackets.
@@ -709,6 +720,10 @@ function dropLinkTargets(text) {
   return out;
 }
 
+// requestedDepth is what project.md asks for this doc; documentDepth is what
+// the doc says it was written at. The cap follows the doc. A doc written at
+// quick depth where thorough is requested needs deepening; it is never
+// reported as thorough just because the project setting changed.
 export function validateDoc(name, text, requestedDepth = 'quick', checkins = undefined) {
   const spec = DOCS[name];
   const errors = [];
@@ -794,7 +809,10 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
-  const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase()));
+  // `## **Goals**` and `## `Goals`` render as Goals: inline markup is
+  // read through when matching a required section.
+  const plain = (h) => dropLinkTargets(h).replace(/[*_~`[\]]/g, '').trim();
+  const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || plain(h).toLowerCase() === s.toLowerCase()));
   for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
   const words = wordCount(body);
@@ -833,10 +851,25 @@ function readmeProblem(root) {
   if (!existsSync(readme)) return 'missing dybs/README.md (the method rules). Run dybs-start to restore it.';
   if (!statSync(readme).isFile()) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.';
   // A file the skills cannot read is as good as missing.
-  try { readFileSync(readme); } catch (e) {
+  try { if (readRegular(readme) === null) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'; } catch (e) {
     return `dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`;
   }
   return null;
+}
+
+// Reads a file only if it is a regular file. Opened without blocking, so a
+// FIFO or a device at a doc's name never hangs the check, and judged on the
+// open descriptor, not on a separate look at the name. null otherwise.
+function readRegular(p) {
+  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+  try { return fstatSync(fd).isFile() ? readFileSync(fd, 'utf8') : null; } finally { closeSync(fd); }
+}
+// The same for a doc that was already checked to be a regular file: one
+// swapped since is an error, never a read that can hang.
+function readDoc(p) {
+  const t = readRegular(p);
+  if (t === null) throw new Error(`${p} is not a regular file`);
+  return t;
 }
 
 export function validateProject(root, only) {
@@ -849,7 +882,8 @@ export function validateProject(root, only) {
   if (readme) results.push({ name: 'readme', file: 'README.md', status: null, words: 0, errors: [readme], warnings: [] });
 
   const projectPath = join(dir, DOCS.project.file);
-  const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
+  const projectText = existsSync(projectPath) ? readRegular(projectPath) : null;
+  const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
   const skip = skipped(projectData);
 
   for (const name of ORDER) {
@@ -876,7 +910,12 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
-    results.push(validateDoc(name, readFileSync(path, 'utf8'), depthFor(name, projectData), projectData?.checkins));
+    const text = readRegular(path);
+    if (text === null) {
+      results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });
+      continue;
+    }
+    results.push(validateDoc(name, text, depthFor(name, projectData), projectData?.checkins));
   }
   // ok: no rule is broken (missing and draft docs are allowed).
   // complete: every doc that is not skipped exists and is ok.
@@ -1137,7 +1176,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const inputsUnchanged = () => {
     for (const [r, t] of inputs) {
       let same = false;
-      try { same = !unsafePath(root, r) && readFileSync(join(root, r), 'utf8') === t; } catch { same = false; }
+      try { same = !unsafePath(root, r) && readDoc(join(root, r)) === t; } catch { same = false; }
       if (!same) throw new Error(`${r} changed while ${rel} was being accepted; run --accept again`);
     }
   };
@@ -1153,7 +1192,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     const projectUnsafe = unsafePath(root, 'dybs/project.md');
     if (projectUnsafe) return { ok: false, errors: [`refusing to accept: ${projectUnsafe}`] };
     {
-      const projectText = readFileSync(projectPath, 'utf8');
+      const projectText = readDoc(projectPath);
       inputs.push(['dybs/project.md', projectText]);
       const project = validateDoc('project', projectText, depthFor('project', parseFrontmatter(projectText).data));
       if (project.errors.length) return { ok: false, errors: project.errors.map((e) => `project.md: ${e}`) };
@@ -1170,7 +1209,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
         if (!existsSync(depPath)) return { ok: false, errors: [`${depRel} is missing: ${name} cannot be written without it. Write ${dep} first.`] };
         const depUnsafe = unsafePath(root, depRel);
         if (depUnsafe) return { ok: false, errors: [`refusing to accept: ${depUnsafe}`] };
-        const depText = readFileSync(depPath, 'utf8');
+        const depText = readDoc(depPath);
         const r = validateDoc(dep, depText, depthFor(dep, projectData), projectData?.checkins);
         if (r.errors.length) return { ok: false, errors: r.errors.map((e) => `${DOCS[dep].file}: ${e}`) };
         inputs.push([depRel, depText]);
@@ -1178,7 +1217,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     }
   }
   const path = join(root, rel);
-  const text = readFileSync(path, 'utf8');
+  const text = readDoc(path);
   const { data, body } = parseFrontmatter(text);
   if (!data) return { ok: false, errors: validateDoc(name, text).errors };
   // project.md's check-ins bind the other docs too: `checkins: none` is not
@@ -1192,7 +1231,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       if (!existsSync(join(root, otherRel))) continue;
       const otherUnsafe = unsafePath(root, otherRel);
       if (otherUnsafe) return { ok: false, errors: [`refusing to accept: ${otherUnsafe}`] };
-      const otherText = readFileSync(join(root, otherRel), 'utf8');
+      const otherText = readDoc(join(root, otherRel));
       const r = validateDoc(other, otherText, depthFor(other, data), data.checkins);
       if (r.rules.includes('checkins')) return { ok: false, errors: [`${DOCS[other].file}: "checkins: none" asks nothing, so it must be quick: set depth: quick there first`] };
       inputs.push([otherRel, otherText]);

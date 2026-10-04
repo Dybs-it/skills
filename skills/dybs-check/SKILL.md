@@ -8,8 +8,10 @@ description: Final Getting Started step in the Dybs method. Validates every cont
 Lead persona: **Bas** (the skeptic). Follow `dybs/README.md`. If `dybs/` is
 missing, run `dybs-start` first.
 
-**Reads:** everything in `dybs/`. **Writes:** nothing, unless the human asks
-for fixes. Your output is the check-in brief.
+**Reads:** everything in `dybs/`. **Writes:** only on the human's word: the
+fixes they ask for, `resolved` lines in `dybs/log.md` for the `needs-you`
+items they answer, and the acceptance of the docs they name (see
+**4. Check in**). Otherwise nothing; your output is the check-in brief.
 
 ## 1. Mechanical check
 
