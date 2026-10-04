@@ -57,7 +57,7 @@ export const CHECKINS = ['each-doc', 'end', 'none'];
 // validator is not installed. Every id here is enforced in validateDoc, and
 // tests keep the skills' standalone sections in step with this list.
 export const MANUAL_RULES = [
-  { id: 'frontmatter', text: 'The doc starts with a frontmatter block between two `---` lines, and no key appears in it twice.' },
+  { id: 'frontmatter', text: 'The doc starts with a frontmatter block between two `---` lines; every line in it is one `key: value`, and no key appears twice.' },
   { id: 'doc-name', text: 'Frontmatter `doc` is exactly this doc\'s name (for example `doc: prd`).' },
   { id: 'status', text: 'Frontmatter `status` is `draft` or `accepted`, nothing else.' },
   { id: 'updated', text: 'Frontmatter `updated` is a date written as YYYY-MM-DD.' },
@@ -78,13 +78,17 @@ export function parseFrontmatter(text) {
   if (!m) return { data: null, body: text };
   const data = {};
   const duplicates = [];
+  const unparsed = [];
   for (const line of m[1].split(/\r?\n/)) {
     const kv = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
-    if (!kv) continue;
+    // Every setting is one `key: value` line. Anything else (an indented
+    // continuation, a list) would be invisible to the checks and the
+    // acceptance fingerprint, so it is reported rather than skipped.
+    if (!kv) { if (line.trim()) unparsed.push(line.trim()); continue; }
     if (kv[1] in data) duplicates.push(kv[1]);
     data[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
   }
-  return { data, body: text.slice(m[0].length), duplicates };
+  return { data, body: text.slice(m[0].length), duplicates, unparsed };
 }
 
 // Headings a reader sees: none inside HTML comments or fenced examples.
@@ -142,13 +146,14 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
   const warnings = [];
   const rules = new Set();
   const fail = (id, msg) => { rules.add(id); errors.push(msg); };
-  const { data, body, duplicates = [] } = parseFrontmatter(text);
+  const { data, body, duplicates = [], unparsed = [] } = parseFrontmatter(text);
 
   if (!data) {
     fail('frontmatter', 'missing frontmatter (--- block at the top)');
   } else {
     // One key, one value: a second `status:` would make tools disagree on
     // which one counts.
+    if (unparsed.length) fail('frontmatter', `frontmatter lines must be "key: value"; not understood: ${unparsed[0]}`);
     if (duplicates.length) fail('frontmatter', `frontmatter key(s) ${[...new Set(duplicates)].join(', ')} appear more than once`);
     if (data.doc !== name) fail('doc-name', `frontmatter "doc" must be "${name}" (found "${data.doc ?? ''}")`);
     if (!STATUSES.includes(data.status)) fail('status', `frontmatter "status" must be one of ${STATUSES.join('|')}`);

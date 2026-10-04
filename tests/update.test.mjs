@@ -482,3 +482,13 @@ test('interview.md defines needs-you ids and their resolution; dybs-check skips 
   assert.match(t, /With `checkins: none`, ask neither/);
   assert.match(readFileSync(join(SKILLS_SRC, 'dybs-check', SKILL), 'utf8'), /no `resolved` line with the same id/);
 });
+
+test('an install that lost SKILL.md is found and repaired', () => {
+  const root = project(['dybs-prd']);
+  rmSync(prd(root));
+  const { results } = update([root]);
+  assert.equal(results.length, 1);
+  assert.equal(ops(results[0])[SKILL], 'add');
+  assert.equal(readFileSync(prd(root), 'utf8'), shippedFiles('dybs-prd')[SKILL].toString());
+  rmSync(root, { recursive: true });
+});
