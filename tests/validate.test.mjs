@@ -2660,3 +2660,21 @@ test('a doc swapped for a link right before it is read is never read through the
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a folder swapped for a link around a doc read fails --doc', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const ctx = join(dir, 'dybs/context');
+  mod.validateHooks.beforeRead = (p) => {
+    if (p !== join(ctx, 'ui.md')) return;
+    renameSync(ctx, join(outside, 'context'));
+    symlinkSync(join(outside, 'context'), ctx);
+  };
+  let r;
+  try { r = validateProject(dir, 'ui'); } finally { mod.validateHooks.beforeRead = null; }
+  assert.equal(r.ok, false);
+  assert.match(r.results.find((x) => x.name === 'ui').errors.join(' '), /symbolic link/);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

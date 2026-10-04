@@ -1074,6 +1074,13 @@ export function validateProject(root, only) {
     // a save in between would otherwise mix two versions in one result.
     if (!(name === 'project' && projectText !== null)) validateHooks.beforeRead?.(path);
     const text = name === 'project' && projectText !== null ? projectText : readRegular(path);
+    // The name itself is read without following a link; a folder on the way
+    // swapped for one around the read is caught by asking again after it.
+    const swapped = text !== null && unsafePath(root, `dybs/${spec.file}`);
+    if (swapped) {
+      results.push({ name, file: spec.file, status: null, words: 0, errors: [`${swapped}: keep the docs as real files in dybs/`], warnings: [] });
+      continue;
+    }
     if (text === null) {
       results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });
       continue;
