@@ -2470,3 +2470,85 @@ test('a heading in a quote inside a list item counts', () => {
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '- > ## Goals')).rules.includes('sections'));
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '> - > ## Goals')).rules.includes('sections'));
 });
+
+test('project.md is validated from the same snapshot its settings came from', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const projectPath = join(dir, 'dybs/project.md');
+  // Saved between the settings read and its own validation: this run judges
+  // the old project.md, never a mix of the two.
+  mod.validateHooks.afterSettings = () => writeFileSync(projectPath, readFileSync(projectPath, 'utf8').replace(/^doc: project$/m, 'doc: wrong'));
+  let r;
+  try { r = validateProject(dir); } finally { mod.validateHooks.afterSettings = null; }
+  assert.deepEqual(r.results.find((x) => x.name === 'project').errors, []);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept puts back an edit written in place just before a removal, never deletes it', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  let hit = false;
+  // The moved-aside original was checked; an editor still holding it open
+  // writes once more before the unlink.
+  mod.testHooks.afterLook = (p) => {
+    if (hit || !/\.old$/.test(p)) return;
+    hit = true;
+    writeFileSync(p, 'EDITED in place', { flag: 'r+' });
+  };
+  let r;
+  try { r = acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.afterLook = null; }
+  assert.ok(hit);
+  assert.equal(r.ok, true);
+  assert.match(r.warnings.join(' '), /kept at/);
+  assert.equal(readdirSync(ctx).filter((n) => { try { return readFileSync(join(ctx, n), 'utf8').startsWith('EDITED'); } catch { return false; } }).length, 1);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept removes the private name of a file put back only while it is that file', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  let oldAt = null;
+  let replaced = false;
+  mod.testHooks.beforeMove = (p) => {
+    if (oldAt || !/\.old$/.test(p)) return;
+    oldAt = p;
+    writeFileSync(`${p}.x`, 'first user file');
+    renameSync(`${p}.x`, p);
+  };
+  mod.fsOps.link = (from, to) => {
+    const r = real.link(from, to);
+    if (!replaced && to === oldAt && /\.rm$/.test(from)) {
+      replaced = true;
+      writeFileSync(`${from}.y`, 'second user file');
+      renameSync(`${from}.y`, from);
+    }
+    return r;
+  };
+  try { acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  assert.ok(replaced);
+  const texts = readdirSync(ctx).map((n) => { try { return readFileSync(join(ctx, n), 'utf8'); } catch { return ''; } });
+  assert.ok(texts.includes('first user file'));
+  assert.ok(texts.includes('second user file'), 'the file at the private name survives');
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept without hard links puts a changed doc back without replacing a new save', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  const beforeAside = () => writeFileSync(path, 'edited in place', { flag: 'r+' });
+  mod.testHooks.beforePutBack = (p) => writeFileSync(p, 'a new save');
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let r = null;
+  let err = null;
+  try { r = acceptDoc(dir, 'ui', '2026-10-04', { beforeAside }); } catch (e) { err = e; } finally { mod.testHooks.beforePutBack = null; Object.assign(mod.fsOps, real); }
+  assert.match(err?.message ?? r?.errors?.join(' ') ?? '', /changed while it was being moved aside/);
+  assert.equal(readFileSync(path, 'utf8'), 'a new save');
+  const ctx = dirname(path);
+  assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8').startsWith('edited in place'); } catch { return false; } }), 'the edited doc is kept');
+  rmSync(dir, { recursive: true });
+});

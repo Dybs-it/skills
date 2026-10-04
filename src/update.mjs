@@ -296,14 +296,17 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterLook: null, beforeMove: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
 // folder that changed after an earlier check.
 // With `sole`, the file must also have no other name: a file this run
-// created but someone has since linked elsewhere is not removed.
-function rmIfOurs(p, id, check, { sole = false } = {}) {
+// created but someone has since linked elsewhere is not removed. With
+// `expect` (a sha), it must also still hold those bytes once under its
+// private name: an editor writing through an open file keeps the identity,
+// so only the content can tell, and an edited file is put back, not removed.
+function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -319,7 +322,13 @@ function rmIfOurs(p, id, check, { sole = false } = {}) {
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   let st = null;
   try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
-  if (st && idOfStat(st) === id && (!sole || st.nlink === 1n)) {
+  let disposable = Boolean(st) && idOfStat(st) === id && (!sole || st.nlink === 1n);
+  if (disposable && expect) {
+    let x = null;
+    try { x = readById(aside, id); } catch { x = null; }
+    disposable = Boolean(x) && sha(x) === expect;
+  }
+  if (disposable) {
     // A failed unlink leaves the file under its private name: say where.
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
     return;
@@ -359,7 +368,9 @@ function rmIfOurs(p, id, check, { sole = false } = {}) {
   if (how === 'copy') {
     throw Object.assign(new Error(`${p} is not the file the update wrote; it was put back as a copy, the file itself is kept at ${aside}`), { keptAt: aside });
   }
-  try { fsOps.rm(aside); } catch {
+  // The private name goes only as the very file just put back: one that
+  // replaced it in the meantime is someone's and stays.
+  try { rmIfOurs(aside, theirs, check); } catch {
     throw Object.assign(new Error(`${p} is not the file the update wrote; it is back, and also kept at ${aside}`), { keptAt: aside });
   }
   throw new Error(`${p} is not the file the update wrote; left in place`);
@@ -770,12 +781,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           let same = false;
           try { const x = readById(aside, origId); const y = readById(old, s.oldId); same = Boolean(x && y) && sha(x) === sha(y); } catch { same = false; }
           if (!same) {
-            // Changed in the last instant: put it back at its own name while
-            // that is still free, so the user's version is where they left it.
+            // Changed in the last instant: put back at its own name without
+            // ever replacing a file saved there meanwhile (an exclusive copy,
+            // as there are no hard links here), and the file itself is kept.
+            testHooks.beforePutBack?.(s.p);
             let back = false;
-            try { if (idOf(s.p) === null) { renameSync(aside, s.p); back = true; } } catch { back = false; }
+            try { chainCheck(s)(); placeNoClobber(aside, s.p, chainCheck(s), origId, {}); back = true; } catch { back = false; }
             throw new Error(back
-              ? `${s.a.rel} changed while it was being moved aside; it is back at its own name, run update again`
+              ? `${s.a.rel} changed while it was being moved aside; it is back at its own name as a copy, and the file itself is kept at ${aside}; run update again`
               : `${s.a.rel} changed while it was being moved aside; your version is kept at ${aside}`);
           }
           // Kept, not deleted, until the update is committed: an editor
@@ -937,7 +950,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // move: a swap after the check above is never acted through.
         undo(s.a.rel, () => rmIfOurs(s.p, s.placedId, () => {
           if (chainOf(dir, s.a.rel) !== s.chain) throw new Error('a folder on the way changed; the file the update wrote was kept');
-        }));
+        }, { expect: sha(want[s.a.rel]) }));
       }
       // Put the original back without overwriting anything that appeared,
       // and only while the name still leads, through the pinned folders, to
@@ -988,7 +1001,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             const x = chainOf(dir, s.a.rel) === s.chain ? readById(s.orig, s.origId) : null;
             ours = Boolean(x) && sha(x) === s.a.hash;
           } catch { ours = false; }
-          if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s));
+          if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash });
           else if (idOf(s.orig) !== null) throw new Error(`the original changed during the update (an edit through an open file); that version is kept at ${s.orig}`);
         });
       }
@@ -1003,7 +1016,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       undo(b.path, () => {
         let same = false;
         try { const x = readById(b.path, b.id); same = Boolean(x) && sha(x) === b.hash; } catch { same = false; }
-        if (same) rmIfOurs(b.path, b.id, chainCheck(b.entry));
+        if (same) rmIfOurs(b.path, b.id, chainCheck(b.entry), { expect: b.hash });
         else if (idOf(b.path) !== null) throw new Error(`${b.path} changed during the update; kept`);
       });
     }
@@ -1051,7 +1064,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           if (ours) {
             // Deleted by identity under yet another private name: a file
             // that replaced `trash` since the check is kept, never deleted.
-            try { rmIfOurs(trash, s.oldId, chainCheck(s)); } catch (e) { s.a.kept = e.keptAt ?? trash; }
+            try { rmIfOurs(trash, s.oldId, chainCheck(s), { expect: s.a.hash }); } catch (e) { s.a.kept = e.keptAt ?? trash; }
           } else {
             // Not ours after all (edited, or replaced before the move): put
             // it back without overwriting anything, else report where it is.
@@ -1086,7 +1099,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         ours = Boolean(x) && sha(x) === s.a.hash;
       } catch { ours = false; }
       if (ours) {
-        try { rmIfOurs(s.orig, s.origId, chainCheck(s)); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
+        try { rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash }); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
       } else if (idOf(s.orig) !== null) s.a.kept = s.a.kept ? `${s.a.kept} (and ${s.orig})` : s.orig;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {

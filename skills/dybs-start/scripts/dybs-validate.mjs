@@ -1024,6 +1024,9 @@ function lookup(p) {
   }
 }
 
+// Test seam: runs right after project.md is read for its settings.
+export const validateHooks = { afterSettings: null };
+
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
   const results = [];
@@ -1036,6 +1039,7 @@ export function validateProject(root, only) {
   const projectPath = join(dir, DOCS.project.file);
   const projectText = lookup(projectPath) === 'present' ? readRegular(projectPath) : null;
   const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
+  validateHooks.afterSettings?.();
   const skip = skipped(projectData);
 
   for (const name of ORDER) {
@@ -1067,7 +1071,9 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
-    const text = readRegular(path);
+    // project.md is validated from the very bytes its settings came from:
+    // a save in between would otherwise mix two versions in one result.
+    const text = name === 'project' && projectText !== null ? projectText : readRegular(path);
     if (text === null) {
       results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });
       continue;
@@ -1198,9 +1204,12 @@ function stillAtName(p, st) {
 // verified is exactly what gets deleted, even if something replaces `p` in
 // between. One that is not ours goes back, never over anything.
 // With `sole`, the file must also have no other name: one this run created
-// but someone has since linked elsewhere is not removed.
-export const testHooks = { afterLook: null, beforeMove: null };
-function rmIfOurs(p, id, check, { sole = false } = {}) {
+// but someone has since linked elsewhere is not removed. With `expect` (the
+// text it must hold), it must also still hold it once under its private
+// name: an editor writing through an open file keeps the identity, so only
+// the content can tell, and an edited file is put back, not removed.
+export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: null };
+function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -1214,7 +1223,13 @@ function rmIfOurs(p, id, check, { sole = false } = {}) {
   try { fsOps.rename(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   let st = null;
   try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
-  if (st && idOf(st) === id && (!sole || st.nlink === 1n)) {
+  let disposable = Boolean(st) && idOf(st) === id && (!sole || st.nlink === 1n);
+  if (disposable && expect !== null) {
+    let x = null;
+    try { x = readById(aside, id); } catch { x = null; }
+    disposable = x === expect;
+  }
+  if (disposable) {
     // A failed unlink leaves the file under its private name: say where.
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
     return;
@@ -1252,9 +1267,13 @@ function rmIfOurs(p, id, check, { sole = false } = {}) {
     throw Object.assign(new Error(`${p} changed while it was being removed, and a folder on the way changed while it was put back; it is kept at ${aside}`), { keptAt: aside });
   }
   if (how === 'copy') throw Object.assign(new Error(`${p} changed while it was being removed; it was put back as a copy, the file itself is kept at ${aside}`), { keptAt: aside });
-  try { fsOps.rm(aside); } catch {
+  // The private name goes only as the very file just put back: one that
+  // replaced it in the meantime is someone's and stays.
+  try { rmIfOurs(aside, theirs, check); } catch {
     throw Object.assign(new Error(`${p} changed while it was being removed; it is back, and also kept at ${aside}`), { keptAt: aside });
   }
+  // Back at its name: the caller learns it was not removed, and reports it.
+  throw Object.assign(new Error(`${p} changed while it was being removed; it is kept there`), { keptAt: p });
 }
 
 // Today as the person running the command sees it (local time, not UTC), so
@@ -1557,17 +1576,19 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       let same = false;
       try { const a = readById(aside, origId); const o = readById(old, oldId); same = a !== null && o !== null && a === o; } catch { same = false; }
       if (!same) {
-        // Changed in the last instant: put it back at its own name while
-        // that is still free, so the user's version is where they left it.
+        // Changed in the last instant: put back at its own name without
+        // ever replacing a file saved there meanwhile (an exclusive copy,
+        // as there are no hard links here), and the file itself is kept.
+        testHooks.beforePutBack?.(path);
         let back = false;
-        try { if (pathId(path) === null) { renameSync(aside, path); back = true; } } catch { back = false; }
+        try { pinned(); placeNoClobber(aside, path, pinned, origId, {}); back = true; } catch { back = false; }
         throw new Error(back
-          ? `${rel} changed while it was being moved aside; it is back at its own name, run --accept again`
+          ? `${rel} changed while it was being moved aside; it is back at its own name as a copy, and the file itself is kept at ${aside}; run --accept again`
           : `${rel} changed while it was being moved aside; your version is kept at ${aside}`);
       }
       // Deleted by identity under another private name, never by a plain
       // unlink after the check: a file that replaced `aside` since is kept.
-      rmIfOurs(aside, origId, pinned);
+      rmIfOurs(aside, origId, pinned, { expect: readById(old, oldId) });
     }
     pinned();
     const oldText = readById(old, oldId);
@@ -1614,7 +1635,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (ours) {
       // Re-pinned inside the removal, right before its move: a folder
       // swapped for a link since the check above is never acted through.
-      try { rmIfOurs(old, oldId, pinned); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
+      try { rmIfOurs(old, oldId, pinned, { expect: text }); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
     }
     if (!ours) return { ok: true, warnings: [...check.warnings, `the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
   } catch (err) {
@@ -1629,7 +1650,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // look followed by an unlink: a save that replaces the doc in between
       // is kept, and the original is then not put back over it.
       if (ours) {
-        try { rmIfOurs(path, placedId, pinned); } catch (e) { err.message += `; ${e.message}`; }
+        try { rmIfOurs(path, placedId, pinned, { expect: next }); } catch (e) { err.message += `; ${e.message}`; }
       }
     }
     try { rmIfOurs(tmp, tmpId, pinned); } catch (e) { err.message += `; ${e.message}`; }
