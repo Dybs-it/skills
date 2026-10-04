@@ -161,8 +161,15 @@ append-only. An item is open while it has no `resolved` line.
 ## Decision log
 
 `dybs/log.md` is the interview's memory, so nothing is lost and a later run
-can resume. Create it if missing. Append one line per decision; never edit or
-remove earlier lines:
+can resume. Append one line per decision; never edit or remove earlier lines.
+Create it fresh only when `dybs/project.md` does not exist yet. If it is
+missing while `dybs/project.md` exists, the decisions behind the docs are
+lost: say so before writing anything, and recreate it from what `project.md`
+and the docs record (one `kickoff` line per frontmatter choice, marked
+*(recovered)*). Never re-ask or draft on without it. The check-in setting
+decides when the human sees those lines: `each-doc` (or none set) asks them
+to confirm or correct the lines now; `end` lists them in `dybs-check`;
+`none` lists them in the final report.
 
 ```
 - 2026-10-02 prd Q3: The first user is the household admin, not every flatmate. (human)

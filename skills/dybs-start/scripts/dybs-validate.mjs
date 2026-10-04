@@ -682,8 +682,12 @@ export function acceptedHash(data, body) {
 const LINK_DEST = String.raw`(?:<[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*)`;
 const LINK_TITLE = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\))`;
 const INLINE_TARGET = String.raw`\([ \t]*${LINK_DEST}(?:[ \t]+${LINK_TITLE})?[ \t]*\)`;
+// Only after an unescaped `[` opener, with no brackets in the link text: a
+// bare `](x)` is text, and so is `[a [b](c)](x)`'s outer part (a link holds
+// no link). One pass only, so a stripped link never forms a new one.
+const INLINE_LINK = String.raw`(?<!\\)\[((?:[^\[\]\\\n]|\\.)*)\]${INLINE_TARGET}`;
 function dropValidLinkTargets(text) {
-  return text.replace(new RegExp(String.raw`\]${INLINE_TARGET}`, 'g'), ']');
+  return text.replace(new RegExp(INLINE_LINK, 'g'), '[$1]');
 }
 
 // A reference definition (`[x]: url "title"`) is never shown. Only a whole
@@ -844,11 +848,12 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // A link shows its text only when it is one: a well-formed inline
   // destination, or a reference whose label is defined.
   const labels = new Set([...definitions(visibleText(body).split('\n')).values()].filter(Boolean));
-  const plain = (h) => h
-    .replace(new RegExp(String.raw`\[([^\[\]\n]*)\]${INLINE_TARGET}`, 'g'), '$1')
+  // `## Wh&#121;` renders as Why: references are decoded last, as text.
+  const plain = (h) => decodeReferences(h
+    .replace(new RegExp(INLINE_LINK, 'g'), '$1')
     .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, t, l) => (labels.has(label(l || t)) ? t : m))
     .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, t) => (labels.has(label(t)) ? t : m))
-    .replace(/[*_~`]/g, '').trim();
+    .replace(/[*_~`]/g, '')).trim();
   const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || plain(h).toLowerCase() === s.toLowerCase()));
   for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
@@ -1467,7 +1472,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // swapped for a link since the check above is never acted through.
       try { rmIfOurs(old, oldId, pinned); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
     }
-    if (!ours) return { ok: true, warnings: [`the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
+    if (!ours) return { ok: true, warnings: [...check.warnings, `the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
   } catch (err) {
     // Undo through the same paths: a file that went through a swapped link
     // comes back the same way. Only what is provably ours is removed.
@@ -1519,7 +1524,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     }
     throw err;
   }
-  return { ok: true };
+  return { ok: true, warnings: check.warnings };
 }
 
 export function main(argv) {
