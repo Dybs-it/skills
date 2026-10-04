@@ -743,7 +743,9 @@ export function update(roots, opts = {}) {
   }
   return {
     results,
-    notInstalled: skillNames().filter((s) => !installed.has(s)),
+    // A skill found but left alone is installed, just not updated here:
+    // it is never also offered as missing, or a second install would follow.
+    notInstalled: skillNames().filter((s) => !installed.has(s) && !skipped.some((k) => k.skill === s)),
     skipped,
   };
 }

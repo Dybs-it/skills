@@ -620,28 +620,28 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   };
 }
 
+// The method rules must be a readable file: a folder (or anything else) at
+// that name is present but holds no rules for the skills to follow. One
+// home for the check, used by validation and by acceptance alike.
+function readmeProblem(root) {
+  const readme = join(root, 'dybs', 'README.md');
+  if (!existsSync(readme)) return 'missing dybs/README.md (the method rules). Run dybs-start to restore it.';
+  if (!statSync(readme).isFile()) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.';
+  // A file the skills cannot read is as good as missing.
+  try { readFileSync(readme); } catch (e) {
+    return `dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`;
+  }
+  return null;
+}
+
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
   const results = [];
   if (!existsSync(dir) || !statSync(dir).isDirectory()) {
     return { ok: false, complete: false, accepted: false, fatal: `no dybs/ folder in ${root}. Run the dybs-start skill first.`, results };
   }
-  // The method rules must be a readable file: a folder (or anything else)
-  // at that name is present but holds no rules for the skills to follow.
-  const readme = join(dir, 'README.md');
-  if (!existsSync(readme)) {
-    results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
-      errors: ['missing dybs/README.md (the method rules). Run dybs-start to restore it.'], warnings: [] });
-  } else if (!statSync(readme).isFile()) {
-    results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
-      errors: ['dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'], warnings: [] });
-  } else {
-    // A file the skills cannot read is as good as missing.
-    try { readFileSync(readme); } catch (e) {
-      results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
-        errors: [`dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`], warnings: [] });
-    }
-  }
+  const readme = readmeProblem(root);
+  if (readme) results.push({ name: 'readme', file: 'README.md', status: null, words: 0, errors: [readme], warnings: [] });
 
   const projectPath = join(dir, DOCS.project.file);
   const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
@@ -818,6 +818,9 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
+  // No acceptance without the method rules: every skill stops here too.
+  const readme = readmeProblem(root);
+  if (readme) return { ok: false, errors: [readme] };
   // What this acceptance was validated against (project.md and the required
   // docs), checked again right before and right after the doc is placed: an
   // input edited meanwhile undoes the acceptance instead of standing behind it.
@@ -1002,7 +1005,9 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     let ours = false;
     try { ours = folderChain(root, rel) === dirs && pathId(old) === oldId && readFileSync(old, 'utf8') === text; } catch { ours = false; }
     if (ours) {
-      try { rmIfOurs(old, oldId); } catch { ours = false; }
+      // Re-pinned inside the removal, right before its move: a folder
+      // swapped for a link since the check above is never acted through.
+      try { rmIfOurs(old, oldId, pinned); } catch { ours = false; }
     }
     if (!ours) return { ok: true, warnings: [`the previous version changed or could not be confirmed during acceptance; kept at ${old}`] };
   } catch (err) {
