@@ -10,7 +10,7 @@
 // The rules live here, as code, so the decision is arithmetic rather than an
 // agent's judgement. quality.md describes the same rules in words.
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, lstatSync } from 'node:fs';
 import { resolve, dirname, relative, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -519,7 +519,16 @@ export function freshness(gatePath, text) {
   let top;
   try { top = git(dirname(abs), ['rev-parse', '--show-toplevel']); } catch { return { status: 'unchecked', reason: 'not inside a git repository' }; }
   const rel = (p) => relative(realpathSync(top), realpathSync(p)).split(sep).join('/');
+  // The gate is a real file inside the repository: a link (to a file
+  // outside, or anywhere Git does not track it as itself) can change
+  // without Git noticing, so it is refused, never left unchecked.
+  let isLink = false;
+  try { isLink = lstatSync(abs).isSymbolicLink(); } catch { isLink = false; }
+  if (isLink) return { status: 'stale', reason: 'gate.md is a symbolic link. Keep the gate as a real file in the repository' };
   const gateRel = rel(abs);
+  if (gateRel === '..' || gateRel.startsWith('../') || resolve(gateRel) === gateRel) {
+    return { status: 'stale', reason: 'gate.md resolves outside the repository. Keep the gate as a real file in the repository' };
+  }
   const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
   // NUL-separated porcelain: paths come unquoted (no C escapes for
   // non-ASCII names), and a rename lists both of its paths.
@@ -535,9 +544,14 @@ export function freshness(gatePath, text) {
   const changed = paths.filter((f) => f && f !== gateRel && f !== prRel);
   if (changed.length) return { status: 'stale', reason: `uncommitted changes besides gate.md and pr.md: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}. Commit the evidence first` };
   let head;
-  try { head = git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude)${gateRel}`, `:(exclude)${prRel}`]); } catch { head = ''; }
+  // Git failing here is never "nothing to check": it is refused.
+  try { head = git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude)${gateRel}`, `:(exclude)${prRel}`]); } catch {
+    return { status: 'stale', reason: 'git could not read the history of the evidence. Fix the repository and run the gate again' };
+  }
   if (!head) return { status: 'unchecked', reason: 'no commit holds the evidence yet' };
-  const field = (text.match(/^---\r?\n[\s\S]*?^commit:[ \t]*(.*?)[ \t]*$/m) || [])[1] || '';
+  // `commit:` counts only in the opening frontmatter, never in the body.
+  const fm = (text.match(/^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/) || [])[1] ?? '';
+  const field = (fm.match(/^commit:[ \t]*(.*?)[ \t]*$/m) || [])[1] || '';
   let named = '';
   if (/^[0-9a-f]{4,40}$/i.test(field)) {
     try { named = git(top, ['rev-parse', '--verify', '--quiet', `${field}^{commit}`]); } catch { named = ''; }

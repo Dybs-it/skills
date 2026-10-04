@@ -704,3 +704,31 @@ test('a code span that runs over a line break is refused', () => {
   // Spans on one line, and an escaped backtick, are fine.
   assert.doesNotMatch(parseGate(real.replace('## Items', 'See `a` and \\` here.\n\n## Items')).problems.join(' '), /code spans/);
 });
+
+test('a gate.md linked outside the repository, or naming its commit only in the body, is refused', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-gate-outside-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const head = g('rev-parse', '--short=7', 'HEAD');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  const body = gate({ items: [full('a', 'P0')] });
+  const run = () => { try { return { code: 0, out: execFileSync('node', [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  // `commit:` in the body is not the frontmatter's evidence commit.
+  writeFileSync(gatePath, `${body}\ncommit: ${head}\n`);
+  let r = run();
+  assert.equal(r.code, 3, r.out); assert.match(r.out, /STALE/);
+  // A tracked link to a gate outside the repository: Git cannot see it change.
+  writeFileSync(join(outside, 'gate.md'), body.replace(/^---\n/, `---\ncommit: ${head}\n`));
+  rmSync(gatePath);
+  symlinkSync(join(outside, 'gate.md'), gatePath);
+  g('add', '.'); g('commit', '-qm', 'gate link');
+  writeFileSync(join(outside, 'gate.md'), body.replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  r = run();
+  assert.equal(r.code, 3, r.out); assert.match(r.out, /STALE/);
+  rmSync(repo, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
