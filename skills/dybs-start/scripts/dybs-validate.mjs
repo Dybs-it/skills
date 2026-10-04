@@ -682,7 +682,7 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   }
 
   const frontmatterValues = Object.values(data || {}).join('\n');
-  if (PLACEHOLDER.test(decodeReferences(visibleText(body, { keepCode: true }))) || PLACEHOLDER.test(frontmatterValues)) {
+  if (PLACEHOLDER.test(decodeReferences(visibleText(body, { keepCode: true }))) || PLACEHOLDER.test(decodeReferences(frontmatterValues))) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);

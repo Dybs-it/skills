@@ -1910,3 +1910,8 @@ test('a folder swapped during the --accept move-aside link leaves no name outsid
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a placeholder written with character references in frontmatter is still a placeholder', () => {
+  const t = VALID_PRD.replace(/^---\n/, '---\nnote: T&#79;DO\n');
+  assert.ok(validateDoc('prd', t).rules.includes('placeholder'));
+});
