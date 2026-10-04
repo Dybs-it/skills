@@ -149,12 +149,13 @@ export function markdownHazards(text) {
     if (/^ {0,3}#{1,6}[ \t].*&[#A-Za-z0-9]+;/.test(line)) problems.push('headings may not contain character references such as &#116; or &amp;');
     // An underlined (Setext) heading ends a section on screen, so it is
     // refused rather than modelled: gate.md uses "#" and "##" headings only.
-    // Only a real ATX heading or a fence line above is exempt: `#Archived`
+    // Only a real ATX heading or a fence line above is exempt (a real one:
+    // ```` ```foo``` ```` is a code span, the line under it an underline): `#Archived`
     // (no space) is paragraph text and becomes a heading, and so does a
     // pipe line that is not a table header for a bare `---`.
     // At any indentation: under `10. item`, an indented underline still
     // makes the indented line above it a heading inside the item.
-    if (/^[ \t]*(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^(#{1,6}([ \t]|$)|`{3,}|~{3,})/.test(prev.trimStart()) && !prevComment) {
+    if (/^[ \t]*(=+|-+)[ \t]*$/.test(line) && prev.trim() && !/^(#{1,6}([ \t]|$)|`{3,}[^`]*$|~{3,})/.test(prev.trimStart()) && !prevComment) {
       problems.push('use "##" headings, not underlined ones (a line of = or - under text)');
     }
     // The same inside a quote or list item (`> Archived` / `> ---`): it ends
@@ -162,7 +163,7 @@ export function markdownHazards(text) {
     // A list marker needs the space after it, or `> ---` would read as
     // three markers.
     const inner = (l) => l.replace(/^\s*(?:>[ \t]*|(?:[-*+]|\d{1,9}[.)])[ \t]+)+/, '');
-    if (/^\s*(?:>|(?:[-*+]|\d{1,9}[.)])[ \t])/.test(line) && /^(=+|-+)[ \t]*$/.test(inner(line)) && inner(prev).trim() && !prevComment && !/^(#{1,6}([ \t]|$)|`{3,}|~{3,})/.test(inner(prev).trim())) {
+    if (/^\s*(?:>|(?:[-*+]|\d{1,9}[.)])[ \t])/.test(line) && /^(=+|-+)[ \t]*$/.test(inner(line)) && inner(prev).trim() && !prevComment && !/^(#{1,6}([ \t]|$)|`{3,}[^`]*$|~{3,})/.test(inner(prev).trim())) {
       problems.push('use "##" headings, not underlined ones (a line of = or - under text)');
     }
     if (/^ {0,3}(?:>\s?|[-*+][ \t]+|\d{1,9}[.)][ \t]+)+(`{3,}|~{3,})/.test(line)) problems.push('gate.md may not open a code fence inside a list item or a quote');

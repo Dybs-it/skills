@@ -815,3 +815,11 @@ test('waiver placeholders split by formatting, a second commit:, and a damaged .
   assert.equal(r.code, 3, r.out); assert.match(r.out, /STALE: git refused the repository/);
   rmSync(repo, { recursive: true });
 });
+
+test('a code span that looks like a fence does not exempt the underline below it', () => {
+  const real = gate({ items: [full('a', 'P0')] });
+  const text = real.replace('## Risks', '```foo```\n---\n\n## Risks');
+  assert.match(parseGate(text).problems.join(' '), /not underlined ones/);
+  // A real fence line above a --- is still exempt (the --- is inside the fence or a break).
+  assert.doesNotMatch(parseGate(real.replace('## Risks', '```\ncode\n```\n---\n\n## Risks')).problems.join(' '), /not underlined ones/);
+});
