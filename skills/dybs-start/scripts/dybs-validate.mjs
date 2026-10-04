@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, existsSync, statSync, realpathSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, realpathSync, openSync, closeSync, fstatSync, constants as fsConstants } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -594,7 +594,15 @@ export function headings(body) {
 export function wordCount(body) {
   // Count prose only: what a reader sees, without HTML comments (template
   // guidance) or fenced code (``` or ~~~), by the same rules as headings.
-  const prose = visibleText(body);
+  // Link destinations and titles, and reference definitions (`[x]: url`),
+  // are never shown either. A definition cannot interrupt a paragraph, so
+  // only one after a blank line (or another definition) is left out.
+  let prev = '';
+  const prose = visibleText(body).split('\n').map((l) => {
+    const def = /^(?: {0,3}>[ \t]?)* {0,3}\[[^\]\n]+\]:[ \t]*(?:<[^<>\n]*>|[^\s<]\S*)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*$/.test(l) && (prev.trim() === '' || prev === '\u0002');
+    prev = def ? '\u0002' : l;
+    return def ? '' : dropValidLinkTargets(l);
+  }).join('\n');
   return (prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
 }
 
@@ -602,6 +610,13 @@ function skipped(projectData) {
   // project.md may declare `skip: ui, ux` for docs that do not apply.
   const raw = projectData?.skip || '';
   return new Set(raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+}
+
+// For counting, only a well-formed inline destination is left out
+// (`](url)`, `](<a b>)`, `](url "title")`): `[b](c d e)` is no link and its
+// words are shown. Leaving a malformed one in can only count more.
+function dropValidLinkTargets(text) {
+  return text.replace(/\]\([ \t]*(?:<[^<>\n]*>|(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*)(?:[ \t]+(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\)))?[ \t]*\)/g, ']');
 }
 
 // Removes every `](destination)` and `][label]`, with the destination's
@@ -671,7 +686,10 @@ export function validateDoc(name, text) {
   if (html !== undefined) fail('html', `raw HTML is not allowed (found: ${html.trim().slice(0, 40)}); use Markdown`);
 
   const found = headings(body);
-  const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase()));
+  // `## **Goals**` and `## `Goals`` render as Goals: inline markup is
+  // read through when matching a required section.
+  const plain = (h) => dropLinkTargets(h).replace(/[*_~`[\]]/g, '').trim();
+  const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || plain(h).toLowerCase() === s.toLowerCase()));
   for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
   const words = wordCount(body);
@@ -694,6 +712,14 @@ export function validateDoc(name, text) {
   }
 
   return { name, file: spec.file, status: data?.status ?? null, words, errors, warnings, rules: [...rules] };
+}
+
+// Reads a file only if it is a regular file. Opened without blocking, so a
+// FIFO or a device at a doc's name never hangs the check, and judged on the
+// open descriptor, not on a separate look at the name. null otherwise.
+function readRegular(p) {
+  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+  try { return fstatSync(fd).isFile() ? readFileSync(fd, 'utf8') : null; } finally { closeSync(fd); }
 }
 
 export function validateProject(root, only) {
@@ -720,7 +746,8 @@ export function validateProject(root, only) {
   }
 
   const projectPath = join(dir, DOCS.project.file);
-  const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
+  const projectText = existsSync(projectPath) ? readRegular(projectPath) : null;
+  const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
   const skip = skipped(projectData);
 
   for (const name of ORDER) {
@@ -743,7 +770,12 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
-    results.push(validateDoc(name, readFileSync(path, 'utf8')));
+    const text = readRegular(path);
+    if (text === null) {
+      results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });
+      continue;
+    }
+    results.push(validateDoc(name, text));
   }
   // ok: no rule is broken (missing and draft docs are allowed).
   // complete: every doc that is not skipped exists and is ok.
