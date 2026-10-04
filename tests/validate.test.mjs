@@ -573,3 +573,8 @@ test('a missing method README routes to dybs-start, not to a doc', () => {
   assert.equal(JSON.parse(out).next, 'dybs-start');
   rmSync(dir, { recursive: true });
 });
+
+test('a frontmatter line that is not key: value is an error, so no setting hides from the fingerprint', () => {
+  const multi = VALID_PROJECT.replace(/^skip:.*$/m, 'skip:\nquick:\n  - prd');
+  assert.deepEqual(validateDoc('project', multi).rules, ['frontmatter']);
+});
