@@ -393,29 +393,35 @@ export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, write
 // with O_EXCL, so a file or link that appears there at any moment is
 // refused, never replaced. A check followed by rename() would overwrite
 // whatever appeared in between.
-export function placeNoClobber(from, to) {
+export function placeNoClobber(from, to, check) {
   try {
     fsOps.link(from, to);
     return 'link';
   } catch (err) {
     if (err.code === 'EEXIST') throw err;
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    // Created exclusively (O_EXCL) and identified before any byte goes in:
-    // a copy that fails halfway (disk full, I/O) leaves a partial file only
-    // this call can prove is its own, so it is removed here, by identity,
-    // before the error reaches the caller.
-    const data = fsOps.read(from);
-    let id = null;
-    try {
-      writeOwnFile(to, data, lstatSync(from).mode & 0o7777, (made) => { id = made; });
-    } catch (e) {
-      if (id) {
-        try { rmIfOurs(to, id); } catch (e2) { e.message += `; the partial copy is kept: ${e2.message}`; }
-      }
-      throw e;
-    }
+    copyExclusive(from, to, check);
     return 'copy';
   }
+}
+
+// Copies `from` to a new file `to`, created exclusively (O_EXCL, so nothing
+// already there is ever replaced) and identified before any byte goes in. A
+// copy that fails halfway (disk full, I/O) leaves a partial file only this
+// call can prove is its own, so it is removed here, by identity and after
+// `check`, before the error reaches the caller. Returns the copy's identity.
+function copyExclusive(from, to, check) {
+  const data = fsOps.read(from);
+  let id = null;
+  try {
+    writeOwnFile(to, data, lstatSync(from).mode & 0o7777, (made) => { id = made; });
+  } catch (e) {
+    if (id) {
+      try { rmIfOurs(to, id, check); } catch (e2) { e.message += `; the partial copy is kept: ${e2.message}`; }
+    }
+    throw e;
+  }
+  return id;
 }
 
 // Applies a plan as one transaction. New content is written to temporary
@@ -443,6 +449,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
   // The plan was made earlier; a folder inside the skill may have been
   // swapped for a link since. Check every path again, right before touching
   // it, so nothing is written through a link out of the skill folder.
+  // Every removal re-checks, inside it and right before its move, that the
+  // folders on the way are still the pinned ones: nothing is ever moved or
+  // deleted through a folder swapped for a link, rollback included.
+  const chainCheck = (s) => () => {
+    if (chainOf(dir, s.a.rel) !== s.chain) throw new Error(`a folder on the way to ${s.a.rel} changed; nothing was removed through it`);
+  };
   const recheck = (a) => {
     if (!sameRoot(dir, plan.root)) throw new Error(`${dir} changed since the update was planned (the skill folder was moved or replaced); nothing was changed, run update again`);
     const at = inspectPath(dir, a.rel);
@@ -497,7 +509,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // before its bytes go in, and proven to be where we meant it.
         const b = backupPath(p);
         const bytes = readFileSync(p);
-        const backup = { path: b, hash: sha(bytes) };
+        const backup = { path: b, hash: sha(bytes), entry };
         writeOwnFile(b, bytes, lstatSync(p).mode & 0o7777, (id) => { backup.id = id; backups.push(backup); });
         if (chainOf(dir, a.rel) !== chain || idOf(b) !== backup.id) {
           throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again (a stray ${basename(b)} may have been written through it)`);
@@ -521,7 +533,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           fsOps.link(s.p, old);
           if (!isRegular(old)) {
             const strayId = idOf(old);
-            try { rmIfOurs(old, strayId); } catch { /* reported below */ }
+            try { rmIfOurs(old, strayId, chainCheck(s)); } catch { /* reported below */ }
             throw new Error(`${s.a.rel} changed since the update was planned (it is no longer a regular file); nothing was changed, run update again`);
           }
           s.old = old;
@@ -538,16 +550,18 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // someone else could use.
           const origId = idOf(s.p);
           if (!isRegular(s.p)) throw new Error(`${s.a.rel} changed since the update was planned (it is no longer a regular file); nothing was changed, run update again`);
+          // The copy's identity is recorded the moment it exists (from the
+          // open descriptor), never read again later: a file that replaced
+          // it meanwhile is not ours. A copy that fails halfway is removed.
+          let copyId;
           try {
-            fsOps.copyFile(s.p, old, fsConstants.COPYFILE_EXCL);
+            copyId = copyExclusive(s.p, old, chainCheck(s));
           } catch (e) {
             if (e.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
             throw e;
           }
           s.old = old;
-          // The copy's identity is recorded the moment it exists, never
-          // read again later: a file that replaced it meanwhile is not ours.
-          s.oldId = idOf(old);
+          s.oldId = copyId;
           done.push(s);
           beforeAside?.(s);
           // Re-pinned right before the move: through a folder swapped for a
@@ -572,7 +586,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // Deleted by identity under yet another private name, never by a
           // plain unlink after the check: a file that replaced `aside` since
           // is put back, not deleted.
-          rmIfOurs(aside, origId);
+          rmIfOurs(aside, origId, chainCheck(s));
         }
         pinned(s);
         // Checked against the identity recorded at creation, not re-read:
@@ -594,7 +608,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         }
         let how;
         try {
-          how = placeNoClobber(s.tmp, s.p);
+          how = placeNoClobber(s.tmp, s.p, chainCheck(s));
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`${s.a.rel} appeared since the update was planned; nothing was changed, run update again`);
           throw err;
@@ -688,7 +702,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // A link puts the very file back, so the moved-aside name can go.
           // A copy is a snapshot: an editor still holding the original could
           // write to it after the copy, so the original itself is kept.
-          if (placeNoClobber(s.old, s.p) === 'link') rmIfOurs(s.old, s.oldId);
+          if (placeNoClobber(s.old, s.p, chainCheck(s)) === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s));
           else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
         });
       }
@@ -696,14 +710,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // Remove only what is provably ours: the file at that name must be the
     // one we wrote, or a same-named file reached through a swapped link
     // would be deleted instead.
-    for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmIfOurs(s.tmp, s.tmpId));
+    for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmIfOurs(s.tmp, s.tmpId, chainCheck(s)));
     // A backup edited in place keeps its identity, so its bytes are checked
     // too: a changed one is someone's work now and is kept.
     for (const b of backups) {
       undo(b.path, () => {
         let same = false;
         try { same = sha(readFileSync(b.path)) === b.hash; } catch { same = false; }
-        if (same) rmIfOurs(b.path, b.id);
+        if (same) rmIfOurs(b.path, b.id, chainCheck(b.entry));
         else if (idOf(b.path) !== null) throw new Error(`${b.path} changed during the update; kept`);
       });
     }

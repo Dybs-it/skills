@@ -854,32 +854,38 @@ export const fsOps = { link: linkSync, copyFile: copyFileSync, rm: rmSync, renam
 // between.
 // `from` is left in place: the caller records the placement first and only
 // then removes it, so a failure in that removal is still undone.
-export function placeNoClobber(from, to) {
+export function placeNoClobber(from, to, check) {
   try {
     fsOps.link(from, to);
     return 'link';
   } catch (err) {
     if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK', 'ENOSYS', 'EXDEV'].includes(err.code)) throw err;
-    // Created exclusively (O_EXCL) and identified before any byte goes in:
-    // a copy that fails halfway (disk full) leaves a partial file only this
-    // call can prove is its own, so it is removed here, by identity, and
-    // never blocks putting the original back.
-    const data = readFileSync(from);
-    let id = null;
-    try {
-      const fd = openSync(to, 'wx', lstatSync(from).mode & 0o7777);
-      try {
-        id = idOf(fstatSync(fd));
-        fsOps.write(fd, data);
-      } finally { closeSync(fd); }
-    } catch (e) {
-      if (id) {
-        try { rmIfOurs(to, id); } catch (e2) { e.message += `; the partial copy is kept: ${e2.message}`; }
-      }
-      throw e;
-    }
+    copyExclusive(from, to, check);
     return 'copy';
   }
+}
+
+// Copies `from` to a new file `to`, created exclusively (O_EXCL, so nothing
+// already there is ever replaced) and identified before any byte goes in. A
+// copy that fails halfway (disk full) leaves a partial file only this call
+// can prove is its own, so it is removed here, by identity and after
+// `check`, and never blocks putting the original back. Returns its identity.
+function copyExclusive(from, to, check) {
+  const data = readFileSync(from);
+  let id = null;
+  try {
+    const fd = openSync(to, 'wx', lstatSync(from).mode & 0o7777);
+    try {
+      id = idOf(fstatSync(fd));
+      fsOps.write(fd, data);
+    } finally { closeSync(fd); }
+  } catch (e) {
+    if (id) {
+      try { rmIfOurs(to, id, check); } catch (e2) { e.message += `; the partial copy is kept: ${e2.message}`; }
+    }
+    throw e;
+  }
+  return id;
 }
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
@@ -999,7 +1005,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       pinned();
       fsOps.link(path, old);
       if (!isRegularFile(old)) {
-        try { rmIfOurs(old, pathId(old)); } catch { /* reported below */ }
+        try { rmIfOurs(old, pathId(old), pinned); } catch { /* reported below */ }
         throw notRegular();
       }
       moved = true;
@@ -1012,16 +1018,19 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // knows and dropped only while it is the same file with the same
       // bytes. No rename ever targets a name someone else could use.
       if (!isRegularFile(path)) throw notRegular();
+      let copyId;
       try {
-        fsOps.copyFile(path, old, fsConstants.COPYFILE_EXCL);
+        copyId = copyExclusive(path, old, pinned);
       } catch (e2) {
         if (e2.code === 'EEXIST') throw new Error(`something appeared at ${old} during the accept; nothing was changed, run --accept again`);
         throw e2;
       }
       moved = true;
-      // From here the copy is the original the rollback restores.
+      // From here the copy is the original the rollback restores. Its
+      // identity comes from the descriptor it was written through, never
+      // from a later look at the name.
       const origId = oldId;
-      oldId = pathId(old);
+      oldId = copyId;
       beforeAside?.(path);
       // Re-pinned right before the move: through a folder swapped for a
       // link, the rename would take someone else's doc off its name.
@@ -1044,17 +1053,17 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       }
       // Deleted by identity under another private name, never by a plain
       // unlink after the check: a file that replaced `aside` since is kept.
-      rmIfOurs(aside, origId);
+      rmIfOurs(aside, origId, pinned);
     }
     pinned();
     if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
     if (readFileSync(old, 'utf8') !== text) {
       // A link puts the very file back; a copy is only a snapshot, so the
       // original itself (which an editor may still be writing) is kept.
-      const how = placeNoClobber(old, path);
+      const how = placeNoClobber(old, path, pinned);
       moved = false;
-      if (how === 'link') rmIfOurs(old, oldId);
-      rmIfOurs(tmp, tmpId);
+      if (how === 'link') rmIfOurs(old, oldId, pinned);
+      rmIfOurs(tmp, tmpId, pinned);
       const kept = how === 'link' ? '' : `; it was put back as a copy, the file itself is kept at ${old}`;
       return { ok: false, errors: [`the doc changed while it was being accepted; nothing was written, run --accept again${kept}`] };
     }
@@ -1065,11 +1074,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       throw new Error(`the temporary copy of ${rel} changed before it was placed; nothing was kept, run --accept again`);
     }
     inputsUnchanged();
-    const how = placeNoClobber(tmp, path);
+    const how = placeNoClobber(tmp, path, pinned);
     placed = true;
     placedId = how === 'link' ? tmpId : pathId(path);
     pinned();
-    rmIfOurs(tmp, tmpId);
+    rmIfOurs(tmp, tmpId, pinned);
     // Until that unlink, a link placement left two names for one file, and a
     // write through the temporary name would land in the doc. So the doc is
     // read once more now that it is the only name.
@@ -1104,10 +1113,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // look followed by an unlink: a save that replaces the doc in between
       // is kept, and the original is then not put back over it.
       if (ours) {
-        try { rmIfOurs(path, placedId); } catch (e) { err.message += `; ${e.message}`; }
+        try { rmIfOurs(path, placedId, pinned); } catch (e) { err.message += `; ${e.message}`; }
       }
     }
-    try { rmIfOurs(tmp, tmpId); } catch { /* reported below */ }
+    try { rmIfOurs(tmp, tmpId, pinned); } catch { /* reported below */ }
     // Never leave the doc stranded under its temporary name.
     // lstat, not exists: a dangling link that appeared at the doc's path is
     // someone's entry too, and is never replaced. Then the original stays
@@ -1124,18 +1133,20 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       let restored = false;
       let how = null;
       try {
-        try { how = placeNoClobber(old, path); } catch (e) {
+        try { how = placeNoClobber(old, path, pinned); } catch (e) {
           // The failure that brought us here may be the link itself: fall
           // back to an exclusive copy, still never over an existing entry.
           if (e.code === 'EEXIST') throw e;
-          fsOps.copyFile(old, path, fsConstants.COPYFILE_EXCL);
+          copyExclusive(old, path, pinned);
           how = 'copy';
         }
         restored = true;
       } catch { restored = false; }
       // A copy is a snapshot: the original itself is kept, since an editor
       // may still be writing to it.
-      if (restored && how === 'link') rmIfOurs(old, oldId);
+      if (restored && how === 'link') {
+        try { rmIfOurs(old, oldId, pinned); } catch (e) { err.message += `; ${e.message}`; }
+      }
       else if (restored) err.message += `; the doc was put back as a copy, the file itself is kept at ${old}`;
       else err.message += `; something appeared at ${rel} meanwhile, the original is kept at ${old}`;
     }
