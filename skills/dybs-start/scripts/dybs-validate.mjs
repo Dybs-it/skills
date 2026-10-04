@@ -735,7 +735,10 @@ function definitions(lines) {
       titleMayFollow = false;
       continue;
     }
-    const blockStart = i === 0 || defs.has(i - 1) || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
+    // A list item opens a new block even right after prose: a bullet, or an
+    // ordered item starting at 1 (others cannot interrupt a paragraph).
+    const opensItem = /^(?: {0,3}>[ \t]?)* {0,3}(?:[-*+]|1[.)]) {1,4}\S/.test(l);
+    const blockStart = i === 0 || defs.has(i - 1) || opensItem || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
     const m = DEF_LINE.exec(l);
     if (m && blockStart) {
       defs.set(i, label(m[1]));
@@ -847,7 +850,13 @@ export function validateDoc(name, text) {
   const flat = dropValidLinkTargets(shown)
     .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[([^\[\]\n]*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? t : m))
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
-    .replace(/[*_~`[\]]/g, '')
+    // Only markup that renders as such is read through: code spans, paired
+    // `*` emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
+    // written). Link brackets go; `~` is text in CommonMark.
+    .replace(/(`+)([^`]+?)\1/g, '$2')
+    .replace(/(\*{1,3})(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
+    .replace(/(?<![\p{L}\p{N}_])(_{1,3})(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2')
+    .replace(/[[\]]/g, '')
     .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
   if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';

@@ -1015,3 +1015,14 @@ test('only the outermost ordered marker must start at 1 to interrupt a paragraph
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n- 2. ## Goals')).rules.includes('sections'));
   assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n2. 1. ## Goals')).rules.includes('sections'));
 });
+
+test('a definition that opens a list after prose counts, and intraword underscores are text', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // `- [r]: /url` interrupts the paragraph: a definition, document-wide.
+  assert.ok(validateDoc('prd', VALID_PRD + '\ntext\n- [r]: /url\n\nT[O][r]DO\n').rules.includes('placeholder'));
+  assert.equal(wordCount('text\n- [r]: /url\n'), 1);
+  // `T_O_DO` renders as written; `T*O*DO` and code spans still read TODO.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\nT_O_DO\n').rules.includes('placeholder'));
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT*O*DO\n').rules.includes('placeholder'));
+  assert.ok(validateDoc('prd', VALID_PRD + '\nT`O`DO\n').rules.includes('placeholder'));
+});

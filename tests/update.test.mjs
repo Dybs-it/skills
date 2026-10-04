@@ -2836,3 +2836,65 @@ test('a permission change made during an update is never undone', async () => {
     rmSync(root, { recursive: true });
   }
 });
+
+test('a permission change made after placement, before the commit point, stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  chmodSync(prd(root), 0o644);
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  // Through an open file: the original (now under its .old name) is tightened.
+  const beforeCommit = () => chmodSync(join(dir, readdirSync(dir).find((n) => n.endsWith('.old'))), 0o600);
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /permissions changed/);
+  assert.equal(statSync(prd(root)).mode & 0o777, 0o600);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+test('a moved-aside link that cannot be checked is reported, never silently left', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let linked = null;
+  mod.fsOps.link = (from, to) => { const r = real.link(from, to); if (!linked && /\.old$/.test(to)) linked = to; return r; };
+  mod.fsOps.lstat = (p, o) => {
+    if (linked && p === linked) throw Object.assign(new Error('I/O error'), { code: 'EIO' });
+    return real.lstat(p, o);
+  };
+  try { assert.throws(() => mod.applyPlan(plan), /could not be checked/); } finally { Object.assign(mod.fsOps, real); }
+  rmSync(root, { recursive: true });
+});
+
+test('an edited original put back at cleanup through a folder swapped and restored keeps its private name', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let oldAt = null;
+  let swapped = false;
+  // Edited through an open file before cleanup: the cleanup puts it back.
+  const beforeCleanup = (s) => { oldAt = s.old; writeFileSync(s.old, 'EDITED in place', { flag: 'r+' }); };
+  mod.fsOps.link = (from, to) => {
+    if (swapped || to !== oldAt || !/\.rm$/.test(from)) return real.link(from, to);
+    swapped = true;
+    linkSync(from, join(outside, basename(from)));
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+    try { return real.link(from, to); } finally { rmSync(dir); renameSync(`${dir}.moved`, dir); }
+  };
+  try { mod.applyPlan(plan, { beforeCleanup }); } catch { /* reported */ } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('EDITED'); } catch { return false; } }), 'the edit is still inside the install');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
