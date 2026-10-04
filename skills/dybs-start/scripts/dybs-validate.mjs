@@ -663,14 +663,18 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
     beforeReplace?.();
     pinned();
     if (pathId(tmp) !== tmpId) throw new Error(`the temporary copy of ${rel} is not where it was written; run --accept again`);
+    // The doc's identity is taken before it moves (a rename keeps it), so
+    // a rollback can tell our original from a same-named file reached
+    // through a folder swapped right after the rename.
+    oldId = pathId(path);
     renameSync(path, old);
     moved = true;
     pinned();
-    oldId = pathId(old);
+    if (pathId(old) !== oldId) throw new Error(`${rel} is not where it was moved aside; run --accept again`);
     if (readFileSync(old, 'utf8') !== text) {
       placeNoClobber(old, path);
       moved = false;
-      rmSync(old);
+      rmIfOurs(old, oldId);
       rmIfOurs(tmp, tmpId);
       return { ok: false, errors: ['the doc changed while it was being accepted; nothing was written, run --accept again'] };
     }
@@ -711,7 +715,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
     const taken = (p) => { try { lstatSync(p); return true; } catch { return false; } };
     // Restored with the same no-clobber placement as everything else: a
     // save that lands at the path in the meantime is never overwritten.
-    if (moved && taken(old)) {
+    // Only our own original is put back: reached through the pinned
+    // folders and the very file we moved aside. A same-named file shown
+    // through a swapped folder is never moved or deleted.
+    if (moved && (oldId === null || folderChain(root, rel) !== dirs || (taken(old) && pathId(old) !== oldId))) {
+      err.message += `; a folder on the way changed, so the original was not put back: it was moved aside to ${old} in the folder as it was`;
+    } else if (moved && taken(old)) {
       let restored = false;
       try {
         try { placeNoClobber(old, path); } catch (e) {
@@ -722,7 +731,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
         }
         restored = true;
       } catch { restored = false; }
-      if (restored) rmSync(old);
+      if (restored) rmIfOurs(old, oldId);
       else err.message += `; something appeared at ${rel} meanwhile, the original is kept at ${old}`;
     }
     throw err;

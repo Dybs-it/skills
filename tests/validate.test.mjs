@@ -1133,3 +1133,26 @@ test('a code span does not carry into a block quote or list item that interrupts
   assert.equal(visibleText('a `\n- item <!-- TODO -->\nclose `\n', { keepCode: true }), 'a `\n- item \nclose `\n');
   assert.equal(visibleText('a `code\nstill <!-- x --> code` end\n', { keepCode: true }), 'a `code\nstill <!-- x --> code` end\n');
 });
+
+test('--accept rollback never moves an outside file reached through a swapped folder', async () => {
+  const { renameSync, readdirSync: ls } = await import('node:fs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const before = readFileSync(join(ctx, 'ui.md'), 'utf8');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let decoy;
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', {
+    beforePlace: (tmp) => {
+      decoy = join(outside, tmp.slice(ctx.length + 1).replace(/\.tmp$/, '.old'));
+      writeFileSync(decoy, 'someone else');
+      renameSync(ctx, `${ctx}.moved`);
+      symlinkSync(outside, ctx);
+    },
+  }), /original was not put back/);
+  assert.equal(readFileSync(decoy, 'utf8'), 'someone else');
+  assert.deepEqual(ls(outside), [decoy.slice(outside.length + 1)]);
+  const kept = ls(`${ctx}.moved`).find((n) => n.endsWith('.old'));
+  assert.equal(readFileSync(join(`${ctx}.moved`, kept), 'utf8'), before);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
