@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, chmodSync, realpathSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, chmodSync, realpathSync, linkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -133,7 +133,9 @@ const BOOKKEEPING = new Set(['status', 'updated', 'accepted', 'accepted-hash']);
 export function acceptedHash(data, body) {
   const meaning = Object.keys(data || {}).filter((k) => !BOOKKEEPING.has(k)).sort()
     .map((k) => `${k}:${data[k]}\n`).join('');
-  return createHash('sha256').update(meaning + body.replace(/\r\n/g, '\n').trim()).digest('hex').slice(0, 12);
+  // Only line endings are normalised: leading or trailing whitespace can
+  // change what Markdown shows (an indented title becomes code).
+  return createHash('sha256').update(meaning + body.replace(/\r\n/g, '\n')).digest('hex').slice(0, 12);
 }
 
 // requestedDepth is what project.md asks for this doc; documentDepth is what
@@ -326,7 +328,9 @@ export function localDate(d = new Date()) {
 
 // Marks a doc accepted on the human's word: status, date and a fingerprint of
 // its content. Refuses a doc that would not validate as accepted.
-export function acceptDoc(root, name, today = localDate()) {
+// `beforeReplace` is a test hook: it runs after validation, just before the
+// doc is replaced, so a test can act like a concurrent editor.
+export function acceptDoc(root, name, today = localDate(), { beforeReplace } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -353,10 +357,26 @@ export function acceptDoc(root, name, today = localDate()) {
   // Write beside it and rename into place: rename replaces whatever is at
   // the path, it never follows a link that appeared in the meantime.
   // Keep the doc's permissions: a 0600 doc must not come back as 0644.
+  // The doc is moved aside first and compared with what was validated: an
+  // edit saved meanwhile is never replaced by the stale accepted version.
   const tmp = `${path}.dybs-${process.pid}.tmp`;
+  const old = `${path}.dybs-${process.pid}.old`;
   const mode = lstatSync(path).mode & 0o7777;
   writeFileSync(tmp, next, { flag: 'wx', mode });
-  try { chmodSync(tmp, mode); renameSync(tmp, path); } catch (err) { rmSync(tmp, { force: true }); throw err; }
+  try {
+    chmodSync(tmp, mode);
+    beforeReplace?.();
+    renameSync(path, old);
+    if (readFileSync(old, 'utf8') !== text) {
+      linkSync(old, path);
+      rmSync(old);
+      rmSync(tmp, { force: true });
+      return { ok: false, errors: ['the doc changed while it was being accepted; nothing was written, run --accept again'] };
+    }
+    linkSync(tmp, path);
+    rmSync(tmp);
+    rmSync(old);
+  } catch (err) { rmSync(tmp, { force: true }); throw err; }
   return { ok: true };
 }
 

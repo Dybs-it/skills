@@ -526,3 +526,10 @@ test('a folder swapped for a link after the plan stops the update before anythin
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('every doc skill stops when project.md skips its doc', () => {
+  for (const d of ['prd', 'scope', 'domain', 'architecture', 'ux', 'ui']) {
+    const t = readFileSync(join(SKILLS_SRC, `dybs-${d}`, SKILL), 'utf8').replace(/\s+/g, ' ');
+    assert.match(t, new RegExp(`lists \`${d}\` under \`skip:\`, say so and stop`), d);
+  }
+});

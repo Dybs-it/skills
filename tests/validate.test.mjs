@@ -292,7 +292,7 @@ test('--accept refuses a doc that would not validate as accepted', () => {
 });
 
 test('acceptedHash ignores line endings and bookkeeping, not depth', () => {
-  assert.equal(acceptedHash({}, 'a\r\nb\n'), acceptedHash({ status: 'draft', updated: '2026-01-01' }, 'a\nb'));
+  assert.equal(acceptedHash({}, 'a\r\nb\n'), acceptedHash({ status: 'draft', updated: '2026-01-01' }, 'a\nb\n'));
   assert.notEqual(acceptedHash({ depth: 'thorough' }, 'a'), acceptedHash({ depth: 'quick' }, 'a'));
 });
 
@@ -584,4 +584,20 @@ test('project.md can never be skipped', () => {
   edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: project'));
   assert.notEqual(validateProject(dir).results.find((x) => x.name === 'project').status, 'skipped');
   rmSync(dir, { recursive: true });
+});
+
+// --- Codex review round 8 on PR #2 ---
+
+test('--accept never replaces an edit saved while it ran', () => {
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  const r = acceptDoc(dir, 'ui', '2026-10-04', { beforeReplace: () => writeFileSync(path, readFileSync(path, 'utf8') + '\nedited meanwhile\n') });
+  assert.equal(r.ok, false);
+  assert.match(readFileSync(path, 'utf8'), /edited meanwhile/);
+  assert.match(readFileSync(path, 'utf8'), /status: draft/);
+  rmSync(dir, { recursive: true });
+});
+
+test('leading or trailing whitespace is part of the accepted content', () => {
+  assert.notEqual(acceptedHash({}, '# PRD\n'), acceptedHash({}, '    # PRD\n'));
 });
