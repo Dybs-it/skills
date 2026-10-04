@@ -334,3 +334,8 @@ test('a fence at a list item content indent, and indented HTML in a quote', asyn
   assert.ok(validateProject(dir).results.find((x) => x.name === 'project').rules.includes('html'));
   rmSync(dir, { recursive: true });
 });
+
+test('an indented code block inside a block quote is code', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('> quoted words\n>\n>     code one two three\n\nafter'), 3);
+});

@@ -801,3 +801,20 @@ test('cleanup never deletes through a skill folder swapped for a link', async ()
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('rollback keeps a --force backup that was edited in place', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own edit');
+  const [install] = findInstalls([root]);
+  const plan = planInstall(install, { force: true });
+  assert.equal(ops(plan)[SKILL], 'replace');
+  let backup;
+  const steps = plan.actions.filter((a) => ['update', 'replace', 'remove'].includes(a.op)).length;
+  assert.throws(() => applyPlan(plan, {
+    failAt: steps,
+    beforeFail: () => { backup = plan.actions.find((a) => a.rel === SKILL).backup; writeFileSync(backup, 'edited the backup'); },
+  }), /injected failure/);
+  assert.equal(readFileSync(backup, 'utf8'), 'edited the backup');
+  rmSync(root, { recursive: true });
+});
