@@ -851,6 +851,9 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       const origId = oldId;
       oldId = pathId(old);
       beforeAside?.(path);
+      // Re-pinned right before the move: through a folder swapped for a
+      // link, the rename would take someone else's doc off its name.
+      pinned();
       const aside = `${path}.${randomUUID()}.rm`;
       renameSync(path, aside);
       let same = false;
