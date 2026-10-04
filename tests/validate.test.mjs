@@ -1670,3 +1670,41 @@ test('--accept refuses a doc swapped for a link to the same text, on both move-a
     rmSync(dir, { recursive: true });
   }
 });
+
+test('--accept stops without a readable method README', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  for (const breakIt of [(p) => rmSync(p), (p) => { rmSync(p); mkdirSync(p); }]) {
+    const dir = copySample();
+    const path = join(dir, 'dybs/context/ui.md');
+    const before = readFileSync(path, 'utf8');
+    breakIt(join(dir, 'dybs/README.md'));
+    const r = mod.acceptDoc(dir, 'ui', '2026-10-04');
+    assert.equal(r.ok, false);
+    assert.match(r.errors.join(' '), /README\.md/);
+    assert.equal(readFileSync(path, 'utf8'), before);
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('--accept cleanup re-checks the folders right before removing the old version', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync, linkSync, existsSync: exists } = await import('node:fs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'context'));
+  let kept = null;
+  // After the cleanup's check, dybs/ becomes a link to an outside folder
+  // holding another name for the very same old file.
+  mod.testHooks.afterLook = (p) => {
+    if (kept || !p.endsWith('.old')) return;
+    kept = join(outside, 'context', p.split('/').at(-1));
+    linkSync(p, kept);
+    renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+    symlinkSync(outside, join(dir, 'dybs'));
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* either outcome is fine */ } finally { mod.testHooks.afterLook = null; }
+  assert.ok(kept, 'the hook ran on the old version');
+  assert.ok(exists(kept), 'the outside name must survive');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
