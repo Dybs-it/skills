@@ -1208,3 +1208,21 @@ test('an indented code block may follow a heading inside a block quote', async (
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   assert.equal(wordCount('> ## Example\n>     generated words here\n'), 1);
 });
+
+test('a dybs/README.md that cannot be read is an error', async () => {
+  const { chmodSync: chmod, mkdtempSync: mk, cpSync: cp } = await import('node:fs');
+  const { execFileSync: run } = await import('node:child_process');
+  // Root reads anything, so the check runs as an unprivileged user there.
+  const dir = mk(join(tmpdir(), 'dybs-unreadable-'));
+  cp(SAMPLE, dir, { recursive: true });
+  chmod(dir, 0o755);
+  chmod(join(dir, 'dybs/README.md'), 0o000);
+  const script = join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs');
+  const cmd = process.getuid?.() === 0 ? ['runuser', ['-u', 'nobody', '--', process.execPath, script, dir, '--json']] : [process.execPath, [script, dir, '--json']];
+  let out;
+  try { out = run(cmd[0], cmd[1], { encoding: 'utf8' }); } catch (e) { out = e.stdout; }
+  const r = JSON.parse(out);
+  assert.equal(r.ok, false);
+  assert.match(r.results.find((x) => x.name === 'readme').errors[0], /cannot be read/);
+  rmSync(dir, { recursive: true });
+});

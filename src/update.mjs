@@ -332,7 +332,7 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStageRm, beforePlacedCheck, beforeCleanup } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck, beforeStage, beforeStageRm, beforePlacedCheck, beforeCleanup } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   const tag = `dybs-${process.pid}-${Date.now()}`;
@@ -377,10 +377,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       const made = mkdirNoFollow(dir, dirname(a.rel));
       if (made) createdDirs.push({ deepest: dirname(p), stop: dirname(made) });
       recheck(a);
+      beforeStage?.(a);
       // Pin the folders first, then write, then prove the file is where we
       // meant it: a folder swapped for a link and back again around the
       // write would leave the chain looking unchanged, but our file missing.
+      // No valid pin, no write: a folder that is already a link is never
+      // written through.
       const chain = chainOf(dir, a.rel);
+      if (!chain) throw new Error(`a folder on the way to ${a.rel} is not a real folder; nothing was kept, run update again`);
       const tmp = `${p}.${tag}.new`;
       // A replaced file keeps its permissions: a 0600 file stays 0600.
       const mode = a.op === 'add' ? undefined : lstatSync(p).mode & 0o7777;
