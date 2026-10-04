@@ -69,8 +69,8 @@ ask the human to commit them (or do it on their word). If they would rather
 not, write `commit: uncommitted` and say so: a gate on uncommitted work
 proves nothing about a commit, it is stale and not decided. Then set `commit:` in
 the frontmatter to the last commit that changed anything besides those two
-files (`git log -1 --format=%h -- . ':(exclude)dybs/work/<task>/gate.md'
-':(exclude)dybs/work/<task>/pr.md'`), once the tables are checked against
+files (`git log -1 --format=%h -- . ':(exclude,literal)dybs/work/<task>/gate.md'
+':(exclude,literal)dybs/work/<task>/pr.md'`), once the tables are checked against
 it, and run the script. In a git repository the script itself refuses to
 decide (`STALE`, exit 3) while other changes are uncommitted or while
 `commit:` names another commit; never write a decision it did not give. Copy

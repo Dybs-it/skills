@@ -46,8 +46,8 @@ Before and after, as concrete as the environment allows:
   `gate.md` again now (in a git repository it reports `STALE` itself, exit
   3, for the cases below), and compare its `commit:` with the last commit that
   changed anything besides this task's `gate.md` and `pr.md`:
-  `git log -1 --format=%h -- . ':(exclude)dybs/work/<task>/gate.md'
-  ':(exclude)dybs/work/<task>/pr.md'`. Committing those two outputs moves
+  `git log -1 --format=%h -- . ':(exclude,literal)dybs/work/<task>/gate.md'
+  ':(exclude,literal)dybs/work/<task>/pr.md'`. Committing those two outputs moves
   `HEAD` but changes no evidence, so it never makes the gate stale. If that
   commit differs from `commit:` (code or tests changed since), if `commit:`
   says `uncommitted`, or if

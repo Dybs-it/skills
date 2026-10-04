@@ -637,6 +637,22 @@ function readGate(p) {
   } finally { closeSync(fd); }
 }
 
+// Where the gate really is, and the identity of every folder on the way
+// from the filesystem root, none of them a link. Taken at the first read and
+// required again at the last: a task folder reached through a link and
+// retargeted meanwhile (to a copy with the same bytes) gets no decision.
+function pinPath(p) {
+  const real = realpathSync(p);
+  const ids = [];
+  for (let cur = real; dirname(cur) !== cur;) {
+    cur = dirname(cur);
+    const st = lstatSync(cur);
+    if (st.isSymbolicLink() || !st.isDirectory()) return null;
+    ids.push(`${st.dev}:${st.ino}`);
+  }
+  return { real, chain: ids.join('/') };
+}
+
 export function main(argv) {
   const args = argv.slice(2);
   const json = args.includes('--json');
@@ -647,8 +663,11 @@ export function main(argv) {
   if (files.length !== 1) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--json] (exactly one gate file)'); return 2; }
   const [file] = files;
   let text;
+  let pin;
   try {
     text = readGate(resolve(file));
+    pin = pinPath(resolve(file));
+    if (!pin) throw Object.assign(new Error('a folder on the way changed'), { code: 'a folder on the way changed' });
   } catch (err) {
     // A link at the gate's name is the freshness rule's to explain: Git
     // cannot see the file it points to change.
@@ -689,7 +708,8 @@ export function main(argv) {
   // gate.md itself is exempt from the dirty check, so an edit saved while
   // git ran would go unseen: the decision is only for the bytes still there.
   let after = null;
-  try { after = readGate(resolve(file)); } catch { after = null; }
+  const same = () => { const now = pinPath(resolve(file)); return Boolean(now) && now.real === pin.real && now.chain === pin.chain; };
+  try { after = same() ? readGate(pin.real) : null; if (!same()) after = null; } catch { after = null; }
   if (after !== text) {
     const problem = `${file} changed while it was being checked; run the gate again`;
     if (json) console.log(JSON.stringify({ schema: 1, decision: null, problems: [problem] }, null, 2));

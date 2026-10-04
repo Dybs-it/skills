@@ -515,8 +515,8 @@ test('indented table rows are refused: under a list item they still render', () 
 
 test('dybs-pr: committing gate.md and pr.md never makes the gate stale', () => {
   const skill = readFileSync(join(ROOT, 'skills/dybs-pr/SKILL.md'), 'utf8');
-  const spec = ":(exclude)dybs/work/<task>/gate.md";
-  assert.ok(skill.includes(spec) && skill.includes(":(exclude)dybs/work/<task>/pr.md"));
+  const spec = ":(exclude,literal)dybs/work/<task>/gate.md";
+  assert.ok(skill.includes(spec) && skill.includes(":(exclude,literal)dybs/work/<task>/pr.md"));
   // The documented command, run for real: code commit, gate, then the gate's own commit.
   const repo = mkdtempSync(join(tmpdir(), 'dybs-pr-'));
   const git = (...a) => execFileSync('git', ['-C', repo, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' }).trim();
@@ -528,7 +528,7 @@ test('dybs-pr: committing gate.md and pr.md never makes the gate stale', () => {
   writeFileSync(join(repo, 'dybs/work/t/gate.md'), `commit: ${gateCommit}`);
   writeFileSync(join(repo, 'dybs/work/t/pr.md'), 'pr');
   git('add', '.'); git('commit', '-qm', 'gate');
-  const last = () => git('log', '-1', '--format=%h', '--', '.', ':(exclude)dybs/work/t/gate.md', ':(exclude)dybs/work/t/pr.md');
+  const last = () => git('log', '-1', '--format=%h', '--', '.', ':(exclude,literal)dybs/work/t/gate.md', ':(exclude,literal)dybs/work/t/pr.md');
   assert.equal(last(), gateCommit);
   // A real change afterwards does make it stale.
   writeFileSync(join(repo, 'code.js'), 'y');
@@ -970,4 +970,35 @@ test('a full SHA-256 commit id names the evidence', (t) => {
   try { r = { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
   assert.equal(r.code, 0, r.out);
   rmSync(repo, { recursive: true });
+});
+
+test('a gate reached through a task folder link retargeted mid-check gets no decision', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  symlinkSync('t', join(repo, 'dybs/work/link'));
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const body = gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`);
+  writeFileSync(join(repo, 'dybs/work/t/gate.md'), body);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'gate.md'), body);
+  const gatePath = join(repo, 'dybs/work/link/gate.md');
+  // On the second `git log` (after the last status check), the link moves
+  // to an outside folder holding the very same bytes.
+  const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\ncase " $* " in *" log "*) echo x >> "${bin}/n"; if [ "$(wc -l < "${bin}/n")" -eq 2 ]; then ln -sfn "${outside}" "${join(repo, 'dybs/work/link')}"; fi;; esac\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+  const run = (env) => { try { return { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  assert.equal(run(process.env).code, 0, 'fresh as found');
+  const r = run({ ...process.env, PATH: `${bin}:${process.env.PATH}` });
+  assert.equal(r.code, 2, r.out);
+  for (const d of [repo, outside, bin]) rmSync(d, { recursive: true });
+});
+
+test('dybs-gate documents the literal exclusions the gate itself uses', () => {
+  const skill = readFileSync(join(ROOT, 'skills/dybs-gate/SKILL.md'), 'utf8');
+  assert.ok(skill.includes(":(exclude,literal)dybs/work/<task>/gate.md") && skill.includes(":(exclude,literal)dybs/work/<task>/pr.md"));
+  assert.doesNotMatch(skill, /:\(exclude\)/);
 });
