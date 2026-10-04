@@ -326,7 +326,10 @@ export function validateProject(root, only) {
       continue;
     }
     if (!existsSync(path)) {
-      results.push({ name, file: spec.file, status: 'missing', words: 0, errors: [], warnings: [] });
+      // A doc asked for by name must exist: `--doc` passing is the check
+      // before a check-in, and "it is not there" is not a pass.
+      const errors = only === name ? [`${spec.file} does not exist yet`] : [];
+      results.push({ name, file: spec.file, status: 'missing', words: 0, errors, warnings: [] });
       continue;
     }
     results.push(validateDoc(name, readFileSync(path, 'utf8')));
