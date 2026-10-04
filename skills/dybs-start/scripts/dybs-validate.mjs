@@ -274,7 +274,8 @@ export function visibleText(body, { keepCode = false } = {}) {
     }
     if (!inList) items.length = 0;
     prevBlank = nowBlank;
-    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(line);
+    // Judged after the `>` markers, like blankness and indentation.
+    afterBlock = /^ {0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)/.test(line.replace(/^(?: {0,3}>[ \t]?)+/, ''));
     out.push(line);
   }
   return out.join('\n');
