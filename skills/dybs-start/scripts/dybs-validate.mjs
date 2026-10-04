@@ -87,7 +87,12 @@ export function parseFrontmatter(text) {
     // acceptance fingerprint, so it is reported rather than skipped.
     if (!kv) { if (line.trim()) unparsed.push(line.trim()); continue; }
     if (kv[1] in data) duplicates.push(kv[1]);
-    data[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
+    // Quotes count only as a matching pair around the whole value; a lone or
+    // mismatched quote (`"draft'`) is malformed, never quietly stripped.
+    const raw = kv[2].trim();
+    const quoted = raw.match(/^(["'])(.*)\1$/);
+    if (!quoted && /^["']|["']$/.test(raw)) { unparsed.push(line.trim()); continue; }
+    data[kv[1]] = quoted ? quoted[2] : raw;
   }
   return { data, body: text.slice(m[0].length), duplicates, unparsed };
 }
@@ -464,6 +469,9 @@ export function nextStep(results, checkins = 'each-doc') {
   const pending = results.find((r) => r.status === 'missing' || r.errors.length
     || (r.needsDeepening && !deepeningWaits)
     || (r.status === 'draft' && !draftsWait));
+  // project.md has no skill of its own: dybs-start writes, repairs and
+  // checks in on it.
+  if (pending?.name === 'project') return 'dybs-start';
   return pending ? pending.name : null;
 }
 
@@ -557,7 +565,7 @@ export function placeNoClobber(from, to) {
 
 // `beforeReplace` is a test hook: it runs after validation, just before the
 // doc is replaced, so a test can act like a concurrent editor.
-export function acceptDoc(root, name, today = localDate(), { beforeReplace, beforePlace } = {}) {
+export function acceptDoc(root, name, today = localDate(), { beforeReplace, beforePlace, beforeCleanup } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
@@ -616,6 +624,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
   let moved = false;
   let placed = false;
   let placedId = null;
+  let oldId = null;
   try {
     const fd = openSync(tmp, 'wx', mode);
     try {
@@ -629,6 +638,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
     renameSync(path, old);
     moved = true;
     pinned();
+    oldId = pathId(old);
     if (readFileSync(old, 'utf8') !== text) {
       placeNoClobber(old, path);
       moved = false;
@@ -647,9 +657,14 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
     placedId = how === 'link' ? tmpId : pathId(path);
     pinned();
     rmIfOurs(tmp, tmpId);
-    // The original is deleted only while it still holds what was validated.
-    if (readFileSync(old, 'utf8') === text) rmSync(old);
-    else return { ok: true, warnings: [`the previous version changed during acceptance; kept at ${old}`] };
+    // The original is deleted only while it is provably ours: reached
+    // through the pinned folders, the very file we moved aside, and still
+    // holding what was validated. Otherwise it is kept and reported.
+    beforeCleanup?.(old);
+    let ours = false;
+    try { ours = folderChain(root, rel) === dirs && pathId(old) === oldId && readFileSync(old, 'utf8') === text; } catch { ours = false; }
+    if (ours) rmSync(old);
+    else return { ok: true, warnings: [`the previous version changed or could not be confirmed during acceptance; kept at ${old}`] };
   } catch (err) {
     // Undo through the same paths: a file that went through a swapped link
     // comes back the same way. Only what is provably ours is removed.
@@ -666,8 +681,20 @@ export function acceptDoc(root, name, today = localDate(), { beforeReplace, befo
     // someone's entry too, and is never replaced. Then the original stays
     // at its temporary name, and the error says where.
     const taken = (p) => { try { lstatSync(p); return true; } catch { return false; } };
+    // Restored with the same no-clobber placement as everything else: a
+    // save that lands at the path in the meantime is never overwritten.
     if (moved && taken(old)) {
-      if (!taken(path)) renameSync(old, path);
+      let restored = false;
+      try {
+        try { placeNoClobber(old, path); } catch (e) {
+          // The failure that brought us here may be the link itself: fall
+          // back to an exclusive copy, still never over an existing entry.
+          if (e.code === 'EEXIST') throw e;
+          fsOps.copyFile(old, path, fsConstants.COPYFILE_EXCL);
+        }
+        restored = true;
+      } catch { restored = false; }
+      if (restored) rmSync(old);
       else err.message += `; something appeared at ${rel} meanwhile, the original is kept at ${old}`;
     }
     throw err;
