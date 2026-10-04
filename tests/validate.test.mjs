@@ -3,9 +3,9 @@ import { unprivileged, UNPRIVILEGED_SKIP } from './unprivileged.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { execFileSync } from 'node:child_process';
 import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, acceptedHash, nextStep, main, headings } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -898,7 +898,8 @@ test('--json reports a read failure as JSON', async () => {
   assert.equal(code, 1);
   const out = JSON.parse(logs.join('\n'));
   assert.equal(out.ok, false);
-  assert.match(out.fatal, /could not read/);
+  // A folder where a doc should be is reported as that doc's error, in JSON.
+  assert.match(JSON.stringify(out.results), /project\.md is not a regular file/);
   rmSync(dir, { recursive: true });
 });
 
@@ -2261,4 +2262,36 @@ test('a reference definition with an angle-bracketed destination is no raw HTML'
   assert.ok(!validateDoc('prd', VALID_PRD + '\nSee [the details].\n\n[the details]: <details>\n').rules.includes('html'));
   // A real tag on its own line still is.
   assert.ok(validateDoc('prd', VALID_PRD + '\n<details>\n').rules.includes('html'));
+});
+
+test('link metadata is no prose, formatted headings count, and a FIFO doc never hangs the check', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // Destinations, titles and reference definitions are not shown (commonmark.js).
+  assert.equal(wordCount('[hello](https://example.com/a-long-path)\n'), 1);
+  assert.equal(wordCount('x [a](<b c> "t t") y\n'), 3);
+  assert.equal(wordCount('text\n\n[r]: http://x "a title"\n'), 1);
+  // Malformed ones are text, and count.
+  assert.equal(wordCount('text [b](c d e)\n'), 5);
+  assert.equal(wordCount('[r]: s t\n'), 3);
+  // `## **Goals**` renders as Goals.
+  const formatted = VALID_PRD.replace(/^## (.+)$/gm, '## **$1**');
+  assert.ok(!validateDoc('prd', formatted).rules.includes('sections'), 'formatted headings satisfy the sections');
+  // A FIFO at a doc's name: an error, not a hang.
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/context/prd.md'));
+  execFileSync('mkfifo', [join(dir, 'dybs/context/prd.md')]);
+  const r = validateProject(dir);
+  assert.equal(r.ok, false);
+  assert.match(r.results.find((x) => x.name === 'prd').errors.join(' '), /not a regular file/);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept never hangs on a FIFO where a doc it reads should be', () => {
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/context/prd.md'));
+  execFileSync('mkfifo', [join(dir, 'dybs/context/prd.md')]);
+  // ux requires prd: the FIFO is refused, not read.
+  const r = acceptDoc(dir, 'ux', '2026-10-04');
+  assert.equal(r.ok, false);
+  rmSync(dir, { recursive: true });
 });
