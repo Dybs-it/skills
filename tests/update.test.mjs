@@ -1429,3 +1429,25 @@ test('pruning empty folders never follows an ancestor swapped for a link', async
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('rollback never deletes a file that replaced the placed one after the check', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let hit = false;
+  mod.testHooks.beforeUndoRm = (s) => {
+    if (hit || s.a.rel !== SKILL) return;
+    hit = true;
+    renameSync(s.p, `${s.p}.away`);
+    writeFileSync(s.p, 'a new user file');
+  };
+  // Everything is placed; then the update fails and rolls back.
+  const beforeCommit = () => { throw new Error('injected failure'); };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /injected failure/); } finally { mod.testHooks.beforeUndoRm = null; }
+  assert.ok(hit);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'a new user file');
+  rmSync(root, { recursive: true });
+});

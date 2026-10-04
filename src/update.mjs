@@ -236,7 +236,7 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterLook: null, beforeRmdir: null };
+export const testHooks = { afterLook: null, beforeRmdir: null, beforeUndoRm: null };
 
 function rmIfOurs(p, id) {
   if (idOf(p) === null) return;
@@ -588,7 +588,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           stuck.push(`${s.a.rel} changed after the update wrote it; kept as is${s.old ? `, the original is at ${s.old}` : ''}`);
           continue;
         }
-        undo(s.a.rel, () => rmSync(s.p));
+        testHooks.beforeUndoRm?.(s);
+        // Removed only as the very file checked above (verify-then-delete
+        // under a private name): a file that replaced it meanwhile stays.
+        undo(s.a.rel, () => rmIfOurs(s.p, s.placedId));
       }
       // Put the original back without overwriting anything that appeared,
       // and only while the name still leads, through the pinned folders, to
