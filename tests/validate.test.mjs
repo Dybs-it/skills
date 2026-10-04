@@ -871,3 +871,30 @@ test('--json reports a read failure as JSON', async () => {
   assert.match(out.fatal, /could not read/);
   rmSync(dir, { recursive: true });
 });
+
+test('the validator runs when called through a linked skill folder', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { symlinkSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-link-'));
+  symlinkSync(join(ROOT, 'skills/dybs-start'), join(dir, 'dybs-start'));
+  let out = '';
+  try {
+    out = execFileSync('node', [join(dir, 'dybs-start/scripts/dybs-validate.mjs'), join(ROOT, 'tests/fixtures/sample-project')], { encoding: 'utf8' });
+  } catch (e) { out = e.stdout; }
+  assert.match(out, /prd\.md/);
+  rmSync(dir, { recursive: true });
+});
+
+test('a code span across lines keeps <!-- literal, so a TODO in it still counts', () => {
+  const dir = copySample();
+  edit(dir, 'context/prd.md', (t) => t + '\nSee `example\n<!-- TODO -->\ncontinued` here.\n');
+  const r = validateProject(dir).results.find((x) => x.name === 'prd');
+  assert.ok(r.rules.includes('placeholder'));
+  rmSync(dir, { recursive: true });
+});
+
+test('a backtick never closed in its paragraph is literal, so a later comment still hides', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('one ` two\n\n<!-- three four -->\nfive `'), 3);
+  assert.equal(wordCount('one ` two <!-- hidden -->\n\nthree `'), 3);
+});

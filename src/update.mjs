@@ -14,7 +14,8 @@
 import { createHash } from 'node:crypto';
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync,
-  rmSync, rmdirSync, copyFileSync, realpathSync, lstatSync, renameSync, linkSync, chmodSync,
+  rmSync, rmdirSync, copyFileSync, realpathSync, lstatSync, renameSync, linkSync,
+  openSync, closeSync, fstatSync, fchmodSync,
   constants as fsConstants,
 } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
@@ -172,6 +173,20 @@ function sameRoot(dir, root) {
   } catch { return false; }
 }
 
+// Device and inode of a path itself (no link followed), or null.
+const idOfStat = (st) => `${st.dev}:${st.ino}`;
+function idOf(p) {
+  try { return idOfStat(lstatSync(p)); } catch { return null; }
+}
+
+// Removes `p` only while it is still the file we created (`id`).
+function rmIfOurs(p, id) {
+  const now = idOf(p);
+  if (now === null) return;
+  if (now !== id) throw new Error(`${p} is not the file the update wrote; left in place`);
+  rmSync(p);
+}
+
 // The identity (device and inode) of the skill folder and of every folder
 // between it and `rel`, all real directories, never links. null when any
 // is missing or is not a real directory.
@@ -307,7 +322,7 @@ export function placeNoClobber(from, to) {
 // path, it never follows a link at the destination.
 // `failAt` is a test hook: throw just before the n-th rename, after calling
 // `beforeFail` (which lets a test act like a concurrent writer).
-export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin } = {}) {
+export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, beforeStageCheck } = {}) {
   if (plan.blocked) return { ...plan, applied: false };
   const { dir, actions, want } = plan;
   const tag = `dybs-${process.pid}-${Date.now()}`;
@@ -352,16 +367,31 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin } =
       const made = mkdirNoFollow(dir, dirname(a.rel));
       if (made) createdDirs.push({ deepest: dirname(p), stop: dirname(made) });
       recheck(a);
+      // Pin the folders first, then write, then prove the file is where we
+      // meant it: a folder swapped for a link and back again around the
+      // write would leave the chain looking unchanged, but our file missing.
+      const chain = chainOf(dir, a.rel);
       const tmp = `${p}.${tag}.new`;
       // A replaced file keeps its permissions: a 0600 file stays 0600.
       const mode = a.op === 'add' ? undefined : lstatSync(p).mode & 0o7777;
-      writeFileSync(tmp, want[a.rel], { flag: 'wx', mode });
-      if (mode !== undefined) chmodSync(tmp, mode);
-      staged.push({ a, p, tmp, chain: chainOf(dir, a.rel) });
+      const fd = openSync(tmp, 'wx', mode ?? 0o666);
+      let tmpId;
+      try {
+        writeFileSync(fd, want[a.rel]);
+        if (mode !== undefined) fchmodSync(fd, mode);
+        tmpId = idOfStat(fstatSync(fd));
+      } finally { closeSync(fd); }
+      const entry = { a, p, tmp, tmpId, chain };
+      staged.push(entry);
+      beforeStageCheck?.(entry);
+      if (!chain || chainOf(dir, a.rel) !== chain || idOf(tmp) !== tmpId) {
+        throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again (a stray ${basename(tmp)} may have been written through it)`);
+      }
       if (a.op === 'replace') {
         const b = backupPath(p);
         copyFileSync(p, b, fsConstants.COPYFILE_EXCL);
-        backups.push(b);
+        backups.push({ path: b, id: idOf(b) });
+        if (chainOf(dir, a.rel) !== chain || !idOf(b)) throw new Error(`a folder on the way to ${a.rel} changed while the update was writing; nothing was kept, run update again`);
         a.backup = b;
       }
     }
@@ -412,8 +442,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin } =
       // Put the original back without overwriting anything that appeared.
       if (s.old) undo(s.a.rel, () => { placeNoClobber(s.old, s.p); rmSync(s.old); });
     }
-    for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmSync(s.tmp, { force: true }));
-    for (const b of backups) undo(b, () => rmSync(b, { force: true }));
+    // Remove only what is provably ours: the file at that name must be the
+    // one we wrote, or a same-named file reached through a swapped link
+    // would be deleted instead.
+    for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmIfOurs(s.tmp, s.tmpId));
+    for (const b of backups) undo(b.path, () => rmIfOurs(b.path, b.id));
     for (const a of actions) delete a.backup;
     for (const d of createdDirs) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop));
     if (stuck.length) err.message += `; could not undo everything, check by hand: ${stuck.join('; ')}`;
