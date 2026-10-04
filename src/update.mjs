@@ -288,7 +288,7 @@ function provablyGone(p) {
 // Only a regular file is what the plan saw: a link that replaced it keeps
 // its own identity through link() and rename(), while reads follow it.
 function isRegular(p) {
-  try { return lstatSync(p).isFile(); } catch { return false; }
+  try { return fsOps.lstat(p).isFile(); } catch { return false; }
 }
 
 // Creates `p` exclusively and writes `data` to it. `onCreate(id)` runs as
@@ -641,6 +641,18 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
   // after every rename: a swap that lands is detected and rolled back
   // (the rollback works through the same path, so it undoes the move
   // wherever it went) instead of being trusted.
+  // The staged file carries the original's permissions as seen when it was
+  // written: one tightened since (0644 to 0600) must not be undone, so the
+  // very original, moved aside, is asked again before placing and again at
+  // the commit point.
+  const modeUnchanged = (s) => {
+    if (s.mode === undefined || !(s.orig || s.old)) return;
+    const src = s.orig ?? s.old;
+    const srcId = s.orig ? s.origId : s.oldId;
+    let now = null;
+    try { const st = fsOps.lstat(src, BIG); if (idOfStat(st) === srcId) now = Number(st.mode) & 0o7777; } catch { now = null; }
+    if (now !== null && now !== s.mode) throw new Error(`${s.a.rel} had its permissions changed during the update; nothing was changed, run update again`);
+  };
   const pinned = (s) => {
     beforePin?.(s);
     if (!s.chain || !sameRoot(dir, plan.root) || chainOf(dir, s.a.rel) !== s.chain) {
@@ -759,7 +771,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           fsOps.link(s.p, old);
           const dropOld = (check) => {
             const now = idOf(old);
-            if (now === null) return '';
+            if (now === null) return provablyGone(old) ? '' : ` (${old} could not be checked and may be left in place)`;
             if (now !== idOf(s.p)) return ` (${old} is not provably this update's and was left in place)`;
             try { rmIfOurs(old, now, check); return ''; } catch (e) { return ` (${e.message})`; }
           };
@@ -853,16 +865,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         if (!staged || sha(staged) !== sha(want[s.a.rel])) {
           throw new Error(`the staged copy of ${s.a.rel} changed before it was installed; nothing was kept, run update again`);
         }
-        // The staged file carries the original's permissions as seen when it
-        // was written: one tightened since (0644 to 0600) must not be undone,
-        // so the very original, moved aside, is asked again right before.
-        if (s.mode !== undefined && (s.orig || s.old)) {
-          const src = s.orig ?? s.old;
-          const srcId = s.orig ? s.origId : s.oldId;
-          let now = null;
-          try { const st = fsOps.lstat(src, BIG); if (idOfStat(st) === srcId) now = Number(st.mode) & 0o7777; } catch { now = null; }
-          if (now !== null && now !== s.mode) throw new Error(`${s.a.rel} had its permissions changed during the update; nothing was changed, run update again`);
-        }
+        modeUnchanged(s);
         let how;
         const copied = {};
         try {
@@ -933,7 +936,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // The commit point: the skill folder and every folder chain must still be
     // the pinned ones. When every file was added or replaced there is no
     // unchanged file below whose recheck would notice a swapped folder.
-    for (const s of staged) pinned(s);
+    // Permissions too: a change made after placement (through an open file)
+    // would otherwise be lost with the original at cleanup.
+    for (const s of staged) { pinned(s); modeUnchanged(s); }
     // Files the plan found already current are part of the result too: one
     // edited, removed or swapped for a link since would leave the skill
     // mixed, so it stops the update like any other change.
@@ -1126,6 +1131,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
                 if (idOf(s.old) === trashId) { try { rmIfOurs(s.old, trashId); } catch { /* reported below */ } }
                 throw new Error('a folder on the way changed');
               }
+              // At its name, the very file: a folder swapped and restored
+              // around the link passes the pins while the name went outside.
+              if (idOf(s.old) !== trashId) throw new Error('not put back at its name');
               s.a.kept = s.old;
               try { rmIfOurs(trash, trashId, chainCheck(s)); } catch (e) { s.a.kept = `${s.old} (and ${e.keptAt ?? trash})`; }
             } catch { s.a.kept = trash; }
