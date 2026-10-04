@@ -640,13 +640,15 @@ export function headings(body) {
     // Right after a list marker the heading starts within its four spaces.
     if (/(?:[-*+]|\d[.)]) {1,4}$/.test(prefix) && indent) return;
     const markers = prefix;
-    const ordered = [...markers.matchAll(/(\d{1,9})[.)]/g)];
+    // Only the outermost list marker can interrupt the paragraph before it;
+    // a list nested in that new item is its first block and may start at 2.
+    const first = /(?:^|[ \t>])(?:[-*+]|(\d{1,9})[.)]) /.exec(markers);
     // Inside the same block quotes: the line before, read without its `>`.
     const before = i === 0 ? '' : lines[i - 1].replace(/^(?: {0,3}>[ \t]?)*/, '');
     // A blank line, a heading or a thematic break (`---`, `***`, `___`; as a
     // setext underline it ends a paragraph just the same) ends the block.
     const afterBlank = i === 0 || /^[ \t]*$/.test(before) || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(before) || /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/.test(before);
-    if (ordered.some((o) => Number(o[1]) !== 1) && !afterBlank) return;
+    if (first?.[1] !== undefined && Number(first[1]) !== 1 && !afterBlank) return;
     found.push(text);
   });
   return found;

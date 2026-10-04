@@ -1009,3 +1009,9 @@ test('destinations allow only punctuation escapes and one line ending; labels fo
   // `ẞ` folds to `ss`.
   assert.ok(validateDoc('prd', VALID_PRD + '\nT[O][ẞ]DO\n\n[ss]: /url\n').rules.includes('placeholder'));
 });
+
+test('only the outermost ordered marker must start at 1 to interrupt a paragraph', () => {
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n1. 2. ## Goals')).rules.includes('sections'));
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n- 2. ## Goals')).rules.includes('sections'));
+  assert.ok(validateDoc('prd', VALID_PRD.replace('## Goals', 'text\n2. 1. ## Goals')).rules.includes('sections'));
+});
