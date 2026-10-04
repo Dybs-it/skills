@@ -22,11 +22,23 @@ Existing project: walk the main flows in code (routes, views, forms) and note
 how loading, empty, error and success states are handled today. The
 inconsistencies you find are the most useful input.
 
+## API, library or CLI
+
+When the product has no screens, this doc covers **developer experience**
+and every checklist item is read that way: tasks are developer journeys
+(install, first call, the most common job); states are responses, error
+messages, exit codes and timeouts; destructive actions are calls that delete
+or overwrite; the accessibility target is about docs, error text and
+terminal output (meaning never in colour alone, a machine-readable mode).
+An item with no developer equivalent (first-run screens, for example) is
+parked with the reason "no screens". The sections stay the same.
+
 ## Readiness checklist
 
 **core**
-- [ ] The 3 to 5 tasks that must feel effortless (from the PRD's must-haves),
-      each as steps from intent to done
+- [ ] The tasks that must feel effortless: the PRD's must-haves (all of
+      them when there are fewer than three, at most 5), each as steps from
+      intent to done
 - [ ] For each of those, the main way it fails and what the user can do next
 - [ ] Rules for loading, empty, error and success states
 - [ ] Accessibility target (for example WCAG 2.2 AA)
@@ -81,7 +93,8 @@ so do not assume the others are present.
 6. Every required `##` section is present (see the template or the doc contract).
 7. Frontmatter `depth`, when present, is `quick` or `thorough`.
 8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.
-9. An accepted doc is not changed, neither its content nor its `depth`. Any real change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change.)
+9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change.)
 10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), and no doc is both `quick` and `thorough`.
-11. No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.
+11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`.
+12. No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.
 <!-- rules:end -->

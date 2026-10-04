@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -52,6 +52,7 @@ export const DOCS = {
 export const ORDER = ['project', 'prd', 'scope', 'domain', 'architecture', 'ux', 'ui'];
 export const STATUSES = ['draft', 'accepted'];
 export const DEPTHS = ['quick', 'thorough'];
+export const CHECKINS = ['each-doc', 'end', 'none'];
 // The same rules in words, for an agent checking a doc by hand when the
 // validator is not installed. Every id here is enforced in validateDoc, and
 // tests keep the skills' standalone sections in step with this list.
@@ -64,8 +65,9 @@ export const MANUAL_RULES = [
   { id: 'sections', text: 'Every required `##` section is present (see the template or the doc contract).' },
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
   { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.' },
-  { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its `depth`. Any real change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change.)' },
+  { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change.)' },
   { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), and no doc is both `quick` and `thorough`.' },
+  { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD outside HTML comments. In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 
@@ -112,12 +114,16 @@ function skipped(projectData) {
   return list(projectData?.skip);
 }
 
-// Fingerprint of what the human accepted: the content plus the frontmatter
-// that changes its meaning (`depth`, which sets readiness and the cap). The
-// bookkeeping fields (status, dates, the hash itself) are left out. Stored as
+// Frontmatter that records the acceptance itself rather than the content.
+const BOOKKEEPING = new Set(['status', 'updated', 'accepted', 'accepted-hash']);
+
+// Fingerprint of what the human accepted: the content plus every frontmatter
+// setting (depth, and in project.md the routing: checkins, skip, quick,
+// thorough, kind...). Only the bookkeeping fields are left out. Stored as
 // `accepted-hash` when the human accepts, so a later edit is detectable.
 export function acceptedHash(data, body) {
-  const meaning = `depth:${data?.depth ?? ''}\n`;
+  const meaning = Object.keys(data || {}).filter((k) => !BOOKKEEPING.has(k)).sort()
+    .map((k) => `${k}:${data[k]}\n`).join('');
   return createHash('sha256').update(meaning + body.replace(/\r\n/g, '\n').trim()).digest('hex').slice(0, 12);
 }
 
@@ -152,6 +158,9 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
       }
       const both = [...list(data.quick)].filter((n) => list(data.thorough).has(n));
       if (both.length) fail('doc-lists', `${both.join(', ')} listed under both "quick:" and "thorough:"`);
+      if (data.checkins !== undefined && !CHECKINS.includes(data.checkins)) {
+        fail('checkins', `"checkins" must be one of ${CHECKINS.join('|')} (found "${data.checkins}")`);
+      }
     }
     if (data.status === 'accepted' && data['accepted-hash'] && data['accepted-hash'] !== acceptedHash(data, body)) {
       fail('accepted-hash', 'changed after it was accepted: set status: draft, remove accepted and accepted-hash, and ask the human to accept again');
@@ -209,7 +218,8 @@ export function validateProject(root, only) {
     if (only && name !== only) continue;
     const spec = DOCS[name];
     const path = join(dir, spec.file);
-    if (skip.has(name)) {
+    // project.md holds the settings, so it can never skip itself.
+    if (skip.has(name) && name !== 'project') {
       results.push({ name, file: spec.file, status: 'skipped', words: 0, errors: [], warnings: [] });
       continue;
     }
@@ -230,15 +240,18 @@ export function validateProject(root, only) {
   const atRequestedDepth = docs.every((r) => !r.needsDeepening);
   const accepted = complete && docs.every((r) => r.status === 'accepted');
   const deepen = docs.filter((r) => r.needsDeepening && r.status !== 'missing').map((r) => r.name);
-  const checkins = projectData?.checkins || 'each-doc';
+  const checkins = CHECKINS.includes(projectData?.checkins) ? projectData.checkins : 'each-doc';
   return { ok, complete, atRequestedDepth, accepted, deepen, checkins, results };
 }
 
 // With `checkins: end` or `none` a draft waits for the review point the
-// human chose, so it does not stop the route.
+// human chose, so it does not stop the route. With `none` nothing is asked,
+// so a doc that needs deepening waits too; the final report lists it.
 export function nextStep(results, checkins = 'each-doc') {
   const draftsWait = checkins === 'end' || checkins === 'none';
-  const pending = results.find((r) => r.status === 'missing' || r.errors.length || r.needsDeepening
+  const deepeningWaits = checkins === 'none';
+  const pending = results.find((r) => r.status === 'missing' || r.errors.length
+    || (r.needsDeepening && !deepeningWaits)
     || (r.status === 'draft' && !draftsWait));
   return pending ? pending.name : null;
 }
@@ -258,19 +271,43 @@ export function setFrontmatter(text, updates) {
   return `---\n${lines.join('\n')}\n---` + text.slice(m[0].length);
 }
 
+// Why `root/rel` is not a regular file reached through real folders, or null.
+// Nothing below the project root is followed: accepting a doc must never
+// write through a link to a file somewhere else.
+export function unsafePath(root, rel) {
+  const parts = rel.split('/');
+  let p = root;
+  for (let i = 0; i < parts.length; i++) {
+    p = join(p, parts[i]);
+    let st;
+    try { st = lstatSync(p); } catch { return `${parts.slice(0, i + 1).join('/')} does not exist`; }
+    if (st.isSymbolicLink()) return `${parts.slice(0, i + 1).join('/')} is a symbolic link`;
+    if (i < parts.length - 1 && !st.isDirectory()) return `${parts.slice(0, i + 1).join('/')} is not a folder`;
+    if (i === parts.length - 1 && !st.isFile()) return `${rel} is not a regular file`;
+  }
+  return null;
+}
+
 // Marks a doc accepted on the human's word: status, date and a fingerprint of
 // its content. Refuses a doc that would not validate as accepted.
 export function acceptDoc(root, name, today = new Date().toISOString().slice(0, 10)) {
-  const path = join(root, 'dybs', DOCS[name].file);
+  const rel = `dybs/${DOCS[name].file}`;
+  const unsafe = unsafePath(root, rel);
+  if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
+  const path = join(root, rel);
   const text = readFileSync(path, 'utf8');
-  const { body } = parseFrontmatter(text);
-  const { data } = parseFrontmatter(text);
+  const { data, body } = parseFrontmatter(text);
+  if (!data) return { ok: false, errors: validateDoc(name, text).errors };
   const next = setFrontmatter(text, { status: 'accepted', updated: today, accepted: today, 'accepted-hash': acceptedHash(data, body) });
   const projectPath = join(root, 'dybs', DOCS.project.file);
   const projectData = existsSync(projectPath) ? parseFrontmatter(readFileSync(projectPath, 'utf8')).data : null;
   const check = validateDoc(name, next, depthFor(name, projectData));
   if (check.errors.length) return { ok: false, errors: check.errors };
-  writeFileSync(path, next);
+  // Write beside it and rename into place: rename replaces whatever is at
+  // the path, it never follows a link that appeared in the meantime.
+  const tmp = `${path}.dybs-${process.pid}.tmp`;
+  writeFileSync(tmp, next, { flag: 'wx' });
+  try { renameSync(tmp, path); } catch (err) { rmSync(tmp, { force: true }); throw err; }
   return { ok: true };
 }
 
@@ -326,7 +363,16 @@ export function main(argv) {
     for (const w of r.warnings) console.log(`          warn:  ${w}`);
   }
   const next = nextStep(report.results, report.checkins);
-  console.log(next ? `\nNext: ${next}` : '\nAll Getting Started docs accepted at the requested depth.');
+  const docs = report.results.filter((r) => r.status !== 'skipped' && r.name !== 'readme');
+  const waiting = docs.filter((r) => r.status === 'draft').map((r) => r.name);
+  if (next) console.log(`\nNext: ${next}`);
+  else if (report.accepted && report.atRequestedDepth) console.log('\nAll Getting Started docs accepted at the requested depth.');
+  else {
+    console.log(`\nAll docs written (checkins: ${report.checkins}), not all accepted yet.`);
+    if (waiting.length) console.log(`Awaiting acceptance: ${waiting.join(', ')}`);
+    if (report.deepen.length) console.log(`Needs thorough depth: ${report.deepen.join(', ')}`);
+    console.log('Next: check (dybs-check reviews them with you).');
+  }
   return report.ok ? 0 : 1;
 }
 

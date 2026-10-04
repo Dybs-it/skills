@@ -158,4 +158,6 @@ A quick doc can be deepened at any time:
 An accepted doc means the human accepted **that version**. Any real change,
 deepening included, makes it a draft again: set `status: draft` and remove
 `accepted` and `accepted-hash`. The human then accepts the new version.
-Fixing a typo is not a real change; anything that changes meaning is.
+That holds for a typo too: the validator cannot tell a typo from a change of
+meaning. For a typo, a one-line ask is enough ("Fixed a typo in prd.md,
+accept again?").
