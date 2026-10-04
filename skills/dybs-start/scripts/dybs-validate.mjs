@@ -168,6 +168,11 @@ export function validateDoc(name, text, requestedDepth = 'quick') {
         fail('checkins', `"checkins" must be one of ${CHECKINS.join('|')} (found "${data.checkins}")`);
       }
     }
+    // A draft keeps no trace of an earlier acceptance: that acceptance was
+    // for another version.
+    if (data.status === 'draft' && (data.accepted !== undefined || data['accepted-hash'] !== undefined)) {
+      fail('accepted-hash', 'a draft must not keep accepted or accepted-hash: remove them (the acceptance was for an earlier version)');
+    }
     if (data.status === 'accepted' && !data['accepted-hash']) {
       warnings.push('accepted without a fingerprint, so a later change cannot be detected: run --accept again to record it');
     }
@@ -372,6 +377,10 @@ export function main(argv) {
   if (accept) {
     if (!DOCS[accept]) { console.error(`unknown doc "${accept}". Known: ${ORDER.join(', ')}`); return 2; }
     const r = acceptDoc(root, accept);
+    if (json) {
+      console.log(JSON.stringify({ schema: 2, accept, ok: r.ok, errors: r.errors || [] }, null, 2));
+      return r.ok ? 0 : 1;
+    }
     if (!r.ok) { console.error(`not accepted, fix first:\n  ${r.errors.join('\n  ')}`); return 1; }
     console.log(`${accept} accepted.`);
     return 0;

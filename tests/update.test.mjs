@@ -413,3 +413,10 @@ test('every file docs/sources.md names as adapted carries the upstream copyright
     assert.match(t, new RegExp(`Copyright \\(c\\) \\d{4} ${owner}`), file);
   }
 });
+
+test('dybs-check carries dybs-ux\'s developer-experience reading word for word', () => {
+  const ux = readFileSync(join(SKILLS_SRC, 'dybs-ux', SKILL), 'utf8');
+  const dx = ux.slice(ux.indexOf('## API, library or CLI'), ux.indexOf('## Readiness checklist')).split('\n').slice(1).join('\n')
+    .replace('this doc covers', '`ux.md` covers');
+  assert.ok(readFileSync(join(SKILLS_SRC, 'dybs-check', SKILL), 'utf8').includes(dx), 'copy the section into dybs-check');
+});

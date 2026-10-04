@@ -500,7 +500,7 @@ test('an accepted doc without a fingerprint is flagged as not verifiable', () =>
 // --- Codex review round 5 on PR #2 ---
 
 test('a frontmatter key that appears twice is an error, so --accept cannot be fooled', () => {
-  const twice = VALID_PRD.replace('status: accepted', 'status: draft\nstatus: draft');
+  const twice = VALID_PRD.replace('status: accepted', 'status: draft\nstatus: draft').replace(/^accepted: .*\n/m, '');
   assert.deepEqual(validateDoc('prd', twice).rules, ['frontmatter']);
   const dir = copySample();
   edit(dir, 'context/prd.md', (t) => t.replace('status: accepted', 'status: draft\nstatus: draft'));
@@ -525,5 +525,25 @@ test('the validator runs when called through a linked skill folder', () => {
     out = execFileSync('node', [join(dir, 'dybs-start/scripts/dybs-validate.mjs'), SAMPLE], { encoding: 'utf8' });
   } catch (e) { out = e.stdout; }
   assert.match(out, /prd\.md/);
+  rmSync(dir, { recursive: true });
+});
+
+// --- Codex review round 6 on PR #2 ---
+
+test('a draft that keeps accepted or accepted-hash fails', () => {
+  const draft = VALID_PRD.replace('status: accepted', 'status: draft');
+  assert.deepEqual(validateDoc('prd', draft).rules, ['accepted-hash']);
+  assert.deepEqual(validateDoc('prd', draft.replace(/^accepted: .*\n/m, '')).rules, []);
+});
+
+test('--accept with --json answers in JSON', () => {
+  const dir = copySample();
+  const ok = capture(() => main(['node', 'v', dir, '--accept', 'prd', '--json']));
+  assert.equal(ok.code, 0);
+  assert.deepEqual(JSON.parse(ok.out), { schema: 2, accept: 'prd', ok: true, errors: [] });
+  edit(dir, 'context/ui.md', (t) => t + '\nTODO\n');
+  const bad = capture(() => main(['node', 'v', dir, '--accept', 'ui', '--json']));
+  assert.equal(bad.code, 1);
+  assert.equal(JSON.parse(bad.out).ok, false);
   rmSync(dir, { recursive: true });
 });
