@@ -817,3 +817,10 @@ test('link metadata is no prose, formatted headings count, and a FIFO doc never 
   assert.match(r.results.find((x) => x.name === 'prd').errors.join(' '), /not a regular file/);
   rmSync(dir, { recursive: true });
 });
+
+test('a malformed link never hides raw HTML from the check', () => {
+  // Unescaped whitespace makes this no link: `<details>` is rendered raw HTML.
+  assert.ok(validateDoc('prd', VALID_PRD + '\n[x](bad destination <details>)\n').rules.includes('html'));
+  // A well-formed one is still fine.
+  assert.ok(!validateDoc('prd', VALID_PRD + '\n[x](<details>)\n').rules.includes('html'));
+});
