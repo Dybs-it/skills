@@ -1143,3 +1143,21 @@ test('the post-placement read refuses a skill folder swapped for a link', async 
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('an untouched v0.1 install is recognised and updated, not called an edit', async () => {
+  const { planInstall } = await import('../src/update.mjs');
+  // The published v0.1 files, byte for byte (tests/fixtures/v0.1).
+  const v01 = join(PKG_ROOT, 'tests/fixtures/v0.1');
+  const root = project(['dybs-check', 'dybs-start']);
+  for (const rel of ['dybs-check/SKILL.md', 'dybs-start/SKILL.md', 'dybs-start/assets/README.md']) {
+    writeFileSync(join(root, '.agents/skills', rel), readFileSync(join(v01, rel)));
+  }
+  for (const install of findInstalls([root])) {
+    const plan = planInstall(install);
+    assert.equal(plan.blocked, false, install.skill);
+    for (const a of plan.actions.filter((x) => ['SKILL.md', 'assets/README.md'].includes(x.rel))) {
+      assert.equal(a.op, 'update', `${install.skill}/${a.rel}`);
+    }
+  }
+  rmSync(root, { recursive: true });
+});
