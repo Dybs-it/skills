@@ -1527,3 +1527,30 @@ test('an unclosed <!-- in a paragraph is literal text, not a comment to the end'
   assert.doesNotMatch(visibleText('ordinary <!-- a\nTODO hidden\n-->\n'), /TODO/);
   assert.doesNotMatch(visibleText('<!-- a\n\nTODO hidden\n'), /TODO/);
 });
+
+test('without hard links, --accept re-checks the folders right before moving the doc aside', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { renameSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, 'context'));
+  writeFileSync(join(outside, 'context/ui.md'), 'someone else');
+  let swapped = false;
+  try {
+    // After the copy, dybs/ becomes a link to an outside folder with its own ui.md.
+    assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', {
+      beforeAside: () => {
+        swapped = true;
+        renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+        symlinkSync(outside, join(dir, 'dybs'));
+      },
+    }), /changed/);
+  } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.equal(readFileSync(join(outside, 'context/ui.md'), 'utf8'), 'someone else', 'the outside doc keeps its name');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
