@@ -823,3 +823,40 @@ test('a code span that looks like a fence does not exempt the underline below it
   // A real fence line above a --- is still exempt (the --- is inside the fence or a break).
   assert.doesNotMatch(parseGate(real.replace('## Risks', '```\ncode\n```\n---\n\n## Risks')).problems.join(' '), /not underlined ones/);
 });
+
+test('a gate.md that changes while freshness is checked gets no decision', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const head = g('rev-parse', '--short=7', 'HEAD');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  const withCommit = (body) => body.replace(/^---\n/, `---\ncommit: ${head}\n`);
+  writeFileSync(gatePath, withCommit(gate({ items: [full('a', 'P0')] })));
+  // An editor saves a blocker (atomically) while git runs.
+  const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
+  const blocked = join(bin, 'blocked.md');
+  writeFileSync(blocked, withCommit(gate({ items: [gap('a', 'P0')] })));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\nif [ ! -e "${bin}/done" ]; then touch "${bin}/done"; cp "${blocked}" "${gatePath}.new"; mv "${gatePath}.new" "${gatePath}"; fi\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+  let r;
+  try { r = { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /changed while/);
+  rmSync(repo, { recursive: true });
+  rmSync(bin, { recursive: true });
+});
+
+test('a gate.md that is not a regular file is a read error, never a hang', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-fifo-'));
+  const gatePath = join(dir, 'gate.md');
+  execFileSync('mkfifo', [gatePath]);
+  let r;
+  try { r = { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', timeout: 5000 }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}`, signal: e.signal }; }
+  assert.equal(r.signal ?? null, null, 'the gate must not hang');
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /not a regular file/);
+  rmSync(dir, { recursive: true });
+});

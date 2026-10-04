@@ -10,7 +10,7 @@
 // The rules live here, as code, so the decision is arithmetic rather than an
 // agent's judgement. quality.md describes the same rules in words.
 
-import { readFileSync, realpathSync, lstatSync } from 'node:fs';
+import { readFileSync, realpathSync, lstatSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
 import { resolve, dirname, relative, sep, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -599,6 +599,16 @@ export function freshness(gatePath, text) {
   return { status: 'fresh', head: short };
 }
 
+// Reads gate.md without blocking on a FIFO or a device: opened non-blocking
+// and judged on the open descriptor, so only a regular file is read.
+function readGate(p) {
+  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+  try {
+    if (!fstatSync(fd).isFile()) throw Object.assign(new Error('not a regular file'), { code: 'not a regular file' });
+    return readFileSync(fd, 'utf8');
+  } finally { closeSync(fd); }
+}
+
 export function main(argv) {
   const args = argv.slice(2);
   const json = args.includes('--json');
@@ -610,7 +620,7 @@ export function main(argv) {
   const [file] = files;
   let text;
   try {
-    text = readFileSync(resolve(file), 'utf8');
+    text = readGate(resolve(file));
   } catch (err) {
     // Exit 1 means a computed FAIL; a gate that could not be read is not one.
     const problem = `cannot read ${file}: ${err.code || err.message}`;
@@ -630,6 +640,16 @@ export function main(argv) {
     if (json) console.log(JSON.stringify({ schema: 1, decision: null, stale: fresh.reason, problems: [] }, null, 2));
     else console.error(`STALE: ${fresh.reason}.`);
     return 3;
+  }
+  // gate.md itself is exempt from the dirty check, so an edit saved while
+  // git ran would go unseen: the decision is only for the bytes still there.
+  let after = null;
+  try { after = readGate(resolve(file)); } catch { after = null; }
+  if (after !== text) {
+    const problem = `${file} changed while it was being checked; run the gate again`;
+    if (json) console.log(JSON.stringify({ schema: 1, decision: null, problems: [problem] }, null, 2));
+    else console.error(problem);
+    return 2;
   }
   const r = decide(parsed, today);
   if (json) {
