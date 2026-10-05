@@ -1030,7 +1030,33 @@ test('a definition that opens a list after prose counts, and intraword underscor
 test('the common named references count as the characters they render', async () => {
   const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   // As written they would glue into one longer word; rendered, they split.
-  assert.equal(wordCount('A&nbsp;B\n'), wordCount('A B\n'));
-  assert.equal(wordCount('A&mdash;B\n'), wordCount('A—B\n'));
-  assert.equal(wordCount('Don&apos;t &ldquo;stop&rdquo;\n'), wordCount('Don\'t “stop”\n'));
+  assert.equal(wordCount('A&nbsp;B\n'), wordCount('A\u00a0B\n'));
+  assert.equal(wordCount('A&mdash;B\n'), wordCount('A\u2014B\n'));
+  assert.equal(wordCount('Don&apos;t &ldquo;stop&rdquo;\n'), wordCount('Don\'t \u201cstop\u201d\n'));
+});
+
+test('a placeholder hidden by markup CommonMark reads through is still found', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  // Delimiter runs longer than three are nested emphasis.
+  assert.ok(flagged('\nT****O****DO\n'));
+  // A label may hold escaped brackets.
+  assert.ok(flagged('\nT[O][a\\]b]DO\n\n[a\\]b]: /url\n'));
+  // Block quotes and list items in any order around a definition.
+  assert.ok(flagged('\n- > [r]: /url\n\nT[O][r]DO\n'));
+  // An ordered item starting at 2 opens a block right after a heading.
+  assert.ok(flagged('\n## Why\n2. [r]: /url\n\nT[O][r]DO\n'));
+  // Undefined labels show as written.
+  assert.ok(!flagged('\nT[O][nowhere]DO\n'));
+});
+
+test('definition containers and block starts follow CommonMark', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // After a definition the paragraph continues: `2.` there is text.
+  assert.equal(wordCount('[a]: /u\n2. [r]: /u\n'), 3);
+  // `===` with no paragraph above is text, not a block end.
+  assert.equal(wordCount('===\n2. [r]: /u\n'), 3);
+  // A thematic break ends the block before it.
+  assert.equal(wordCount('***\n2. [r]: /u\n'), 0);
+  assert.equal(wordCount('> - [r]: /u\n- > [r]: /u\n'), 0);
 });
