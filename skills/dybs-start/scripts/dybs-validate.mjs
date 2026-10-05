@@ -1900,6 +1900,20 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw e.code ? new Error(`the permissions of ${rel} could not be checked (${e.code}); nothing was written, run --accept again`) : e;
     }
     if (modeNow !== null && modeNow !== mode) throw new Error(`${rel} had its permissions changed during acceptance; nothing was written, run --accept again`);
+    // Without hard links `old` is only a snapshot: the original itself sits
+    // under its private name, and an edit through an open descriptor (a
+    // chmod to 0600) lands there, so its mode is asked too.
+    if (origAside) {
+      let asideMode = null;
+      try {
+        const st = fsOps.lstat(origAside.path, BIG);
+        if (idOf(st) !== origAside.id) throw new Error(`the original of ${rel} was replaced during acceptance; nothing was written, run --accept again`);
+        asideMode = Number(st.mode) & 0o7777;
+      } catch (e) {
+        if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw e.code ? new Error(`the permissions of ${rel} could not be checked (${e.code}); nothing was written, run --accept again`) : e;
+      }
+      if (asideMode !== null && asideMode !== mode) throw new Error(`${rel} had its permissions changed during acceptance; nothing was written, run --accept again`);
+    }
     // What was actually placed, checked at once (see placeChecked). Copied
     // from a descriptor checked to be the temporary file, never linked:
     // link() takes whatever the name holds at that instant, and a file

@@ -3212,3 +3212,31 @@ test('--accept never writes into a look-alike tree the project root was swapped 
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+// --- Codex review on PR #2 (fa28627): the original's mode, not the snapshot's ---
+test('without hard links, a mode change on the original moved aside stops --accept', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const path = join(ctx, 'ui.md');
+  chmodSync(path, 0o644);
+  const before = readFileSync(path, 'utf8');
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let aside = null;
+  let r;
+  try {
+    r = (() => { try { return mod.acceptDoc(dir, 'ui', '2026-10-04', {
+      beforePlace: () => {
+        aside = readdirSync(ctx).find((n) => n.startsWith('ui.md.') && n.endsWith('.rm'));
+        chmodSync(join(ctx, aside), 0o600);
+      },
+    }); } catch (e) { return { ok: false, errors: [e.message] }; } })();
+  } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(aside, 'the no-hard-link path moved the original aside');
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(' '), /permissions changed/);
+  // Nothing new at the doc's name with the stale 0644.
+  assert.equal(readFileSync(path, 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
