@@ -2994,3 +2994,18 @@ test('a placeholder split by a padded code span or a deeply nested link is found
   assert.ok(flagged(`\nT[O](x${'('.repeat(9)}y${')'.repeat(9)})DO\n`));
   assert.ok(flagged(`\nT[O](x${'('.repeat(32)}y${')'.repeat(32)})DO\n`));
 });
+
+test('link metadata and labels matched as written never make a placeholder', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  // Destinations, titles and definition lines are not shown.
+  assert.ok(!flagged('\nSee [tracking](https://example.test/TODO/item).\n'));
+  assert.ok(!flagged('\nSee [tracking](/u "TODO").\n'));
+  assert.ok(!flagged('\n[r]: https://example.test/TODO\n'));
+  assert.ok(!flagged('\n[r]: /u "TBD"\n'));
+  // A label spelled differently is another label: the brackets stay.
+  assert.ok(!flagged('\n[foo]: /url\n\nT[O][f&#111;o]DO\n'));
+  // Shown text still counts, references decoded.
+  assert.ok(flagged('\nTO&#68;O\n'));
+  assert.ok(flagged('\n<https://example.test/TODO>\n'));
+});

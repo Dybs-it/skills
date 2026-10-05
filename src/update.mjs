@@ -330,7 +330,7 @@ export const testHooks = { afterPlace: null, afterLook: null, beforeMove: null, 
 // `expect` (a sha), it must also still hold those bytes once under its
 // private name: an editor writing through an open file keeps the identity,
 // so only the content can tell, and an edited file is put back, not removed.
-function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
+function rmIfOurs(p, id, check, { sole = false, expect = null, mode = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -352,6 +352,9 @@ function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
     try { x = readById(aside, id); } catch { x = null; }
     disposable = Boolean(x) && sha(x) === expect;
   }
+  // The permissions too, under the private name: a mode changed through an
+  // open file up to this instant is someone's work, and the file is kept.
+  if (disposable && mode !== null) disposable = (Number(st.mode) & 0o7777) === mode;
   if (disposable) {
     // A failed unlink leaves the file under its private name: say where.
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
@@ -1159,7 +1162,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           if (ours) {
             // Deleted by identity under yet another private name: a file
             // that replaced `trash` since the check is kept, never deleted.
-            try { rmIfOurs(trash, s.oldId, chainCheck(s), { expect: s.a.hash }); } catch (e) { s.a.kept = e.keptAt ?? trash; }
+            try { rmIfOurs(trash, s.oldId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null }); } catch (e) { s.a.kept = e.keptAt ?? trash; }
           } else {
             // Not ours after all (edited, or replaced before the move): put
             // it back without overwriting anything, else report where it is.
@@ -1200,7 +1203,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         ours = Boolean(x) && sha(x) === s.a.hash && sameMode(s, s.orig, s.origId);
       } catch { ours = false; }
       if (ours) {
-        try { rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash }); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
+        try { rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null }); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
       } else if (!provablyGone(s.orig)) s.a.kept = s.a.kept ? `${s.a.kept} (and ${s.orig})` : s.orig;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {
