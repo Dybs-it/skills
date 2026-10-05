@@ -1092,3 +1092,22 @@ test('a reference label longer than 999 characters defines nothing', () => {
   assert.ok(validateDoc('prd', VALID_PRD + `\n[${long}]: <details>\n`).rules.includes('html'));
   assert.ok(!validateDoc('prd', VALID_PRD + `\n[${'x'.repeat(999)}]: <details>\n`).rules.includes('html'));
 });
+
+test('a placeholder behind entity labels, multi-line labels or overlapping runs is found', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  // The same entity-spelled label on both sides matches as written.
+  assert.ok(flagged('\n[f&#111;o]: /url\n\nT[O][f&#111;o]DO\n'));
+  // A label may span lines; its whitespace collapses.
+  assert.ok(flagged('\n[foo\n bar]: /url\n\nT[O][foo bar]DO\n'));
+  // Emphasis around strong emphasis, runs of different lengths.
+  assert.ok(flagged('\n*T**O***DO\n'));
+  // Escaped markers stay literal.
+  assert.ok(!flagged('\nTO\\*DO\n'));
+});
+
+test('a label that a new block interrupts defines nothing', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.equal(wordCount('[foo\n> bar]: /u\n'), 3);
+  assert.equal(wordCount('[foo\nbar]: /u\n'), 0);
+});

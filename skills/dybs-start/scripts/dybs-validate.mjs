@@ -741,6 +741,14 @@ const BLOCK_END = /^(?: {0,3}>[ \t]?)* {0,3}(?:=+|-+|(?:([-*_])(?:[ \t]*\1){2,})
 // Labels match case-insensitively by Unicode case folding: `ẞ` matches
 // `ss`. Lower then upper case, as commonmark.js does it.
 const label = (l) => l.trim().replace(/\s+/g, ' ').toLowerCase().toUpperCase();
+// A label may span lines (`[foo` / `bar]: /url`): its first line, a middle
+// line, and the line that closes it with the destination.
+const LABEL_OPEN = new RegExp(String.raw`^(?:${CONTAINERS})\[(${LABEL_CHAR}*)$`);
+const LABEL_MID = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*[ \t]*(${LABEL_CHAR}*)$`);
+const LABEL_TAIL = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*[ \t]*(${LABEL_CHAR}*)\]:[ \t]*${DEF_DEST}([ \t]+${LINK_TITLE})?[ \t]*$`);
+// A line that ends a paragraph instead of continuing a label.
+const INTERRUPTS = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|[-*+][ \t]|1[.)][ \t]|([-*_])(?:[ \t]*\1){2,}[ \t]*$)/;
+
 // How many block quotes a line opens, counting `>` markers among list
 // markers too (`- > x` is one; quoteDepth() reads leading quotes only). A
 // definition's title or destination on the next line belongs to it only
@@ -749,6 +757,10 @@ const label = (l) => l.trim().replace(/\s+/g, ' ').toLowerCase().toUpperCase();
 const containerQuotes = (l) => (/^(?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+)*/.exec(l)[0].match(/>/g) || []).length;
 function definitions(lines) {
   const defs = new Map();
+  // Each label as written, for text that is read with its references
+  // decoded (`[f&#111;o]` is matched as written, and shows as `foo`).
+  const raw = [];
+  defs.raw = raw;
   let titleMayFollow = false;
   let depth = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -775,6 +787,7 @@ function definitions(lines) {
     const m = DEF_LINE.exec(l);
     if (m && blockStart && m[1].length <= 999) {
       defs.set(i, label(m[1]));
+      raw.push(m[1]);
       titleMayFollow = !m[2];
       depth = containerQuotes(l);
       continue;
@@ -786,11 +799,38 @@ function definitions(lines) {
       && !HTML_INTERRUPT.test(lines[i + 1].replace(/^(?: {0,3}>[ \t]?)*/, '')) ? DEF_REST.exec(lines[i + 1]) : null;
     if (rest) {
       defs.set(i, label(open[1]));
+      raw.push(open[1]);
       defs.set(i + 1, null);
       titleMayFollow = !rest[1];
       depth = containerQuotes(l);
       i += 1;
       continue;
+    }
+    const head = blockStart ? LABEL_OPEN.exec(l) : null;
+    if (head) {
+      const parts = [head[1]];
+      let tail = null;
+      let j = i + 1;
+      for (; j < lines.length; j++) {
+        const ln = lines[j];
+        const inner = ln.replace(/^(?: {0,3}>[ \t]?)*/, '');
+        if (inner.trim() === '' || containerQuotes(ln) > containerQuotes(l) || INTERRUPTS.test(inner) || HTML_INTERRUPT.test(inner)) break;
+        tail = LABEL_TAIL.exec(ln);
+        if (tail) break;
+        const mid = LABEL_MID.exec(ln);
+        if (!mid) break;
+        parts.push(mid[1]);
+      }
+      const whole = tail ? [...parts, tail[1]].join('\n') : '';
+      if (tail && whole.length <= 999 && /\S/.test(whole)) {
+        for (let k = i + 1; k <= j; k++) defs.set(k, null);
+        defs.set(i, label(whole));
+        raw.push(whole);
+        titleMayFollow = !tail[2];
+        depth = containerQuotes(l);
+        i = j;
+        continue;
+      }
     }
     titleMayFollow = false;
   }
@@ -838,7 +878,11 @@ export function validateDoc(name, text) {
   // marker, and `~` (CommonMark has no strikethrough), is text.
   // A link shows its text only when it is one: a well-formed inline
   // destination, or a reference whose label is defined.
-  const labels = new Set([...definitions(visibleText(body).split('\n')).values()].filter(Boolean));
+  const defined = definitions(visibleText(body).split('\n'));
+  const labels = new Set([...defined.values()].filter(Boolean));
+  // The placeholder check reads text with its references already decoded,
+  // so a label written with one (`[f&#111;o]`) is looked up decoded there.
+  const shownLabels = new Set([...labels, ...defined.raw.map((l) => label(decodeReferences(l)))]);
   // `## Wh&#121;` renders as Why: references are decoded last, as text.
   // `don\'t` renders as don't, and an escaped marker (`\*`) stays literal:
   // escapes are set aside first and put back as the bare character.
@@ -890,10 +934,10 @@ export function validateDoc(name, text) {
   // Only brackets of a link that resolves go (marked here, dropped below):
   // `T[O]DO` with no destination and no defined label shows its brackets.
   const LINK = (t) => `\ue0f0${t}\ue0f1`;
-  const flat = shown
+  const flatMarked = shown
     .replace(new RegExp(INLINE_LINK, 'g'), (m, t) => LINK(t))
-    .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? LINK(t.slice(1, -1)) : m))
-    .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (labels.has(label(x)) ? LINK(x) : m))
+    .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (shownLabels.has(label(l || t.slice(1, -1))) ? LINK(t.slice(1, -1)) : m))
+    .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (shownLabels.has(label(x)) ? LINK(x) : m))
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
     // Only markup that renders as such is read through: code spans, paired
     // `*` emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
@@ -901,9 +945,15 @@ export function validateDoc(name, text) {
     .replace(/(`+)([^`]+?)\1/g, '$2')
     .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
     .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2')
-    .replace(/[\ue0f0\ue0f1]/g, '')
-    .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
-  if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat)) {
+    .replace(/[\ue0f0\ue0f1]/g, '');
+  const unescape = (t) => t.replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
+  const flat = unescape(flatMarked);
+  // Delimiter runs that overlap (`*T**O***DO` is emphasis around strong
+  // emphasis) are not paired above; with every unescaped `*` gone, such a
+  // placeholder still shows. A literal `*` inside a placeholder word is
+  // all this could misread, which no doc writes.
+  const loose = unescape(flatMarked.replace(/\*+/g, ''));
+  if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat) || PLACEHOLDER.test(loose)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);
