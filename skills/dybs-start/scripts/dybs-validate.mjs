@@ -976,23 +976,30 @@ export function validateDoc(name, text) {
   // Only brackets of a link that resolves go (marked here, dropped below):
   // `T[O]DO` with no destination and no defined label shows its brackets.
   const LINK = (t) => `\ue0f0${t}\ue0f1`;
+  // Code spans first: their content is literal (no links, escapes or
+  // emphasis inside), so it is set aside whole and put back last. A span
+  // turns its line endings into spaces, then loses one space on each side
+  // when both are there and it is not all spaces (`` ` O ` `` shows `O`).
+  const codes = [];
   const flatMarked = rendered
+    .replace(/(?<![`\\])(`+)(?!`)((?:[^\n]|\n(?![ \t>]*(?:\n|$)))*?[^`])\1(?!`)/g, (m, ticks, raw) => {
+      const c = raw.replace(/\n/g, ' ');
+      codes.push(/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c);
+      return String.fromCharCode(0xe100 + codes.length - 1);
+    })
     .replace(new RegExp(INLINE_LINK, 'g'), (m, t) => LINK(t))
     .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? LINK(t.slice(1, -1)) : m))
     .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (labels.has(label(x)) ? LINK(x) : m))
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
-    // Only markup that renders as such is read through: code spans, paired
-    // `*` emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
+    // Only markup that renders as such is read through: paired `*`
+    // emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
     // written). Resolved link brackets go; `~` is text in CommonMark.
-    // A code span turns its line endings into spaces, then loses one space
-    // on each side when both are there and it is not all spaces
-    // (`` ` O ` `` and `` ` O`` / ``` `` ``` across lines show `O`).
-    .replace(/(`+)([^`]+?)\1/g, (m, ticks, raw) => { const c = raw.replace(/\n/g, ' '); return /^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c; })
     .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
     .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2')
     .replace(/[\ue0f0\ue0f1]/g, '');
   // References decode while escapes are still set aside (`\&amp;` stays).
-  const unescape = (t) => decodeReferences(t).replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
+  const unescape = (t) => decodeReferences(t).replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000))
+    .replace(/[\ue100-\uf8ff]/g, (c) => codes[c.charCodeAt(0) - 0xe100] ?? c);
   const flat = unescape(flatMarked);
   // Delimiter runs that overlap (`*T**O***DO` is emphasis around strong
   // emphasis) are not paired above; with every unescaped `*` gone, such a

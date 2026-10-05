@@ -1162,3 +1162,13 @@ test('a link title may run over several lines, never across a blank one', async 
   // A blank line ends the title, and with it the definition.
   assert.ok(!flagged("\n[foo]: /url 'title\n\nwith blank'\n\nT[O][foo]DO\n"));
 });
+
+test('link syntax inside a code span stays literal for the placeholder check', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(!flagged('\nT`[O](x)`DO\n'));
+  assert.ok(!flagged('\nT`*O*`DO here\n'));
+  // A span never crosses a blank line.
+  assert.ok(!flagged('\n`DO\n\nT` O\n'));
+  assert.ok(flagged('\n`TODO`\n'));
+});

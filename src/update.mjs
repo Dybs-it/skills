@@ -108,7 +108,9 @@ export function discover(roots) {
       // would be "repaired" by writing into it.
       // The evidence is a real SKILL.md file, never a link or a folder by
       // that name.
-      const realFile = (p) => { try { return fsOps.lstat(p).isFile(); } catch { return false; } };
+      // Only a path that is not there is "no evidence"; a lookup that fails
+      // otherwise (EACCES, EIO) is an error, never an empty install.
+      const realFile = (p) => { try { return fsOps.lstat(p).isFile(); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false; throw e; } };
       const installed = basename(dirname(folder)) === '.agents' || skillNames().some((n) => realFile(join(folder, n, 'SKILL.md')));
       for (const skill of skillNames()) {
         const dir = join(folder, skill);
@@ -761,7 +763,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // the user's version is later deleted.
         if (sha(orig.data) !== a.hash) throw new Error(`${a.rel} changed since the update was planned; nothing was changed, run update again`);
         const bytes = orig.data;
-        const backup = { path: b, hash: sha(bytes), entry };
+        const backup = { path: b, hash: sha(bytes), mode: orig.mode, entry };
         if (chainOf(dir, a.rel) !== chain) throw swapped();
         beforeBackup?.('write', entry);
         writeOwnFile(b, bytes, orig.mode, (id) => { backup.id = id; backups.push(backup); });
@@ -1123,8 +1125,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     for (const b of backups) {
       undo(b.path, () => {
         let same = false;
-        try { const x = readById(b.path, b.id); same = Boolean(x) && sha(x) === b.hash; } catch { same = false; }
-        if (same) rmIfOurs(b.path, b.id, chainCheck(b.entry), { expect: b.hash });
+        // Its permissions too: a backup whose mode changed is someone's now.
+        try { const x = readById(b.path, b.id); same = Boolean(x) && sha(x) === b.hash && (Number(fsOps.lstat(b.path, BIG).mode) & 0o7777) === b.mode; } catch { same = false; }
+        if (same) rmIfOurs(b.path, b.id, chainCheck(b.entry), { expect: b.hash, mode: b.mode });
         else if (idOf(b.path) !== null) throw new Error(`${b.path} changed during the update; kept`);
       });
     }
