@@ -328,7 +328,7 @@ export const testHooks = { afterPlace: null, afterLook: null, beforeMove: null, 
 // `expect` (a sha), it must also still hold those bytes once under its
 // private name: an editor writing through an open file keeps the identity,
 // so only the content can tell, and an edited file is put back, not removed.
-function rmIfOurs(p, id, check, { sole = false, expect = null, mode = null } = {}) {
+function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, mode = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -344,7 +344,8 @@ function rmIfOurs(p, id, check, { sole = false, expect = null, mode = null } = {
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   let st = null;
   try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
-  let disposable = Boolean(st) && idOfStat(st) === id && (!sole || st.nlink === 1n);
+  // `shared`: only a second name of a file that still has another one.
+  let disposable = Boolean(st) && idOfStat(st) === id && (!sole || st.nlink === 1n) && (!shared || st.nlink >= 2n);
   if (disposable && expect) {
     let x = null;
     try { x = readById(aside, id); } catch { x = null; }
@@ -943,6 +944,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         }
         s.placed = true;
         s.placedId = placedNow;
+        // Its permissions as placed: a rollback removes it only while they
+        // still hold, so a mode changed on the new file is kept like an edit.
+        try { s.placedMode = Number(fsOps.lstat(s.p, BIG).mode) & 0o7777; } catch { s.placedMode = null; }
         if (s.a.op === 'add') done.push(s);
         pinned(s);
         // The staging name is removed only while it still leads, through
@@ -1028,7 +1032,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         let ours = false;
         try {
           const x = chainOf(dir, s.a.rel) === s.chain ? readById(s.p, s.placedId) : null;
-          ours = Boolean(x) && sha(x) === sha(want[s.a.rel]);
+          ours = Boolean(x) && sha(x) === sha(want[s.a.rel]) && s.placedMode !== null && (Number(fsOps.lstat(s.p, BIG).mode) & 0o7777) === s.placedMode;
         } catch { ours = false; }
         if (!ours) {
           // Without hard links the original itself is `s.orig` (an edit
@@ -1044,7 +1048,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // move: a swap after the check above is never acted through.
         undo(s.a.rel, () => rmIfOurs(s.p, s.placedId, () => {
           if (chainOf(dir, s.a.rel) !== s.chain) throw new Error('a folder on the way changed; the file the update wrote was kept');
-        }, { expect: sha(want[s.a.rel]) }));
+        }, { expect: sha(want[s.a.rel]), mode: s.placedMode }));
       }
       // Put the original back without overwriting anything that appeared,
       // and only while the name still leads, through the pinned folders, to
@@ -1085,7 +1089,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
               : `the moved-aside original was replaced before it was put back (${note}); it is not at ${s.old} any more`);
           }
           restored = true;
-          if (how === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s));
+          // A link put the very file back, so the private name goes, but
+          // only while the file still has another name (`shared`): one whose
+          // restored name was removed meanwhile is kept, never unlinked last.
+          // (A removal in the instant after that check is the remover's own
+          // deletion of the original, as it would be without an update.)
+          if (how === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s), { shared: true });
           else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
         });
       }
@@ -1173,9 +1182,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             // a swapped folder it would land outside the install, and that
             // name is removed again when it is provably the same file.
             const trashId = idOf(trash);
+            let linked = false;
             try {
               chainCheck(s)();
               fsOps.link(trash, s.old);
+              linked = true;
               if (chainOf(dir, s.a.rel) !== s.chain) {
                 if (idOf(s.old) === trashId) { try { rmIfOurs(s.old, trashId); } catch { /* reported below */ } }
                 throw new Error('a folder on the way changed');
@@ -1188,7 +1199,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
               // dropping the last name would lose the edit. Both are one file.
               s.a.kept = s.old;
               s.a.alsoAt = trash;
-            } catch { s.a.kept = trash; }
+            } catch {
+              s.a.kept = trash;
+              // The link succeeded but is not here: it was made in a folder
+              // swapped in for the call, which cannot be reached now.
+              if (linked && provablyGone(s.old)) s.a.stray = `a second name, ${basename(s.old)}, may have been created in a folder swapped in during the update`;
+            }
           }
         }
       } else if (chainOk && gone) { /* already gone */ } else s.a.kept = s.old;

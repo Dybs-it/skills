@@ -707,7 +707,9 @@ const BALANCED = (depth) => (depth === 0
 // Up to 32 nested parentheses in a destination: cmark (GitHub's renderer)
 // stops there; commonmark.js has no limit, and no real doc goes deeper.
 const LINK_DEST = String.raw`(?:<[^<>\n]*>|${BALANCED(32)})`;
-const LINK_TITLE = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\))`;
+// A title may run over several lines, never across a blank one.
+const TITLE_NL = String.raw`\n(?![ \t]*(?:\n|$))`;
+const LINK_TITLE = String.raw`(?:"(?:[^"\\\n]|\\.|${TITLE_NL})*"|'(?:[^'\\\n]|\\.|${TITLE_NL})*'|\((?:[^()\\\n]|\\.|${TITLE_NL})*\))`;
 // Up to one line ending is allowed in each gap (`](\nurl)`), as CommonMark does.
 const GAP = String.raw`[ \t]*(?:\n[ \t]*)?`;
 const INLINE_TARGET = String.raw`\(${GAP}${LINK_DEST}(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)${LINK_TITLE})?${GAP}\)`;
@@ -757,8 +759,20 @@ const INTERRUPTS = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,}|[-*+][ \t]|1[.)][ \t
 // within the same quotes or fewer (a lazy line): one more `>` opens a new
 // block quote instead.
 const containerQuotes = (l) => (/^(?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+)*/.exec(l)[0].match(/>/g) || []).length;
+// The start of a definition line, label and colon.
+const DEF_HEAD = new RegExp(String.raw`^(?:${CONTAINERS})${LABEL}:`);
 function definitions(lines) {
   const defs = new Map();
+  // Continuation lines are read without their quote markers, never past a
+  // blank line or into a deeper quote; up to 20 lines are tried.
+  const strip = (x) => x.replace(/^(?: {0,3}>[ \t]?)*/, '');
+  const spanEnd = (i, fits) => {
+    for (let j = i + 1; j < lines.length && j - i <= 20; j++) {
+      if (strip(lines[j]).trim() === '' || containerQuotes(lines[j]) > containerQuotes(lines[i])) return -1;
+      if (fits(lines.slice(i, j + 1).map((x, k) => (k ? strip(x) : x)).join('\n'))) return j;
+    }
+    return -1;
+  };
   let titleMayFollow = false;
   let depth = 0;
   // The quotes each line's paragraph is in: a lazy line (fewer `>`, still
@@ -775,6 +789,14 @@ function definitions(lines) {
     if (titleMayFollow && containerQuotes(l) <= depth && DEF_TITLE_LINE.test(l)) {
       defs.set(i, null);
       titleMayFollow = false;
+      continue;
+    }
+    // A title on its own lines, over several of them.
+    const titleEnd = titleMayFollow && containerQuotes(l) <= depth ? spanEnd(i, (joined) => DEF_TITLE_LINE.test(joined)) : -1;
+    if (titleEnd > i) {
+      for (let k = i; k <= titleEnd; k++) defs.set(k, null);
+      titleMayFollow = false;
+      i = titleEnd;
       continue;
     }
     // A list item opens a new block even right after prose: a bullet, or an
@@ -798,6 +820,16 @@ function definitions(lines) {
       defs.set(i, label(m[1]));
       titleMayFollow = !m[2];
       depth = containerQuotes(l);
+      continue;
+    }
+    // A definition whose title runs over the next lines.
+    const defEnd = blockStart && DEF_HEAD.test(l) ? spanEnd(i, (joined) => { const mm = DEF_LINE.exec(joined); return Boolean(mm) && mm[1].length <= 999 && Boolean(mm[2]); }) : -1;
+    if (defEnd > i) {
+      defs.set(i, label(DEF_LINE.exec(lines.slice(i, defEnd + 1).map((x, k) => (k ? strip(x) : x)).join('\n'))[1]));
+      for (let k = i + 1; k <= defEnd; k++) defs.set(k, null);
+      titleMayFollow = false;
+      depth = containerQuotes(l);
+      i = defEnd;
       continue;
     }
     const open = DEF_OPEN.exec(l);

@@ -2889,9 +2889,12 @@ test('an edited original put back at cleanup through a folder swapped and restor
     symlinkSync(outside, dir);
     try { return real.link(from, to); } finally { rmSync(dir); renameSync(`${dir}.moved`, dir); }
   };
-  try { mod.applyPlan(plan, { beforeCleanup }); } catch { /* reported */ } finally { Object.assign(mod.fsOps, real); }
+  let result;
+  try { result = mod.applyPlan(plan, { beforeCleanup }); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
   assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('EDITED'); } catch { return false; } }), 'the edit is still inside the install');
+  // The name made outside cannot be reached; it is reported, never silent.
+  assert.match(String(result.actions.find((x) => x.rel === SKILL).stray), /may have been created in a folder swapped in/);
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
@@ -3192,4 +3195,46 @@ test('a move-aside link made through a folder swapped and restored is reported',
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
+});
+
+test('rollback keeps the moved-aside original when its restored name is removed first', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let s0 = null;
+  let removed = false;
+  const beforePlacedCheck = (s) => { if (s.a.rel === SKILL) s0 = s; };
+  const beforeCommit = () => { throw new Error('stop here'); };
+  // Right before the private name goes, the restored name is removed.
+  mod.testHooks.beforeMove = (p) => {
+    if (removed || !s0 || p !== s0.old) return;
+    removed = true;
+    rmSync(s0.p);
+  };
+  try { mod.applyPlan(plan, { beforePlacedCheck, beforeCommit }); } catch { /* reported */ } finally { mod.testHooks.beforeMove = null; }
+  assert.ok(removed);
+  assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8') === 'old shipped version'; } catch { return false; } }), 'the original still has a name');
+  rmSync(root, { recursive: true });
+});
+
+test('rollback keeps a placed file whose permissions were changed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let s0 = null;
+  const beforePlacedCheck = (s) => { if (s.a.rel === SKILL) s0 = s; };
+  // The new file is tightened, then the update fails.
+  const beforeCommit = () => { chmodSync(s0.p, 0o600); throw new Error('stop here'); };
+  let err;
+  try { mod.applyPlan(plan, { beforePlacedCheck, beforeCommit }); } catch (e) { err = e; }
+  assert.match(String(err?.message), /changed after the update wrote it/);
+  assert.equal(statSync(prd(root)).mode & 0o777, 0o600);
+  assert.equal(readFileSync(prd(root), 'utf8'), String(plan.want[SKILL]));
+  rmSync(root, { recursive: true });
 });
