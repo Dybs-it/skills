@@ -2909,3 +2909,14 @@ test('a definition title or destination never crosses into a new block', () => {
   // A lazy title line (fewer quotes) still belongs to the definition.
   assert.ok(!rules('\n> [r]: /url\n"<details>"\n').includes('html'));
 });
+
+test('a definition right after a closed fence starts its own block', () => {
+  const doc = VALID_PRD.replace('## Problem', 'Some words.\n```\ncode\n```\n[p]: /url\n\n## [Problem][p]');
+  assert.ok(!validateDoc('prd', doc).rules.includes('sections'));
+});
+
+test('a reference label longer than 999 characters defines nothing', () => {
+  const long = 'x'.repeat(1000);
+  assert.ok(validateDoc('prd', VALID_PRD + `\n[${long}]: <details>\n`).rules.includes('html'));
+  assert.ok(!validateDoc('prd', VALID_PRD + `\n[${'x'.repeat(999)}]: <details>\n`).rules.includes('html'));
+});
