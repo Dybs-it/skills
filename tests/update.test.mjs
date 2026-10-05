@@ -3020,3 +3020,73 @@ test('an edited original put back at cleanup through a folder swapped and restor
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('a --force backup holds exactly the planned bytes, never an outside file read through a swapped folder', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'my own version');
+  const plan = mod.planInstall(findInstalls([root])[0], { force: true });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, SKILL), 'someone else');
+  let reading = false;
+  let swapped = false;
+  // The skill folder is a link for the open and the name check, and is back
+  // before the folder pins are asked again.
+  const beforeBackup = (phase) => { reading = phase === 'read'; };
+  mod.fsOps.open = (p) => {
+    if (reading && !swapped && p === prd(root)) { swapped = true; renameSync(dir, `${dir}.moved`); symlinkSync(outside, dir); }
+    return real.open(p);
+  };
+  mod.fsOps.lstat = (p, o) => {
+    const st = real.lstat(p, o);
+    if (swapped && reading && p === prd(root)) { reading = false; rmSync(dir); renameSync(`${dir}.moved`, dir); }
+    return st;
+  };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeBackup }), /changed since the update was planned/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'my own version');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a skill folder that is no longer real is not planned on', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  const [install] = findInstalls([root]);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  renameSync(dir, join(outside, 'dybs-prd'));
+  symlinkSync(join(outside, 'dybs-prd'), dir);
+  const plan = mod.planInstall(install);
+  assert.equal(plan.blocked, true);
+  assert.equal(plan.actions[0].op, 'unsafe');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('an installed file swapped for a FIFO is never waited on', () => {
+  const root = project(['dybs-start']);
+  const script = `
+    import * as mod from ${JSON.stringify(join(PKG_ROOT, 'src/update.mjs'))};
+    import { rmSync, writeFileSync } from 'node:fs';
+    import { execFileSync } from 'node:child_process';
+    const [install] = mod.findInstalls([${JSON.stringify(root)}]);
+    writeFileSync(install.dir + '/SKILL.md', 'old shipped version');
+    const plan = mod.planInstall(install, { known: { ...mod.knownHashes(), 'dybs-start/SKILL.md': [mod.sha('old shipped version')] } });
+    const target = install.dir + '/scripts/dybs-validate.mjs';
+    const real = mod.fsOps.open;
+    let done = false;
+    mod.fsOps.open = (p) => { if (!done && p === target) { done = true; rmSync(p); execFileSync('mkfifo', [p]); } return real(p); };
+    try { mod.applyPlan(plan); console.log('applied'); } catch (e) { console.log('refused: ' + e.message); }
+  `;
+  let out = '';
+  let signal = null;
+  try { out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 10000 }); } catch (e) { out = `${e.stdout}`; signal = e.signal; }
+  assert.equal(signal, null, 'never hangs');
+  assert.match(out, /refused/);
+  rmSync(root, { recursive: true });
+});
