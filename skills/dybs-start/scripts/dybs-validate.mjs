@@ -705,7 +705,7 @@ export function wordCount(body) {
   // A full reference link (`[shown][label]`) with a defined label shows
   // only its text; after an escaped opener the label is a link of its own.
   const labels = new Set([...defs.values()].filter(Boolean));
-  const dropLabels = (l) => l.replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[([^\[\]\n]+)\]/g, (m, text, l2) => (labels.has(label(l2)) ? text : m));
+  const dropLabels = (l) => l.replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)+)\]/g, (m, text, l2) => (labels.has(label(l2)) ? text : m));
   // Link targets, defined labels and references are read as rendered, but
   // only outside code spans; in a paragraph where a code span may be open
   // across lines the raw text is counted (more).
@@ -790,11 +790,18 @@ function dropValidLinkTargets(text) {
 // index -> normalized label (null for a title line). Missing a definition
 // only counts more words and refuses more HTML.
 const DEF_DEST = String.raw`(?:<[^<>\n]*>|(?:[^\s()\\<]|${ESCAPED}|\(${BALANCED(7)}\))${BALANCED(8)})`;
-const DEF_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*(?:(?: {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})+| {0,3})\[((?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]+)\]:[ \t]*${DEF_DEST}([ \t]+${LINK_TITLE})?[ \t]*$`);
+// A label may hold escaped brackets (`[a\]b]`), never a bare one, and
+// needs one character that is not a space.
+const LABEL_CHAR = String.raw`(?:[^\[\]\\\n]|${ESCAPED}|\\(?![!-\/:-@\[-\`{-~]))`;
+const LABEL = String.raw`\[(${LABEL_CHAR}*(?:[^\s\[\]\\]|${ESCAPED})${LABEL_CHAR}*)\]`;
+// Block quotes and list items in any order (`- > [r]: /url`); right after a
+// list marker the content starts at once, else up to three spaces.
+const CONTAINERS = String.raw`(?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})*(?<![-*+.)] {1,4})(?: {0,3})|(?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})*(?<=[-*+.)] {1,4})`;
+const DEF_LINE = new RegExp(String.raw`^(?:${CONTAINERS})${LABEL}:[ \t]*${DEF_DEST}([ \t]+${LINK_TITLE})?[ \t]*$`);
 const DEF_TITLE_LINE = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*[ \t]*${LINK_TITLE}[ \t]*$`);
 // A label alone (`[r]:`), its destination on the next line. That line is
 // never a setext underline or a thematic break, which end the paragraph.
-const DEF_OPEN = /^(?: {0,3}>[ \t]?)*(?:(?: {0,3}(?:[-*+]|\d{1,9}[.)]) {1,4})+| {0,3})\[((?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]+)\]:[ \t]*$/;
+const DEF_OPEN = new RegExp(String.raw`^(?:${CONTAINERS})${LABEL}:[ \t]*$`);
 const DEF_REST = new RegExp(String.raw`^(?: {0,3}>[ \t]?)*[ \t]*${DEF_DEST}([ \t]+${LINK_TITLE})?[ \t]*$`);
 const BLOCK_END = /^(?: {0,3}>[ \t]?)* {0,3}(?:=+|-+|(?:([-*_])(?:[ \t]*\1){2,}))[ \t]*$/;
 // Labels match case-insensitively by Unicode case folding: `ẞ` matches
@@ -813,7 +820,15 @@ function definitions(lines) {
     // A list item opens a new block even right after prose: a bullet, or an
     // ordered item starting at 1 (others cannot interrupt a paragraph).
     const opensItem = /^(?: {0,3}>[ \t]?)* {0,3}(?:[-*+]|1[.)]) {1,4}\S/.test(l);
-    const blockStart = i === 0 || defs.has(i - 1) || opensItem || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
+    // So does anything after a line that always ends its block: an ATX
+    // heading or a thematic break. (`===` or `--` is text where no paragraph
+    // stands above it, so a setext underline is not counted: missing a
+    // definition only counts more.)
+    const ended = i > 0 && /^(?: {0,3}>[ \t]?)* {0,3}(?:#{1,6}(?:[ \t].*)?|([-*_])(?:[ \t]*\1){2,}[ \t]*)$/.test(lines[i - 1]);
+    // After a definition the paragraph goes on: an ordered item that cannot
+    // interrupt one (`2.`) is text there, not a new block.
+    const continues = !opensItem && /^(?: {0,3}>[ \t]?)* {0,3}\d{1,9}[.)]/.test(l);
+    const blockStart = i === 0 || (defs.has(i - 1) && !continues) || opensItem || ended || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
     const m = DEF_LINE.exec(l);
     if (m && blockStart) {
       defs.set(i, label(m[1]));
@@ -936,6 +951,8 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // escapes are set aside first and put back as the bare character.
   const ESC = 0xe000;
   const CODE = 0xe100;
+  // A label is matched as written, its escapes included.
+  const raw = (l) => l.replace(/[-]/g, (c) => `\\${String.fromCharCode(c.charCodeAt(0) - ESC)}`);
   const plain = (h) => {
     // Code spans first: their content is literal (no escapes, emphasis or
     // links inside), so it is set aside whole and put back last. An opener
@@ -947,10 +964,10 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
     });
     t = t.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
       .replace(new RegExp(INLINE_LINK, 'g'), '$1')
-      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(l || x)) ? x : m))
-      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(x)) ? x : m))
-      .replace(/(\*{1,3})(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
-      .replace(/(?<![\p{L}\p{N}_])(_{1,3})(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2');
+      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(raw(l || x))) ? x : m))
+      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? x : m))
+      .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
+      .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2');
     return decodeReferences(t)
       .replace(/[-]/g, (c) => String.fromCharCode(c.charCodeAt(0) - ESC))
       .replace(/[-]/g, (c) => code[c.charCodeAt(0) - CODE] ?? c)
@@ -979,14 +996,14 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // A full or collapsed reference link with a defined label shows its text
   // only: `T[O][r]DO` reads TODO.
   const flat = dropValidLinkTargets(shown)
-    .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[([^\[\]\n]*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? t : m))
+    .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? t : m))
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
     // Only markup that renders as such is read through: code spans, paired
     // `*` emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
     // written). Link brackets go; `~` is text in CommonMark.
     .replace(/(`+)([^`]+?)\1/g, '$2')
-    .replace(/(\*{1,3})(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
-    .replace(/(?<![\p{L}\p{N}_])(_{1,3})(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2')
+    .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
+    .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2')
     .replace(/[[\]]/g, '')
     .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
   const frontmatterValues = Object.values(data || {}).join('\n');
