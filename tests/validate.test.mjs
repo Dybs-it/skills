@@ -1060,3 +1060,24 @@ test('definition containers and block starts follow CommonMark', async () => {
   assert.equal(wordCount('***\n2. [r]: /u\n'), 0);
   assert.equal(wordCount('> - [r]: /u\n- > [r]: /u\n'), 0);
 });
+
+test('brackets that form no link stay, so they never complete a placeholder', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(!flagged('\nT[O]DO here\n'));
+  assert.ok(!flagged('\nT[O][nowhere]DO\n'));
+  // A link that resolves still shows only its text.
+  assert.ok(flagged('\nT[O](/u)DO\n'));
+  assert.ok(flagged('\nT[O]DO\n\n[O]: /x\n'));
+});
+
+test('a definition title or destination never crosses into a new block', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const rules = (extra) => validateDoc('prd', accepted + extra).rules;
+  // One more `>` opens a block quote: its raw tag is checked.
+  assert.ok(rules('\n[r]: /url\n> "<details>"\n').includes('html'));
+  // An HTML block start interrupts the paragraph: not a destination.
+  assert.ok(rules('\n[r]:\n<details>\n').includes('html'));
+  // A lazy title line (fewer quotes) still belongs to the definition.
+  assert.ok(!rules('\n> [r]: /url\n"<details>"\n').includes('html'));
+});

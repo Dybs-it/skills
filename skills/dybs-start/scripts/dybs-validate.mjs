@@ -739,12 +739,19 @@ const BLOCK_END = /^(?: {0,3}>[ \t]?)* {0,3}(?:=+|-+|(?:([-*_])(?:[ \t]*\1){2,})
 // Labels match case-insensitively by Unicode case folding: `ẞ` matches
 // `ss`. Lower then upper case, as commonmark.js does it.
 const label = (l) => l.trim().replace(/\s+/g, ' ').toLowerCase().toUpperCase();
+// How many block quotes a line opens, counting `>` markers among list
+// markers too (`- > x` is one; quoteDepth() reads leading quotes only). A
+// definition's title or destination on the next line belongs to it only
+// within the same quotes or fewer (a lazy line): one more `>` opens a new
+// block quote instead.
+const containerQuotes = (l) => (/^(?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+)*/.exec(l)[0].match(/>/g) || []).length;
 function definitions(lines) {
   const defs = new Map();
   let titleMayFollow = false;
+  let depth = 0;
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
-    if (titleMayFollow && DEF_TITLE_LINE.test(l)) {
+    if (titleMayFollow && containerQuotes(l) <= depth && DEF_TITLE_LINE.test(l)) {
       defs.set(i, null);
       titleMayFollow = false;
       continue;
@@ -765,14 +772,19 @@ function definitions(lines) {
     if (m && blockStart) {
       defs.set(i, label(m[1]));
       titleMayFollow = !m[2];
+      depth = containerQuotes(l);
       continue;
     }
     const open = DEF_OPEN.exec(l);
-    const rest = open && blockStart && i + 1 < lines.length && !BLOCK_END.test(lines[i + 1]) ? DEF_REST.exec(lines[i + 1]) : null;
+    const rest = open && blockStart && i + 1 < lines.length && !BLOCK_END.test(lines[i + 1]) && containerQuotes(lines[i + 1]) <= containerQuotes(l)
+      // An HTML block start (`<details>`) interrupts the paragraph: it is never
+      // the destination, however much it looks like `<url>`.
+      && !HTML_INTERRUPT.test(lines[i + 1].replace(/^(?: {0,3}>[ \t]?)*/, '')) ? DEF_REST.exec(lines[i + 1]) : null;
     if (rest) {
       defs.set(i, label(open[1]));
       defs.set(i + 1, null);
       titleMayFollow = !rest[1];
+      depth = containerQuotes(l);
       i += 1;
       continue;
     }
@@ -871,16 +883,21 @@ export function validateDoc(name, text) {
   // is no link, and shows no TODO.
   // A full or collapsed reference link with a defined label shows its text
   // only: `T[O][r]DO` reads TODO.
-  const flat = dropValidLinkTargets(shown)
-    .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? t : m))
+  // Only brackets of a link that resolves go (marked here, dropped below):
+  // `T[O]DO` with no destination and no defined label shows its brackets.
+  const LINK = (t) => `\ue0f0${t}\ue0f1`;
+  const flat = shown
+    .replace(new RegExp(INLINE_LINK, 'g'), (m, t) => LINK(t))
+    .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? LINK(t.slice(1, -1)) : m))
+    .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (labels.has(label(x)) ? LINK(x) : m))
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
     // Only markup that renders as such is read through: code spans, paired
     // `*` emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
-    // written). Link brackets go; `~` is text in CommonMark.
+    // written). Resolved link brackets go; `~` is text in CommonMark.
     .replace(/(`+)([^`]+?)\1/g, '$2')
     .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
     .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2')
-    .replace(/[[\]]/g, '')
+    .replace(/[\ue0f0\ue0f1]/g, '')
     .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000));
   if (PLACEHOLDER.test(shown) || PLACEHOLDER.test(flat)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';

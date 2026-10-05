@@ -3012,3 +3012,63 @@ test('a staging file swapped only while it is placed never ends up installed', a
   assert.notEqual(readFileSync(prd(root), 'utf8'), 'evil');
   rmSync(root, { recursive: true });
 });
+
+const noLinks = (mod) => { mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); }; };
+
+test('a permission check that fails at the commit point stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let s0 = null;
+  let failing = false;
+  const beforePlacedCheck = (s) => { if (s.a.rel === SKILL) s0 = s; };
+  const beforeCommit = () => { failing = true; };
+  mod.fsOps.lstat = (p, o) => {
+    if (failing && s0 && (p === s0.orig || p === s0.old)) { failing = false; throw Object.assign(new Error('I/O error'), { code: 'EIO' }); }
+    return real.lstat(p, o);
+  };
+  try { assert.throws(() => mod.applyPlan(plan, { beforePlacedCheck, beforeCommit }), /could not be checked/); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+test('without hard links, a rollback that keeps an edited install names the real original', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let s0 = null;
+  const beforePlacedCheck = (s) => { if (s.a.rel === SKILL) s0 = s; };
+  // The installed file is edited, then the update fails: the edit is kept.
+  const beforeCommit = () => { writeFileSync(prd(root), 'edited after install', { flag: 'r+' }); throw new Error('stop here'); };
+  noLinks(mod);
+  let err;
+  try { mod.applyPlan(plan, { beforePlacedCheck, beforeCommit }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(s0?.orig, 'the no-hard-links path moved the original itself aside');
+  assert.ok(String(err?.message).includes(`the original is at ${s0.orig}`), String(err?.message));
+  rmSync(root, { recursive: true });
+});
+
+test('without hard links, the original is kept when its snapshot cannot be put back', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let s0 = null;
+  const beforePlacedCheck = (s) => { if (s.a.rel === SKILL) s0 = s; };
+  // The snapshot vanishes, then the update fails and rolls back.
+  const beforeCommit = () => { rmSync(s0.old); throw new Error('stop here'); };
+  noLinks(mod);
+  try { mod.applyPlan(plan, { beforePlacedCheck, beforeCommit }); } catch { /* reported */ } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(s0?.orig);
+  assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8') === 'old shipped version'; } catch { return false; } }), 'the original survives');
+  rmSync(root, { recursive: true });
+});
