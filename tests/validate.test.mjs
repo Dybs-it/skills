@@ -2983,3 +2983,14 @@ test('a label that a new block interrupts defines nothing', async () => {
   assert.equal(wordCount('[foo\n> bar]: /u\n'), 3);
   assert.equal(wordCount('[foo\nbar]: /u\n'), 0);
 });
+
+test('a placeholder split by a padded code span or a deeply nested link is found', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  // One space on each side of a code span is not shown.
+  assert.ok(flagged('\nT` O `DO\n'));
+  assert.ok(!flagged('\nT`  O  `DO\n'));
+  // Balanced parentheses nest up to cmark's limit of 32.
+  assert.ok(flagged(`\nT[O](x${'('.repeat(9)}y${')'.repeat(9)})DO\n`));
+  assert.ok(flagged(`\nT[O](x${'('.repeat(32)}y${')'.repeat(32)})DO\n`));
+});

@@ -669,6 +669,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     }
     if (now !== null && now !== s.mode) throw new Error(`${s.a.rel} had its permissions changed during the update; nothing was changed, run update again`);
   };
+  // At cleanup too: an original whose permissions changed after the commit
+  // point (through an open file) is someone's work, kept like an edit.
+  const sameMode = (s, p, id) => {
+    if (s.mode === undefined) return true;
+    try { const st = fsOps.lstat(p, BIG); return idOfStat(st) === id && (Number(st.mode) & 0o7777) === s.mode; } catch { return false; }
+  };
   const pinned = (s) => {
     beforePin?.(s);
     if (!s.chain || !sameRoot(dir, plan.root) || chainOf(dir, s.a.rel) !== s.chain) {
@@ -1144,7 +1150,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         } catch { s.a.kept = s.old; }
         if (moved) {
           let ours = false;
-          try { const x = readById(trash, s.oldId); ours = Boolean(x) && sha(x) === s.a.hash; } catch { ours = false; }
+          try { const x = readById(trash, s.oldId); ours = Boolean(x) && sha(x) === s.a.hash && sameMode(s, trash, s.oldId); } catch { ours = false; }
           if (ours) {
             // Deleted by identity under yet another private name: a file
             // that replaced `trash` since the check is kept, never deleted.
@@ -1186,7 +1192,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       let ours = false;
       try {
         const x = chainOf(dir, s.a.rel) === s.chain ? readById(s.orig, s.origId) : null;
-        ours = Boolean(x) && sha(x) === s.a.hash;
+        ours = Boolean(x) && sha(x) === s.a.hash && sameMode(s, s.orig, s.origId);
       } catch { ours = false; }
       if (ours) {
         try { rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash }); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
