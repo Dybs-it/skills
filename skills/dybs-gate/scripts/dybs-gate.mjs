@@ -580,6 +580,19 @@ export function freshness(gatePath, text) {
     }
     const changed = paths.filter((f) => f && f !== gateRel && f !== prRel);
     if (changed.length) return { status: 'stale', reason: `uncommitted changes besides gate.md and pr.md: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}. Commit the evidence first` };
+    // `git status` is blind to a tracked file flagged assume-unchanged or
+    // skip-worktree: its edits never show above. Such a file cannot be
+    // vouched for, so it makes the evidence stale (a lowercase tag from
+    // `ls-files -v` is assume-unchanged, `S` is skip-worktree).
+    let listed;
+    try {
+      listed = execFileSync('git', ['-C', top, 'ls-files', '-v', '-z'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      const said = String(e.stderr || '').trim().split('\n')[0];
+      return { status: 'stale', reason: `git could not list the tracked files (${said || e.message}). Fix the repository and run the gate again` };
+    }
+    const hidden = listed.split('\0').filter((e) => e && (/^[a-z]/.test(e) || e[0] === 'S')).map((e) => e.slice(2)).filter((f) => f !== gateRel && f !== prRel);
+    if (hidden.length) return { status: 'stale', reason: `tracked files git status cannot see changes in (assume-unchanged or skip-worktree): ${hidden.slice(0, 5).join(', ')}${hidden.length > 5 ? ', …' : ''}. Clear those flags (git update-index --no-assume-unchanged --no-skip-worktree) and run the gate again` };
     return null;
   };
   const before = dirty();

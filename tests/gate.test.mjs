@@ -1026,3 +1026,16 @@ test('a task folder recreated with the same inode mid-check gets no decision', a
   assert.doesNotMatch(out, /Decision: PASS/);
   rmSync(repo, { recursive: true });
 });
+
+test('evidence hidden from git status by an index flag is STALE, never a PASS', () => {
+  for (const flag of ['--assume-unchanged', '--skip-worktree']) {
+    const { repo, gatePath } = gateRepo();
+    execFileSync('git', ['-C', repo, 'update-index', flag, 'code.js']);
+    writeFileSync(join(repo, 'code.js'), 'changed after the commit');
+    let r;
+    try { r = { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+    assert.equal(r.code, 3, `${flag}: ${r.out}`);
+    assert.match(r.out, /STALE: tracked files git status cannot see changes in/);
+    rmSync(repo, { recursive: true });
+  }
+});
