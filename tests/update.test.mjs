@@ -3377,3 +3377,31 @@ test('a SKILL.md that is a link or a folder is no evidence of an install', async
     rmSync(root, { recursive: true });
   }
 });
+
+test('a move-aside link made through a folder swapped and restored is reported', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, SKILL), 'theirs');
+  let swapped = false;
+  mod.fsOps.link = (from, to) => {
+    if (swapped || from !== prd(root) || !/\.old$/.test(to)) return real.link(from, to);
+    swapped = true;
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+    try { return real.link(join(outside, SKILL), to); } finally { rmSync(dir); renameSync(`${dir}.moved`, dir); }
+  };
+  let err;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  assert.match(String(err?.message), /may have been created in a folder swapped in/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

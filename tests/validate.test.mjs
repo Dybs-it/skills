@@ -3022,3 +3022,63 @@ test('a block quote that interrupts prose and a code span across lines are read 
   // The line ending in a code span is a space, then the padding goes.
   assert.ok(flagged('\nT` O\n`DO\n'));
 });
+
+test('--accept keeps an original whose mode changed before cleanup', async () => {
+  const { chmodSync: chmod, statSync: st } = await import('node:fs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  chmod(join(ctx, 'ui.md'), 0o644);
+  let old = null;
+  const beforeCleanup = (p) => { old = p; chmod(p, 0o600); };
+  const r = acceptDoc(dir, 'ui', '2026-10-04', { beforeCleanup });
+  assert.equal(r.ok, true);
+  assert.ok(old && existsSync(old), 'the original is kept');
+  assert.equal(st(old).mode & 0o777, 0o600);
+  assert.ok(r.warnings.some((w) => /kept at/.test(w)));
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept reports an aside link stranded in a folder swapped and restored', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const doc = join(ctx, 'ui.md');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'ui.md'), 'theirs');
+  let swapped = false;
+  mod.fsOps.link = (from, to) => {
+    if (swapped || from !== doc || !String(to).endsWith('.old')) return real.link(from, to);
+    swapped = true;
+    renameSync(ctx, `${ctx}.moved`);
+    symlinkSync(outside, ctx);
+    try { return real.link(join(outside, 'ui.md'), to); } finally { rmSync(ctx); renameSync(`${ctx}.moved`, ctx); }
+  };
+  try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /may have been created in a folder swapped in/); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(swapped);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('--accept never reads the method rules again through a swapped dybs folder', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { realpathSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const outsideReal = realpathSync(outside);
+  const opened = [];
+  mod.fsOps.open = (p) => { try { if (realpathSync(p).startsWith(outsideReal)) opened.push(p); } catch { /* not there */ } return real.open(p); };
+  // Right after the guarded read, dybs/ becomes a link to a copy outside.
+  mod.validateHooks.afterReadme = () => {
+    cpSync(join(dir, 'dybs'), join(outside, 'dybs'), { recursive: true });
+    renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
+    symlinkSync(join(outside, 'dybs'), join(dir, 'dybs'));
+  };
+  let r;
+  try { r = mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch (e) { r = { ok: false, errors: [e.message] }; } finally { Object.assign(mod.fsOps, real); mod.validateHooks.afterReadme = null; }
+  assert.equal(r.ok, false);
+  assert.deepEqual(opened, [], 'nothing outside was opened');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
