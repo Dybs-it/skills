@@ -2909,3 +2909,58 @@ test('a definition title or destination never crosses into a new block', () => {
   // A lazy title line (fewer quotes) still belongs to the definition.
   assert.ok(!rules('\n> [r]: /url\n"<details>"\n').includes('html'));
 });
+
+test('a definition right after a closed fence starts its own block', () => {
+  const doc = VALID_PRD.replace('## Problem', 'Some words.\n```\ncode\n```\n[p]: /url\n\n## [Problem][p]');
+  assert.ok(!validateDoc('prd', doc).rules.includes('sections'));
+});
+
+test('a reference label longer than 999 characters defines nothing', () => {
+  const long = 'x'.repeat(1000);
+  assert.ok(validateDoc('prd', VALID_PRD + `\n[${long}]: <details>\n`).rules.includes('html'));
+  assert.ok(!validateDoc('prd', VALID_PRD + `\n[${'x'.repeat(999)}]: <details>\n`).rules.includes('html'));
+});
+
+test('--accept stops when the original cannot be asked for its permissions', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const doc = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(doc, 'utf8');
+  let failing = false;
+  const beforePlace = () => { failing = true; };
+  mod.fsOps.lstat = (p, o) => {
+    if (failing && String(p).endsWith('.old')) { failing = false; throw Object.assign(new Error('I/O error'), { code: 'EIO' }); }
+    return real.lstat(p, o);
+  };
+  try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', { beforePlace }), /could not be checked/); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(doc, 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept stops when the moved-aside original was replaced', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const beforePlace = () => {
+    const old = readdirSync(ctx).find((n) => n.endsWith('.old'));
+    rmSync(join(ctx, old));
+    writeFileSync(join(ctx, old), 'someone else', { mode: 0o600 });
+  };
+  assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', { beforePlace }), /was replaced during acceptance/);
+  // Nothing accepted was written; the replacement is not put back as the doc.
+  assert.ok(!existsSync(join(ctx, 'ui.md')) || !/status: accepted/.test(readFileSync(join(ctx, 'ui.md'), 'utf8')));
+  rmSync(dir, { recursive: true });
+});
+
+test('NOTICE.md carries both upstream MIT licenses in full', () => {
+  const notice = readFileSync(join(ROOT, 'NOTICE.md'), 'utf8');
+  for (const holder of ['Copyright (c) 2025 BMad Code, LLC', 'Copyright (c) 2026 Matt Pocock']) {
+    const at = notice.indexOf(`MIT License\n\n${holder}`);
+    assert.ok(at >= 0, `${holder}: license text present`);
+    const text = notice.slice(at, notice.indexOf('```', at));
+    assert.match(text, /Permission is hereby granted, free of charge/);
+    assert.match(text, /The above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software\./);
+    assert.match(text, /THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND/);
+  }
+});
