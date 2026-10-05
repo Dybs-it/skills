@@ -641,14 +641,18 @@ function readGate(p) {
 // from the filesystem root, none of them a link. Taken at the first read and
 // required again at the last: a task folder reached through a link and
 // retargeted meanwhile (to a copy with the same bytes) gets no decision.
+// A folder removed and recreated can get the very same inode back, so each
+// identity carries its birth time too (nanoseconds, where the filesystem
+// records one).
+export const gateFs = { lstat: lstatSync };
 function pinPath(p) {
   const real = realpathSync(p);
   const ids = [];
   for (let cur = real; dirname(cur) !== cur;) {
     cur = dirname(cur);
-    const st = lstatSync(cur);
+    const st = gateFs.lstat(cur, { bigint: true });
     if (st.isSymbolicLink() || !st.isDirectory()) return null;
-    ids.push(`${st.dev}:${st.ino}`);
+    ids.push(`${st.dev}:${st.ino}:${st.birthtimeNs}`);
   }
   return { real, chain: ids.join('/') };
 }

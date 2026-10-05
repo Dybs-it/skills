@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -1001,4 +1001,28 @@ test('dybs-gate documents the literal exclusions the gate itself uses', () => {
   const skill = readFileSync(join(ROOT, 'skills/dybs-gate/SKILL.md'), 'utf8');
   assert.ok(skill.includes(":(exclude,literal)dybs/work/<task>/gate.md") && skill.includes(":(exclude,literal)dybs/work/<task>/pr.md"));
   assert.doesNotMatch(skill, /:\(exclude\)/);
+});
+
+test('a task folder recreated with the same inode mid-check gets no decision', async () => {
+  const mod = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  const { repo, gatePath } = gateRepo();
+  const taskDir = realpathSync(dirname(gatePath));
+  const real = mod.gateFs.lstat;
+  let seen = 0;
+  // Same device and inode on the last look, as a filesystem that reuses
+  // inodes gives a recreated folder; only its birth time differs.
+  mod.gateFs.lstat = (p, o) => {
+    const st = real(p, o);
+    if (p === taskDir && seen++ > 0) st.birthtimeNs += 1n;
+    return st;
+  };
+  const log = console.log; const err = console.error;
+  let out = '';
+  console.log = (...a) => { out += a.join(' ') + '\n'; }; console.error = console.log;
+  let code;
+  try { code = mod.main(['node', 'dybs-gate.mjs', gatePath]); } finally { mod.gateFs.lstat = real; console.log = log; console.error = err; }
+  assert.ok(seen >= 2, 'the folder was pinned twice');
+  assert.notEqual(code, 0, out);
+  assert.doesNotMatch(out, /Decision: PASS/);
+  rmSync(repo, { recursive: true });
 });
