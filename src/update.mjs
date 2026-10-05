@@ -111,7 +111,10 @@ export function discover(roots) {
       // its SKILL.md. Any dot folder is scanned (agents keep adding them), so
       // without it an empty `dybs-prd/` in an unrelated `.cache/skills/`
       // would be "repaired" by writing into it.
-      const installed = basename(dirname(folder)) === '.agents' || skillNames().some((n) => isPresent(join(folder, n, 'SKILL.md')));
+      // The evidence is a real SKILL.md file, never a link or a folder by
+      // that name.
+      const realFile = (p) => { try { return fsOps.lstat(p).isFile(); } catch { return false; } };
+      const installed = basename(dirname(folder)) === '.agents' || skillNames().some((n) => realFile(join(folder, n, 'SKILL.md')));
       for (const skill of skillNames()) {
         const dir = join(folder, skill);
         // An install is recognised by its folder, not by SKILL.md: an install
