@@ -1732,8 +1732,17 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // The copy carries the doc's permissions as seen when it was written:
     // tightened since (0644 to 0600), the original (moved aside, the very
     // file) says so, and acceptance stops rather than undo it.
+    // Only the very original answers: a lookup that fails (EIO, EACCES) or
+    // finds another file there stops acceptance. One that is provably gone
+    // has no permissions left to keep, and the validated copy goes in.
     let modeNow = null;
-    try { const st = fsOps.lstat(old, BIG); if (idOf(st) === oldId) modeNow = Number(st.mode) & 0o7777; } catch { modeNow = null; }
+    try {
+      const st = fsOps.lstat(old, BIG);
+      if (idOf(st) !== oldId) throw new Error(`the original of ${rel} was replaced during acceptance; nothing was written, run --accept again`);
+      modeNow = Number(st.mode) & 0o7777;
+    } catch (e) {
+      if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw e.code ? new Error(`the permissions of ${rel} could not be checked (${e.code}); nothing was written, run --accept again`) : e;
+    }
     if (modeNow !== null && modeNow !== mode) throw new Error(`${rel} had its permissions changed during acceptance; nothing was written, run --accept again`);
     // What was actually placed, checked at once (see placeChecked). Copied
     // from a descriptor checked to be the temporary file, never linked:
