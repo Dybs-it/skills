@@ -440,6 +440,10 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
   const { skill, dir } = install;
   const want = shippedFiles(skill);
   const root = rootIdentity(dir);
+  // No real skill folder, no planning reads: through a folder swapped for a
+  // link every lookup below would read outside the install.
+  const refused = (why) => ({ ...install, actions: [{ op: 'unsafe', rel: '.', why }], blocked: true, want, root: null });
+  if (!root) return refused('the skill folder is no longer a real folder');
   const isKnown = (rel, hash) => (known[`${skill}/${rel}`] || []).includes(hash);
   // A checkout with core.autocrlf turns LF into CRLF; that is the same
   // shipped file, so match it with line endings normalised too.
@@ -481,6 +485,9 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
   }
 
   const blocked = actions.some((a) => a.op === 'conflict' || a.op === 'unsafe');
+  // Still the same folder after every read: a swap during planning is not
+  // planned on.
+  if (rootIdentity(dir) !== root) return refused('the skill folder changed while the update was planned');
   return { ...install, actions, blocked, want, root };
 }
 
@@ -525,7 +532,7 @@ function mkdirNoFollow(root, relDir, onMade) {
 // `link` to act like a filesystem without hard links.
 // `open` is the one way a file is opened for reading: never through a link
 // at its own name.
-export const fsOps = { lstat: lstatSync, link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)) };
+export const fsOps = { lstat: lstatSync, link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0)) };
 
 // Puts a copy of `from` at `to` without overwriting anything there, and
 // leaves `from` for the caller to remove once it has recorded the placement:
@@ -722,6 +729,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         if (chainOf(dir, a.rel) !== chain) throw swapped();
         const orig = readNoFollowStat(p);
         if (!orig) throw new Error(`${a.rel} is no longer a regular file; nothing was changed, run update again`);
+        // Exactly the bytes the plan saw: through a folder swapped and
+        // restored around the read, an outside file would be backed up while
+        // the user's version is later deleted.
+        if (sha(orig.data) !== a.hash) throw new Error(`${a.rel} changed since the update was planned; nothing was changed, run update again`);
         const bytes = orig.data;
         const backup = { path: b, hash: sha(bytes), entry };
         if (chainOf(dir, a.rel) !== chain) throw swapped();

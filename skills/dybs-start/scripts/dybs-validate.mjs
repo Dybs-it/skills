@@ -139,7 +139,14 @@ function outsideCode(line, fn) {
 // decoded in full; of the named ones, those that can spell a placeholder
 // (the braces, and any letter or digit written as a reference). Decoding
 // inside code too can only find more, never less.
-const NAMED = { lbrace: '{', lcub: '{', rbrace: '}', rcub: '}', amp: '&' };
+// Of the named ones: the braces, and the common ones a doc may use in a
+// heading or prose (`&apos;`, `&nbsp;`, dashes, quotes). The full HTML5
+// table is not carried; an unknown name stays as written (counts more).
+const NAMED = {
+  lbrace: '{', lcub: '{', rbrace: '}', rcub: '}', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  nbsp: '\u00a0', ndash: '\u2013', mdash: '\u2014', hellip: '\u2026', lsquo: '\u2018', rsquo: '\u2019',
+  ldquo: '\u201c', rdquo: '\u201d', copy: '\u00a9', reg: '\u00ae', trade: '\u2122', middot: '\u00b7', bull: '\u2022',
+};
 export function decodeReferences(text) {
   return text.replace(/&(?:#(\d{1,7})|#[xX]([0-9A-Fa-f]{1,6})|([A-Za-z][A-Za-z0-9]{1,31}));/g, (m, dec, hex, name) => {
     if (dec || hex) {

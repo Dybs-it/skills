@@ -1026,3 +1026,11 @@ test('a definition that opens a list after prose counts, and intraword underscor
   assert.ok(validateDoc('prd', VALID_PRD + '\nT*O*DO\n').rules.includes('placeholder'));
   assert.ok(validateDoc('prd', VALID_PRD + '\nT`O`DO\n').rules.includes('placeholder'));
 });
+
+test('the common named references count as the characters they render', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // As written they would glue into one longer word; rendered, they split.
+  assert.equal(wordCount('A&nbsp;B\n'), wordCount('A B\n'));
+  assert.equal(wordCount('A&mdash;B\n'), wordCount('A—B\n'));
+  assert.equal(wordCount('Don&apos;t &ldquo;stop&rdquo;\n'), wordCount('Don\'t “stop”\n'));
+});
