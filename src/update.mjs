@@ -101,6 +101,12 @@ export function discover(roots) {
   const clash = new Set();
   for (const root of roots) {
     for (const folder of skillFolders(root)) {
+      // Evidence that this `.<name>/skills/` is a Dybs install at all: it is
+      // skills.sh's own `.agents/skills/`, or some Dybs skill there still has
+      // its SKILL.md. Any dot folder is scanned (agents keep adding them), so
+      // without it an empty `dybs-prd/` in an unrelated `.cache/skills/`
+      // would be "repaired" by writing into it.
+      const installed = basename(dirname(folder)) === '.agents' || skillNames().some((n) => isPresent(join(folder, n, 'SKILL.md')));
       for (const skill of skillNames()) {
         const dir = join(folder, skill);
         // An install is recognised by its folder, not by SKILL.md: an install
@@ -114,6 +120,10 @@ export function discover(roots) {
           throw e;
         }
         if (!st.isDirectory()) continue;
+        if (!installed) {
+          skipped.push({ skill, dir, via: dir, why: 'no Dybs skill with a SKILL.md is installed beside it, so this folder is not treated as an install' });
+          continue;
+        }
         const real = realpathSync(dir);
         if (!realRoots.some((r) => within(real, r))) {
           skipped.push({ skill, dir: real, via: dir, why: 'resolves outside the requested folder' });
