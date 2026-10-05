@@ -311,6 +311,8 @@ function expandTabs(line) {
   return out;
 }
 
+// Code that is not kept leaves an empty line, never nothing: it still ends
+// the block before it (a definition right after a fence starts a block).
 export function visibleText(body, { keepCode = false, hideUnclosed = false } = {}) {
   const out = [];
   let fence = null;
@@ -412,7 +414,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
     // An indented block continues only at its own code column: inside a
     // list item that is four past the item's content (`listIndent + 4`).
     if (indented) {
-      if (blank || inner.match(/^ */)[0].length >= indented || /^\t/.test(inner)) { prevBlank = blank; para = false; if (keepCode) out.push(line); continue; }
+      if (blank || inner.match(/^ */)[0].length >= indented || /^\t/.test(inner)) { prevBlank = blank; para = false; out.push(keepCode ? line : ''); continue; }
       indented = false;
     }
     // A fence may sit in a block quote or start a list item (`> ```` or
@@ -459,7 +461,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
       // content column, not past the opener's own indentation.
       if (c && c[1].length <= (fence.listFirst ? fence.col : 0) + 3 && (fence.listFirst ? quoteDepth(line.slice(Math.min(c[1].length, fence.col))) : quoteDepth(line)) === fence.quote && c[3][0] === fence.ch && c[3].length >= fence.len) { fence = null; afterBlock = true; }
       para = false;
-      if (keepCode) out.push(line);
+      out.push(keepCode ? line : '');
       continue;
     }
     if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
@@ -474,7 +476,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
       fence = { ch: m[1][0], len: m[1].length, quote: (prefix.match(/>/g) || []).length, col, listFirst: /^\s*(?:[-*+]|\d{1,9}[.)])[ \t]/.test(prefix) || (inList && quoteDepth(line) >= listQuote && !/^ {0,3}>/.test(line) && col > 0) };
       prevBlank = false;
       para = false;
-      if (keepCode) out.push(line);
+      out.push(keepCode ? line : '');
       continue;
     }
     // Measured after the `>` markers, where a quoted list item's content is.
@@ -489,7 +491,7 @@ export function visibleText(body, { keepCode = false, hideUnclosed = false } = {
       paraQuote = 0;
       prevBlank = false;
       para = false;
-      if (keepCode) out.push(line);
+      out.push(keepCode ? line : '');
       continue;
     }
     // A line that starts with a comment is an HTML block to its end, also
@@ -768,15 +770,17 @@ function definitions(lines) {
     // interrupt one (`2.`) is text there, not a new block.
     const continues = !opensItem && /^(?: {0,3}>[ \t]?)* {0,3}\d{1,9}[.)]/.test(l);
     const blockStart = i === 0 || (defs.has(i - 1) && !continues) || opensItem || ended || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
+    // A label holds at most 999 characters; a longer one is no label, and
+    // the line is ordinary text.
     const m = DEF_LINE.exec(l);
-    if (m && blockStart) {
+    if (m && blockStart && m[1].length <= 999) {
       defs.set(i, label(m[1]));
       titleMayFollow = !m[2];
       depth = containerQuotes(l);
       continue;
     }
     const open = DEF_OPEN.exec(l);
-    const rest = open && blockStart && i + 1 < lines.length && !BLOCK_END.test(lines[i + 1]) && containerQuotes(lines[i + 1]) <= containerQuotes(l)
+    const rest = open && open[1].length <= 999 && blockStart && i + 1 < lines.length && !BLOCK_END.test(lines[i + 1]) && containerQuotes(lines[i + 1]) <= containerQuotes(l)
       // An HTML block start (`<details>`) interrupts the paragraph: it is never
       // the destination, however much it looks like `<url>`.
       && !HTML_INTERRUPT.test(lines[i + 1].replace(/^(?: {0,3}>[ \t]?)*/, '')) ? DEF_REST.exec(lines[i + 1]) : null;
