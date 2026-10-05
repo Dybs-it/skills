@@ -123,14 +123,14 @@ test('tableUnder stops at the next heading and skips the separator', () => {
 
 test('CLI: exit 1 on FAIL, 0 on PASS, 2 on a malformed file', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
-  const write = (name, spec) => { const p = join(dir, name); writeFileSync(p, typeof spec === 'string' ? spec : gate(spec)); return p; };
+  const write = (name, spec) => { mkdirSync(join(dir, name)); const p = join(dir, name, 'gate.md'); writeFileSync(p, typeof spec === 'string' ? spec : gate(spec)); return p; };
   const gateCli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
   const code = (file, bin = gateCli) => { try { execFileSync('node', [bin, ...(bin === gateCli ? [] : ['gate']), file], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
   assert.equal(code(write('pass.md', { items: [full('a', 'P0')] })), 0);
   assert.equal(code(write('fail.md', { items: [gap('a', 'P0')] })), 1);
   assert.equal(code(write('bad.md', '# no tables')), 2);
   // the gate lives in the skill, not in the dybs-skills binary
-  assert.equal(code(join(dir, 'fail.md'), join(ROOT, 'bin/dybs-skills.mjs')), 2);
+  assert.equal(code(join(dir, 'fail.md', 'gate.md'), join(ROOT, 'bin/dybs-skills.mjs')), 2);
   rmSync(dir, { recursive: true });
 });
 
@@ -368,8 +368,9 @@ test('an escaped pipe stays inside its cell', () => {
 
 test('the CLI takes exactly one gate file', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
-  const a = join(dir, 'a.md'); writeFileSync(a, gate({ items: [full('a', 'P0')] }));
-  const b = join(dir, 'b.md'); writeFileSync(b, gate({ items: [gap('a', 'P0')] }));
+  mkdirSync(join(dir, 'a')); mkdirSync(join(dir, 'b'));
+  const a = join(dir, 'a', 'gate.md'); writeFileSync(a, gate({ items: [full('a', 'P0')] }));
+  const b = join(dir, 'b', 'gate.md'); writeFileSync(b, gate({ items: [gap('a', 'P0')] }));
   const cli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
   const code = (args) => { try { execFileSync('node', [cli, ...args], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
   assert.equal(code([a, b]), 2);
@@ -1045,4 +1046,33 @@ test('every quality skill honours checkins: none when it writes the test plan it
     const t = readFileSync(join(ROOT, 'skills', skill, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
     assert.match(t, /using the sections `quality\.md` describes\. With `checkins: none` in `dybs\/project\.md`, ask nothing: take the criteria and risks from the task and its context, use the existing seams only, and say so in the plan\./, skill);
   }
+});
+
+// --- Codex review on PR #3 (c2f0566): only the task's own gate is judged ---
+test('a file that is not dybs/work/<task>/gate.md gets no decision', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  mkdirSync(join(repo, 'notes'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const body = gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`);
+  const run = (p) => { try { return { code: 0, out: execFileSync('node', [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), p], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+  // Another name in the task folder: refused before it is read.
+  const audit = join(repo, 'dybs/work/t/audit.md');
+  writeFileSync(audit, body);
+  let r = run(audit);
+  assert.equal(r.code, 2, r.out); assert.match(r.out, /is not a gate/);
+  rmSync(audit);
+  // A gate.md outside dybs/work/<task>/: no decision either.
+  const stray = join(repo, 'notes/gate.md');
+  writeFileSync(stray, body);
+  r = run(stray);
+  assert.equal(r.code, 3, r.out); assert.match(r.out, /STALE: notes\/gate\.md is not a task gate/);
+  rmSync(stray);
+  // The task's own gate still passes.
+  writeFileSync(join(repo, 'dybs/work/t/gate.md'), body);
+  assert.equal(run(join(repo, 'dybs/work/t/gate.md')).code, 0);
+  rmSync(repo, { recursive: true });
 });

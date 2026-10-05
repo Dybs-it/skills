@@ -11,7 +11,7 @@
 // agent's judgement. quality.md describes the same rules in words.
 
 import { readFileSync, realpathSync, lstatSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
-import { resolve, dirname, relative, sep, join } from 'node:path';
+import { resolve, dirname, relative, sep, join, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -557,6 +557,11 @@ export function freshness(gatePath, text) {
   if (gateRel === '..' || gateRel.startsWith('../') || resolve(gateRel) === gateRel) {
     return { status: 'stale', reason: 'gate.md resolves outside the repository. Keep the gate as a real file in the repository' };
   }
+  // Only the task's own gate is exempt from the dirty check below, so any
+  // other file (an audit.md, a gate.md elsewhere) is refused, not judged.
+  if (!/(^|\/)dybs\/work\/[^/]+\/gate\.md$/.test(gateRel)) {
+    return { status: 'stale', reason: `${gateRel} is not a task gate. The gate is dybs/work/<task>/gate.md` };
+  }
   const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
   // NUL-separated porcelain: paths come unquoted (no C escapes for
   // non-ASCII names), and a rename lists both of its paths. Submodules are
@@ -679,6 +684,7 @@ export function main(argv) {
   const files = args.filter((a) => !a.startsWith('--'));
   if (files.length !== 1) { console.error('usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--json] (exactly one gate file)'); return 2; }
   const [file] = files;
+  if (basename(file) !== 'gate.md') { console.error(`${file} is not a gate. Usage: dybs-gate.mjs <dybs/work/<task>/gate.md> [--json]`); return 2; }
   let text;
   let pin;
   try {

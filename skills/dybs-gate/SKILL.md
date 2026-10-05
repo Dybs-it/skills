@@ -74,7 +74,8 @@ files (`git log -1 --format=%h -- . ':(exclude,literal)dybs/work/<task>/gate.md'
 it, and run the script. In a git repository the script itself refuses to
 decide (`STALE`, exit 3) while other changes are uncommitted, while a
 tracked file is flagged assume-unchanged or skip-worktree (git status cannot
-see its edits), or while `commit:` names another commit; never write a decision it did not give. Copy
+see its edits), while `commit:` names another commit, or for any file that is
+not `dybs/work/<task>/gate.md`; never write a decision it did not give. Copy
 the decision and its reasons into the Decision section. (Committing
 `gate.md` and `pr.md` afterwards changes no evidence, so it never makes the
 gate stale.) Without Node
