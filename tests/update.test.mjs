@@ -3269,3 +3269,30 @@ test('install evidence that cannot be looked up is an error, never "not installe
   try { assert.throws(() => mod.discover([root]), /permission denied/); } finally { Object.assign(mod.fsOps, real); }
   rmSync(root, { recursive: true });
 });
+
+test('a file to remove whose permissions change before cleanup is kept', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(join(dir, 'gone.md'), 'old gone');
+  chmodSync(join(dir, 'gone.md'), 0o644);
+  const known = { ...knownHashes(), 'dybs-prd/gone.md': [sha('old gone')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  assert.equal(ops(plan)['gone.md'], 'remove');
+  let tightened = null;
+  const beforeCleanup = (s) => { if (s.a.rel === 'gone.md') { tightened = s.orig ?? s.old; chmodSync(tightened, 0o600); } };
+  mod.applyPlan(plan, { beforeCleanup });
+  assert.ok(tightened);
+  assert.ok(readdirSync(dir).some((n) => { const p = join(dir, n); try { return readFileSync(p, 'utf8') === 'old gone' && (statSync(p).mode & 0o777) === 0o600; } catch { return false; } }), 'the tightened file is kept');
+  rmSync(root, { recursive: true });
+});
+
+test('a folder not treated as an install leaves its skill in the missing list', () => {
+  const root = project(['dybs-scope']);
+  mkdirSync(join(root, '.cache/skills/dybs-prd'), { recursive: true });
+  const { notInstalled, skipped } = update([root]);
+  assert.ok(skipped.some((s) => s.skill === 'dybs-prd'));
+  assert.ok(notInstalled.includes('dybs-prd'));
+  rmSync(root, { recursive: true });
+});
