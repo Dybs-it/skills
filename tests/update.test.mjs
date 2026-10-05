@@ -932,7 +932,7 @@ test('a rollback that restores by copy keeps the original file itself', async ()
   rmSync(root, { recursive: true });
 });
 
-test('a write through the staging name after a link placement is caught', async () => {
+test('a write through the staging name after placement never reaches the installed file', async () => {
   const { planInstall, applyPlan } = await import('../src/update.mjs');
   const root = project(['dybs-prd']);
   writeFileSync(prd(root), 'old shipped version');
@@ -941,10 +941,11 @@ test('a write through the staging name after a link placement is caught', async 
   const plan = planInstall(install, { known });
   let hit = false;
   const beforeStageRm = (s) => { if (s.a.rel === SKILL) { writeFileSync(s.tmp, 'a watcher wrote this'); hit = true; } };
-  assert.throws(() => applyPlan(plan, { beforeStageRm }), /changed while it was being placed/);
+  applyPlan(plan, { beforeStageRm });
   assert.ok(hit);
-  // The changed file is someone's now: kept, never deleted.
-  assert.equal(readFileSync(prd(root), 'utf8'), 'a watcher wrote this');
+  // The placement is a copy, a file of its own: the staging name never
+  // leads to it.
+  assert.equal(readFileSync(prd(root), 'utf8'), String(plan.want[SKILL]));
   rmSync(root, { recursive: true });
 });
 
@@ -1691,9 +1692,10 @@ test('without hard links, the fallback copy checks the folders before it writes 
   const plan = mod.planInstall(findInstalls([root])[0], { known });
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   let swapped = false;
-  // The failed link is the last moment before the copy: the folder is
-  // swapped for a link to an outside folder right then.
-  mod.fsOps.link = (from) => {
+  // The copy opens the staging file: the folder is swapped for a link to
+  // an outside folder right then.
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.open = (from) => {
     if (!swapped && from.endsWith('.new')) {
       swapped = true;
       // The staging name is visible, so the outside folder can offer one.
@@ -1701,7 +1703,7 @@ test('without hard links, the fallback copy checks the folders before it writes 
       renameSync(dir, `${dir}.moved`);
       symlinkSync(outside, dir);
     }
-    throw Object.assign(new Error('no hard links'), { code: 'EPERM' });
+    return real.open(from);
   };
   try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
@@ -1757,7 +1759,7 @@ test('committed cleanup deletes the old version by identity, never a file that r
   rmSync(root, { recursive: true });
 });
 
-test('a staging file swapped in the instant before its link is removed by the identity actually placed', async () => {
+test('a staging file swapped in the instant before it is placed is never placed', async () => {
   const mod = await import('../src/update.mjs');
   const { renameSync } = await import('node:fs');
   const real = { ...mod.fsOps };
@@ -1766,17 +1768,17 @@ test('a staging file swapped in the instant before its link is removed by the id
   const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
   const plan = mod.planInstall(findInstalls([root])[0], { known });
   let swapped = null;
-  // Right at the placing link(), a watcher has replaced the staging file
-  // with its own copy of the shipped bytes.
-  mod.fsOps.link = (from, to) => {
+  // Right as the placing copy opens it, a watcher has replaced the staging
+  // file with its own copy of the shipped bytes.
+  mod.fsOps.open = (from) => {
     if (!swapped && from.endsWith('.new')) {
       swapped = from;
       writeFileSync(`${from}.x`, readFileSync(from));
       renameSync(`${from}.x`, from);
     }
-    return real.link(from, to);
+    return real.open(from);
   };
-  try { assert.throws(() => mod.applyPlan(plan), /changed while it was being installed/); } finally { Object.assign(mod.fsOps, real); }
+  try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
   // The original is back; the watcher's file was never ours to keep in place.
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
@@ -1821,13 +1823,14 @@ test('without hard links, a staged file swapped for a link is never copied into 
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   writeFileSync(join(outside, 'secret'), 'outside bytes');
   let swapped = false;
-  mod.fsOps.link = (from) => {
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.open = (from) => {
     if (!swapped && from.endsWith('.new')) {
       swapped = true;
       rmSync(from);
       symlinkSync(join(outside, 'secret'), from);
     }
-    throw Object.assign(new Error('no hard links'), { code: 'EPERM' });
+    return real.open(from);
   };
   try { assert.throws(() => mod.applyPlan(plan), /no longer a regular file|changed/); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
@@ -1863,7 +1866,7 @@ test('cleanup recovery removes its trash name by identity, never a replacement',
   rmSync(root, { recursive: true });
 });
 
-test('a folder swapped during the placement link leaves no new name outside the install', async () => {
+test('a folder swapped during the placement leaves no new name outside the install', async () => {
   const mod = await import('../src/update.mjs');
   const { renameSync } = await import('node:fs');
   const real = { ...mod.fsOps };
@@ -1874,15 +1877,15 @@ test('a folder swapped during the placement link leaves no new name outside the 
   assert.ok(plan.actions.some((a) => a.rel === 'template.md' && a.op === 'add'));
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   let swapped = null;
-  mod.fsOps.link = (from, to) => {
-    if (!swapped && from.endsWith('.new') && to.endsWith('template.md')) {
+  mod.fsOps.open = (from) => {
+    if (!swapped && from.endsWith('.new') && from.includes('template.md')) {
       swapped = from.split('/').at(-1);
       // The outside folder offers a file at the visible staging name.
       writeFileSync(join(outside, swapped), 'theirs');
       renameSync(dir, `${dir}.moved`);
       symlinkSync(outside, dir);
     }
-    return real.link(from, to);
+    return real.open(from);
   };
   try { assert.throws(() => mod.applyPlan(plan), /changed/); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
@@ -1892,7 +1895,7 @@ test('a folder swapped during the placement link leaves no new name outside the 
   rmSync(outside, { recursive: true });
 });
 
-test('a file that replaces the placed name right after the link is never removed as ours', async () => {
+test('a file that replaces the placed name right after placement is never removed as ours', async () => {
   const mod = await import('../src/update.mjs');
   const { renameSync } = await import('node:fs');
   const real = { ...mod.fsOps };
@@ -1901,18 +1904,15 @@ test('a file that replaces the placed name right after the link is never removed
   const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
   const plan = mod.planInstall(findInstalls([root])[0], { known });
   let replaced = false;
-  mod.fsOps.link = (from, to) => {
-    const r = real.link(from, to);
-    if (!replaced && from.endsWith('.new') && to === prd(root)) {
-      replaced = true;
-      // Another writer renames its own file over the name just created.
-      writeFileSync(`${to}.x`, 'theirs');
-      renameSync(`${to}.x`, to);
-    }
-    return r;
+  mod.testHooks.afterPlace = (s) => {
+    if (replaced || s.p !== prd(root)) return;
+    replaced = true;
+    // Another writer renames its own file over the name just created.
+    writeFileSync(`${s.p}.x`, 'theirs');
+    renameSync(`${s.p}.x`, s.p);
   };
   let err;
-  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); mod.testHooks.afterPlace = null; }
   assert.ok(replaced);
   assert.match(String(err?.message), /changed while it was being installed.*left in place/);
   assert.equal(readFileSync(prd(root), 'utf8'), 'theirs', 'their file is kept');
@@ -1950,7 +1950,7 @@ test('a file that replaces a placed copy before it is checked is never adopted o
   rmSync(root, { recursive: true });
 });
 
-test('a folder swapped after the placement link never costs the other folder its file', async () => {
+test('a folder swapped after placement never costs the other folder its file', async () => {
   const mod = await import('../src/update.mjs');
   const { renameSync } = await import('node:fs');
   const real = { ...mod.fsOps };
@@ -1961,17 +1961,14 @@ test('a folder swapped after the placement link never costs the other folder its
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   writeFileSync(join(outside, 'template.md'), 'theirs');
   let swapped = false;
-  mod.fsOps.link = (from, to) => {
-    const r = real.link(from, to);
-    if (!swapped && from.endsWith('.new') && to.endsWith('template.md')) {
-      swapped = true;
-      renameSync(dir, `${dir}.moved`);
-      symlinkSync(outside, dir);
-    }
-    return r;
+  mod.testHooks.afterPlace = (s) => {
+    if (swapped || !s.p.endsWith('template.md')) return;
+    swapped = true;
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
   };
   let err;
-  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); mod.testHooks.afterPlace = null; }
   assert.ok(swapped);
   assert.match(String(err?.message), /changed while it was being installed.*left in place/);
   assert.equal(readFileSync(join(outside, 'template.md'), 'utf8'), 'theirs', 'their file is kept');
@@ -2060,7 +2057,7 @@ test('the placed file is read as itself, never through a link that replaced it',
   writeFileSync(join(outside, 'shipped'), plan.want[SKILL]);
   let placed = false;
   let swapped = false;
-  mod.fsOps.link = (from, to) => { const r = real.link(from, to); if (to === prd(root)) placed = true; return r; };
+  mod.testHooks.afterPlace = (s) => { if (s.p === prd(root)) placed = true; };
   // Between the identity check of the placed file and its read, a link to
   // a file holding the shipped bytes (which can change later) takes its name.
   const swap = (p) => {
@@ -2072,7 +2069,7 @@ test('the placed file is read as itself, never through a link that replaced it',
   mod.fsOps.open = (p) => { swap(p); return real.open(p); };
   mod.fsOps.read = (p, o) => { swap(p); return readFileSync(p, o); };
   let err;
-  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); delete mod.fsOps.read; }
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); delete mod.fsOps.read; mod.testHooks.afterPlace = null; }
   assert.ok(swapped);
   assert.match(String(err?.message), /changed while it was being placed/);
   rmSync(root, { recursive: true });
@@ -2990,5 +2987,28 @@ test('an edited original put back at cleanup never loses its private name, even 
   try { plan2 = mod.applyPlan(plan, { beforeCleanup }); } catch { /* reported */ } finally { Object.assign(mod.fsOps, real); }
   assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('EDITED'); } catch { return false; } }), 'the edit still has a name');
   if (plan2) assert.ok(plan2.actions.find((a) => a.rel === SKILL).alsoAt);
+  rmSync(root, { recursive: true });
+});
+
+test('a staging file swapped only while it is placed never ends up installed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let swapped = false;
+  // For the length of a link from the staging name to the skill file, the
+  // staging name holds someone else's file; it is back when link returns.
+  mod.fsOps.link = (from, to) => {
+    if (swapped || to !== prd(root) || !from.endsWith('.new')) return real.link(from, to);
+    swapped = true;
+    renameSync(from, `${from}.mine`);
+    writeFileSync(from, 'evil');
+    try { return real.link(from, to); } finally { rmSync(from); renameSync(`${from}.mine`, from); }
+  };
+  try { mod.applyPlan(plan); } catch { /* refused is fine */ } finally { Object.assign(mod.fsOps, real); }
+  assert.notEqual(readFileSync(prd(root), 'utf8'), 'evil');
   rmSync(root, { recursive: true });
 });
