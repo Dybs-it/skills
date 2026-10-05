@@ -3082,3 +3082,18 @@ test('--accept never reads the method rules again through a swapped dybs folder'
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+test('--accept and --doc need every prerequisite, not only the direct one', async () => {
+  const { requiredBy } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  assert.deepEqual(requiredBy('ui'), ['prd', 'ux']);
+  const dir = copySample();
+  rmSync(join(dir, 'dybs/context/prd.md'));
+  const before = readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8');
+  const r = acceptDoc(dir, 'ui', '2026-10-04');
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(' '), /prd\.md is missing/);
+  assert.equal(readFileSync(join(dir, 'dybs/context/ui.md'), 'utf8'), before);
+  // `--doc ui` checks the same chain, so it never passes what --accept refuses.
+  assert.ok(validateProject(dir, 'ui').results.some((x) => x.name === 'prd'));
+  rmSync(dir, { recursive: true });
+});
