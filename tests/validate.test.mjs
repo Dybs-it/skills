@@ -3149,3 +3149,66 @@ test('an image description and a long multi-line title are read as rendered', ()
   // A title of any length, up to a blank line.
   assert.ok(flagged(`\n[r]: /url "\n${'title line\n'.repeat(30)}"\n\nT[O][r]DO\n`));
 });
+
+test('without hard links, a save through an open file during --accept survives', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { openSync: open, writeSync: write, closeSync: close } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const doc = join(ctx, 'ui.md');
+  // An editor holds the original open for the whole acceptance.
+  const fd = open(doc, 'r+');
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  const beforeCleanup = () => { write(fd, 'EDITED', 0); };
+  let r;
+  try { r = mod.acceptDoc(dir, 'ui', '2026-10-04', { beforeCleanup }); } finally { Object.assign(mod.fsOps, real); close(fd); }
+  assert.equal(r.ok, true);
+  assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8').startsWith('EDITED'); } catch { return false; } }), 'the save has a name');
+  assert.ok(r.warnings.some((w) => /original was changed/.test(w)));
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept rollback keeps a placed doc whose permissions were changed', async () => {
+  const { chmodSync: chmod, statSync: st } = await import('node:fs');
+  const dir = copySample();
+  const doc = join(dir, 'dybs/context/ui.md');
+  chmod(doc, 0o644);
+  // Right after placement the doc is tightened, then an input changes.
+  const afterPlace = () => { chmod(doc, 0o600); edit(dir, 'project.md', (t) => `${t}\nChanged meanwhile.\n`); };
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', { afterPlace }), /changed while/);
+  assert.equal(st(doc).mode & 0o777, 0o600);
+  assert.match(readFileSync(doc, 'utf8'), /status: accepted/);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept keeps a CRLF document CRLF', async () => {
+  const { setFrontmatter } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const crlf = '---\r\ndoc: ui\r\nstatus: draft\r\n---\r\n# UI\r\n\r\nBody.\r\n';
+  const out = setFrontmatter(crlf, { status: 'accepted', accepted: '2026-10-04' });
+  assert.equal(out, '---\r\ndoc: ui\r\nstatus: accepted\r\naccepted: 2026-10-04\r\n---\r\n# UI\r\n\r\nBody.\r\n');
+  assert.equal(setFrontmatter('---\ndoc: ui\n---\nx\n', { status: 'accepted' }), '---\ndoc: ui\nstatus: accepted\n---\nx\n');
+});
+
+test('--accept never writes into a look-alike tree the project root was swapped for', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const twin = join(outside, 'project');
+  // After the first checks, the project folder becomes a link to a copy.
+  mod.validateHooks.afterReadme = () => {
+    cpSync(dir, twin, { recursive: true });
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(twin, dir);
+  };
+  const twinDoc = join(twin, 'dybs/context/ui.md');
+  let r;
+  try { r = mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch (e) { r = { ok: false, errors: [e.message] }; } finally { mod.validateHooks.afterReadme = null; }
+  const twinText = readFileSync(twinDoc, 'utf8');
+  rmSync(dir);
+  renameSync(`${dir}.moved`, dir);
+  assert.equal(r.ok, false);
+  assert.doesNotMatch(twinText, /status: accepted/);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

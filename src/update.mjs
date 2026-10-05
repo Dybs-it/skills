@@ -131,7 +131,7 @@ export function discover(roots) {
         }
         if (!st.isDirectory()) continue;
         if (!installed) {
-          skipped.push({ skill, dir, via: dir, why: 'no Dybs skill with a SKILL.md is installed beside it, so this folder is not treated as an install' });
+          skipped.push({ skill, dir, via: dir, why: 'no Dybs skill with a SKILL.md is installed beside it, so this folder is not treated as an install', notInstall: true });
           continue;
         }
         const real = realpathSync(dir);
@@ -708,7 +708,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     for (const a of actions) {
       if (!['add', 'update', 'replace', 'remove'].includes(a.op)) continue;
       const p = join(dir, a.rel);
-      if (a.op === 'remove') { staged.push({ a, p, chain: chainOf(dir, a.rel) }); continue; }
+      // A file to remove keeps its permissions on record too: one changed
+      // while it is moved aside is someone's work, kept at cleanup.
+      if (a.op === 'remove') {
+        let mode;
+        try { mode = Number(fsOps.lstat(p, BIG).mode) & 0o7777; } catch { mode = undefined; }
+        staged.push({ a, p, chain: chainOf(dir, a.rel), mode });
+        continue;
+      }
       beforeMkdir?.();
       let made = null;
       let deepest = null;
@@ -1265,7 +1272,8 @@ export function update(roots, opts = {}) {
     results,
     // A skill found but left alone is installed, just not updated here:
     // it is never also offered as missing, or a second install would follow.
-    notInstalled: skillNames().filter((s) => !installed.has(s) && !skipped.some((k) => k.skill === s)),
+    // A folder that was not treated as an install leaves its skill missing.
+    notInstalled: skillNames().filter((s) => !installed.has(s) && !skipped.some((k) => k.skill === s && !k.notInstall)),
     skipped,
   };
 }

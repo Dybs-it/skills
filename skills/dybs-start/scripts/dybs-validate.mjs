@@ -1344,7 +1344,9 @@ export function setFrontmatter(text, updates) {
     if (i >= 0) lines[i] = `${key}: ${value}`;
     else lines.push(`${key}: ${value}`);
   }
-  return `---\n${lines.join('\n')}\n---` + text.slice(m[0].length);
+  // The file's own line ending: a CRLF doc stays CRLF throughout.
+  const eol = m[0].startsWith('---\r\n') ? '\r\n' : '\n';
+  return `---${eol}${lines.join(eol)}${eol}---` + text.slice(m[0].length);
 }
 
 // Why `root/rel` is not a regular file reached through real folders, or null.
@@ -1594,6 +1596,12 @@ function copyExclusive(from, to, check, fromId) {
 // doc is replaced, so a test can act like a concurrent editor.
 export function acceptDoc(root, name, today = localDate(), { beforeWrite, beforeReplace, beforeMoveAside, beforeAside, beforePlace, afterPlace, beforePlacedCheck, beforeCleanup } = {}) {
   const rel = `dybs/${DOCS[name].file}`;
+  // The folders on the way, the project root itself included, are pinned
+  // before anything is read: a root swapped for a link to a look-alike tree
+  // after this is noticed at the first write, never validated and written
+  // there.
+  const dirs = folderChain(root, rel);
+  if (!dirs) return { ok: false, errors: [`refusing to accept: a folder on the way to ${rel} is not a real folder`] };
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
   // No acceptance without the method rules: every skill stops here too.
@@ -1691,7 +1699,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   // every write and rename, so a folder swapped for a link after the checks
   // above is noticed and undone rather than written through. (Node has no
   // directory-relative calls, so this detects a swap; it cannot prevent one.)
-  const dirs = folderChain(root, rel);
+  // (`dirs` was taken before the first read, above.)
   const pinned = () => {
     if (!dirs || folderChain(root, rel) !== dirs) throw new Error(`a folder on the way to ${rel} changed while it was being accepted; run --accept again`);
   };
@@ -1722,6 +1730,19 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   let moved = false;
   let placed = false;
   let placedId = null;
+  let placedMode = null;
+  // Without hard links: the original itself, under a private name, kept
+  // until the very end (an editor may still be writing to it).
+  let origAside = null;
+  // The original goes only while it is still what was validated, bytes and
+  // mode; otherwise it is kept and named. Returns a note, or ''.
+  const dropOrigAside = () => {
+    if (!origAside) return '';
+    let same = false;
+    try { same = folderChain(root, rel) === dirs && readById(origAside.path, origAside.id) === text && (Number(fsOps.lstat(origAside.path, BIG).mode) & 0o7777) === mode; } catch { same = false; }
+    if (!same) return `the original was changed (an edit through an open file) or could not be confirmed; it is kept at ${origAside.path}`;
+    try { rmIfOurs(origAside.path, origAside.id, pinned, { expect: text, mode }); return ''; } catch (e) { return e.message; }
+  };
   let tmpWarning = null;
   let oldId = null;
   // No valid pin, no write: the temporary copy is never created through a
@@ -1839,9 +1860,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
           ? `${rel} changed while it was being moved aside; it is back at its own name as a copy, and the file itself is kept at ${aside}; run --accept again`
           : `${rel} changed while it was being moved aside; your version is kept at ${aside}`);
       }
-      // Deleted by identity under another private name, never by a plain
-      // unlink after the check: a file that replaced `aside` since is kept.
-      rmIfOurs(aside, origId, pinned, { expect: readById(old, oldId) });
+      // The original itself stays under its private name until the end: an
+      // editor still holding it open may save to it, and that save must
+      // survive. It goes at cleanup only while unchanged (bytes and mode).
+      origAside = { path: aside, id: origId };
     }
     pinned();
     const oldText = readById(old, oldId);
@@ -1886,6 +1908,8 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     const placedNow = placeChecked(tmp, path, tmpId, true).id;
     placed = true;
     placedId = placedNow;
+    // Its permissions as placed: a rollback removes it only while they hold.
+    try { placedMode = Number(fsOps.lstat(path, BIG).mode) & 0o7777; } catch { placedMode = null; }
     afterPlace?.(tmp);
     pinned();
     try { rmIfOurs(tmp, tmpId, pinned); } catch (e) {
@@ -1913,20 +1937,24 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // swapped for a link since the check above is never acted through.
       try { rmIfOurs(old, oldId, pinned, { expect: text, mode }); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
     }
-    if (!ours) return { ok: true, warnings: [...check.warnings, ...(tmpWarning ? [tmpWarning] : []), `the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
+    const done = [...check.warnings, ...(tmpWarning ? [tmpWarning] : [])];
+    if (!ours) done.push(`the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`);
+    const origNote = dropOrigAside();
+    if (origNote) done.push(origNote);
+    if (done.length > check.warnings.length) return { ok: true, warnings: done };
   } catch (err) {
     // Undo through the same paths: a file that went through a swapped link
     // comes back the same way. Only what is provably ours is removed.
     if (placed) {
       let ours = false;
       try {
-        ours = folderChain(root, rel) === dirs && readById(path, placedId) === next;
+        ours = folderChain(root, rel) === dirs && readById(path, placedId) === next && placedMode !== null && (Number(fsOps.lstat(path, BIG).mode) & 0o7777) === placedMode;
       } catch { ours = false; }
       // Removed by identity through a private name, never by a separate
       // look followed by an unlink: a save that replaces the doc in between
       // is kept, and the original is then not put back over it.
       if (ours) {
-        try { rmIfOurs(path, placedId, pinned, { expect: next }); } catch (e) { err.message += `; ${e.message}`; }
+        try { rmIfOurs(path, placedId, pinned, { expect: next, mode: placedMode }); } catch (e) { err.message += `; ${e.message}`; }
       }
     }
     try { rmIfOurs(tmp, tmpId, pinned); } catch (e) { err.message += `; ${e.message}`; }
@@ -1940,10 +1968,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     // Only our own original is put back: reached through the pinned
     // folders and the very file we moved aside. A same-named file shown
     // through a swapped folder is never moved or deleted.
+    let restored = false;
     if (moved && (oldId === null || folderChain(root, rel) !== dirs || (taken(old) && pathId(old) !== oldId))) {
       err.message += `; a folder on the way changed, so the original was not put back: it was moved aside to ${old} in the folder as it was`;
     } else if (moved && taken(old)) {
-      let restored = false;
       let how = null;
       try {
         try { how = placeChecked(old, path, oldId).how; } catch (e) {
@@ -1962,6 +1990,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       }
       else if (restored) err.message += `; the doc was put back as a copy, the file itself is kept at ${old}`;
       else err.message += `; something appeared at ${rel} meanwhile, the original is kept at ${old}`;
+    }
+    // The original itself (no hard links) goes only once a copy is back at
+    // its name, and only while unchanged; otherwise it is kept and named.
+    if (origAside) {
+      if (restored) { const note = dropOrigAside(); if (note) err.message += `; ${note}`; }
+      else err.message += `; the original itself is kept at ${origAside.path}`;
     }
     throw err;
   }
