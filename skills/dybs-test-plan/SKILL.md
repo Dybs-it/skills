@@ -94,6 +94,9 @@ so do not assume the others are present.
   suggests `dybs-test-plan`; if it is not installed, agree the acceptance
   criteria, risks and seams with the human in one round and write them to
   `dybs/work/<task>/test-plan.md`, using the sections `quality.md` describes.
+  With `checkins: none` in `dybs/project.md`, ask nothing: take the criteria
+  and risks from the task and its context, use the existing seams only, and
+  say so in the plan.
 - **No gate script, or no Node:** the gate is not decided. Write
   `Decision: not computed (no gate script)`, list what looks blocking against
   the rules in `quality.md`, and say it must be computed before merging. It

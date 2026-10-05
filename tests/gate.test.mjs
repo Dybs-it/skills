@@ -1039,3 +1039,10 @@ test('evidence hidden from git status by an index flag is STALE, never a PASS', 
     rmSync(repo, { recursive: true });
   }
 });
+
+test('every quality skill honours checkins: none when it writes the test plan itself', () => {
+  for (const skill of ['dybs-test-plan', 'dybs-review', 'dybs-gate', 'dybs-pr', 'dybs-tests']) {
+    const t = readFileSync(join(ROOT, 'skills', skill, 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+    assert.match(t, /using the sections `quality\.md` describes\. With `checkins: none` in `dybs\/project\.md`, ask nothing: take the criteria and risks from the task and its context, use the existing seams only, and say so in the plan\./, skill);
+  }
+});
