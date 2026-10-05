@@ -3299,3 +3299,26 @@ test('an empty skill folder in an unrelated dot folder is never written into', (
   assert.equal(update([root]).results.length, 2);
   rmSync(root, { recursive: true });
 });
+
+test('an original whose permissions change before cleanup is kept, never deleted', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  for (const noHardLinks of [false, true]) {
+    const real = { ...mod.fsOps };
+    const root = project(['dybs-prd']);
+    writeFileSync(prd(root), 'old shipped version');
+    chmodSync(prd(root), 0o644);
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const plan = mod.planInstall(findInstalls([root])[0], { known });
+    let tightened = null;
+    // After the commit point: the owner tightens the original's mode.
+    const beforeCleanup = (s) => { tightened = s.orig ?? s.old; chmodSync(tightened, 0o600); };
+    if (noHardLinks) noLinks(mod);
+    let result;
+    try { result = mod.applyPlan(plan, { beforeCleanup }); } finally { Object.assign(mod.fsOps, real); }
+    const kept = result.actions.find((a) => a.rel === SKILL).kept;
+    assert.ok(kept, `kept is reported (noHardLinks=${noHardLinks})`);
+    assert.ok(readdirSync(dirname(prd(root))).some((n) => { const p = join(dirname(prd(root)), n); try { return readFileSync(p, 'utf8') === 'old shipped version' && (statSync(p).mode & 0o777) === 0o600; } catch { return false; } }), 'the tightened original survives');
+    rmSync(root, { recursive: true });
+  }
+});

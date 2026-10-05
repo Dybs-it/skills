@@ -772,7 +772,9 @@ const ESCAPED = String.raw`\\[!-\/:-@\[-\`{-~]`;
 const BALANCED = (depth) => (depth === 0
   ? String.raw`(?:[^\s()\\]|${ESCAPED})*`
   : String.raw`(?:[^\s()\\]|${ESCAPED}|\(${BALANCED(depth - 1)}\))*`);
-const LINK_DEST = String.raw`(?:<[^<>\n]*>|${BALANCED(8)})`;
+// Up to 32 nested parentheses in a destination: cmark (GitHub's renderer)
+// stops there; commonmark.js has no limit, and no real doc goes deeper.
+const LINK_DEST = String.raw`(?:<[^<>\n]*>|${BALANCED(32)})`;
 const LINK_TITLE = String.raw`(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\))`;
 // Up to one line ending is allowed in each gap (`](\nurl)`), as CommonMark does.
 const GAP = String.raw`[ \t]*(?:\n[ \t]*)?`;
@@ -791,7 +793,7 @@ function dropValidLinkTargets(text) {
 // definition), and its title may sit alone on the next line. Returns line
 // index -> normalized label (null for a title line). Missing a definition
 // only counts more words and refuses more HTML.
-const DEF_DEST = String.raw`(?:<[^<>\n]*>|(?:[^\s()\\<]|${ESCAPED}|\(${BALANCED(7)}\))${BALANCED(8)})`;
+const DEF_DEST = String.raw`(?:<[^<>\n]*>|(?:[^\s()\\<]|${ESCAPED}|\(${BALANCED(31)}\))${BALANCED(32)})`;
 // A label may hold escaped brackets (`[a\]b]`), never a bare one, and
 // needs one character that is not a space.
 const LABEL_CHAR = String.raw`(?:[^\[\]\\\n]|${ESCAPED}|\\(?![!-\/:-@\[-\`{-~]))`;
@@ -1066,7 +1068,9 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
     // Only markup that renders as such is read through: code spans, paired
     // `*` emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
     // written). Resolved link brackets go; `~` is text in CommonMark.
-    .replace(/(`+)([^`]+?)\1/g, '$2')
+    // A code span loses one space on each side when both are there and it
+    // is not all spaces (`` ` O ` `` shows `O`).
+    .replace(/(`+)([^`]+?)\1/g, (m, ticks, c) => (/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c))
     .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
     .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2')
     .replace(/[\ue0f0\ue0f1]/g, '');
