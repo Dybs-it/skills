@@ -730,6 +730,17 @@ function list(raw) {
 // the route requires cannot be skipped; other inputs are optional (a skill
 // works without a skipped one and notes what it would have answered).
 export const REQUIRES = { scope: ['prd'], domain: ['prd'], architecture: ['prd'], ux: ['prd'], ui: ['ux'] };
+// Every doc a doc cannot be written without, its requirements' own
+// included (ui needs ux, and ux needs prd), deepest first.
+export function requiredBy(name, seen = new Set()) {
+  const out = [];
+  for (const dep of REQUIRES[name] || []) {
+    if (seen.has(dep)) continue;
+    seen.add(dep);
+    out.push(...requiredBy(dep, seen), dep);
+  }
+  return out;
+}
 
 // Docs that project.md's `quick:`, `thorough:` and `skip:` may name.
 export const LISTABLE = ORDER.filter((n) => n !== 'project');
@@ -1191,7 +1202,7 @@ export function validateProject(root, only) {
     // validated with any single doc too.
     // So are the docs it cannot be written without: `--doc ui` must not pass
     // a doc that `--accept ui` would then refuse for a missing ux.md.
-    const required = only && (REQUIRES[only] || []).includes(name);
+    const required = only && requiredBy(only).includes(name);
     if (only && name !== only && name !== 'project' && !required) continue;
     const spec = DOCS[name];
     const path = join(dir, spec.file);
@@ -1580,7 +1591,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // A doc the project skips is not accepted: its skill stops, and
       // `--doc` refuses it too.
       if (skipped(projectData).has(name)) return { ok: false, errors: [`${DOCS[name].file} is under skip: in project.md; remove it from skip: before accepting it`] };
-      for (const dep of REQUIRES[name] || []) {
+      for (const dep of requiredBy(name)) {
         const depRel = `dybs/${DOCS[dep].file}`;
         const depPath = join(root, depRel);
         if (!existsSync(depPath)) return { ok: false, errors: [`${depRel} is missing: ${name} cannot be written without it. Write ${dep} first.`] };
