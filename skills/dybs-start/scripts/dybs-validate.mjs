@@ -1108,7 +1108,7 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
 // The method rules must be a readable file: a folder (or anything else) at
 // that name is present but holds no rules for the skills to follow. One
 // home for the check, used by validation and by acceptance alike.
-function readmeProblem(root) {
+function readmeProblem(root, snapshot = {}) {
   const readme = join(root, 'dybs', 'README.md');
   if (!existsSync(readme)) return 'missing dybs/README.md (the method rules). Run dybs-start to restore it.';
   if (!statSync(readme).isFile()) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.';
@@ -1121,7 +1121,9 @@ function readmeProblem(root) {
   const before = linked();
   if (before) return before;
   // A file the skills cannot read is as good as missing.
-  try { if (readRegular(readme) === null) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'; } catch (e) {
+  // The bytes read here, between the two link checks, are the snapshot
+  // acceptance keeps: never a second read outside them.
+  try { snapshot.text = readRegular(readme); if (snapshot.text === null) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'; } catch (e) {
     return `dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`;
   }
   return linked();
@@ -1134,7 +1136,7 @@ function readmeProblem(root) {
 // the name itself is (same device and inode, not a link). null otherwise.
 function readRegular(p) {
   let fd;
-  try { fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)); } catch (e) {
+  try { fd = fsOps.open(p); } catch (e) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') return null;
     throw e;
   }
@@ -1163,9 +1165,10 @@ function lookup(p) {
   }
 }
 
-// Test seams: right after project.md is read for its settings, and right
-// before each doc is read.
-export const validateHooks = { afterSettings: null, beforeRead: null };
+// Test seams: right after project.md is read for its settings, right
+// before each doc is read, and (in --accept) right after the method rules
+// were read under their link checks.
+export const validateHooks = { afterSettings: null, beforeRead: null, afterReadme: null };
 
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
@@ -1366,7 +1369,7 @@ function stillAtName(p, st) {
 // name: an editor writing through an open file keeps the identity, so only
 // the content can tell, and an edited file is put back, not removed.
 export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: null };
-function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
+function rmIfOurs(p, id, check, { sole = false, expect = null, mode = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -1391,6 +1394,9 @@ function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
     try { x = readById(aside, id); } catch { x = null; }
     disposable = x === expect;
   }
+  // The permissions too, under the private name: a mode changed through an
+  // open file up to this instant is someone's work, and the file is kept.
+  if (disposable && mode !== null) disposable = (Number(st.mode) & 0o7777) === mode;
   if (disposable) {
     // A failed unlink leaves the file under its private name: say where.
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
@@ -1532,17 +1538,18 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const unsafe = unsafePath(root, rel);
   if (unsafe) return { ok: false, errors: [`refusing to accept: ${unsafe}`] };
   // No acceptance without the method rules: every skill stops here too.
-  const readme = readmeProblem(root);
+  const readmeSnapshot = {};
+  const readme = readmeProblem(root, readmeSnapshot);
   if (readme) return { ok: false, errors: [readme] };
+  validateHooks.afterReadme?.();
   // What this acceptance was validated against (project.md and the required
   // docs), checked again right before and right after the doc is placed: an
   // input edited meanwhile undoes the acceptance instead of standing behind it.
   const inputs = [];
   // The method rules are an input too: removed or made unreadable meanwhile,
-  // the acceptance is undone rather than left standing without them.
-  try { inputs.push(['dybs/README.md', readDoc(join(root, 'dybs', 'README.md'))]); } catch (e) {
-    return { ok: false, errors: [`dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix it and run --accept again.`] };
-  }
+  // the acceptance is undone rather than left standing without them. The
+  // bytes are the ones read under readmeProblem()'s link checks.
+  inputs.push(['dybs/README.md', readmeSnapshot.text]);
   const inputsUnchanged = () => {
     for (const [r, t] of inputs) {
       let same = false;
@@ -1709,7 +1716,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // under both names); a file that replaced it since is left, and named.
       const dropLinked = (check) => {
         const linked = pathId(old);
-        if (linked === null || linked !== pathId(path)) return linked === null ? '' : `; ${old} is not provably this run's and was left in place`;
+        // The link succeeded, so a name missing here now was made in a
+        // folder swapped in for the call and since put back: it cannot be
+        // reached to remove, so it is named.
+        if (linked === null) return lookup(old) === 'missing' ? `; a second name for ${rel}, ${basename(old)}, may have been created in a folder swapped in during the accept; it could not be reached to remove it` : `; ${old} could not be checked and may be left in place`;
+        if (linked !== pathId(path)) return `; ${old} is not provably this run's and was left in place`;
         try { rmIfOurs(old, linked, check); return ''; } catch (e2) { return `; ${e2.message}`; }
       };
       if (folderChain(root, rel) !== dirs) {
@@ -1841,7 +1852,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (ours) {
       // Re-pinned inside the removal, right before its move: a folder
       // swapped for a link since the check above is never acted through.
-      try { rmIfOurs(old, oldId, pinned, { expect: text }); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
+      try { rmIfOurs(old, oldId, pinned, { expect: text, mode }); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
     }
     if (!ours) return { ok: true, warnings: [...check.warnings, ...(tmpWarning ? [tmpWarning] : []), `the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`] };
   } catch (err) {
