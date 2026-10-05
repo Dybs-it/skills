@@ -3138,3 +3138,14 @@ test('link syntax inside a code span stays literal for the placeholder check', (
   assert.ok(!flagged('\n`DO\n\nT` O\n'));
   assert.ok(flagged('\n`TODO`\n'));
 });
+
+test('an image description and a long multi-line title are read as rendered', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(flagged('\nT![O](x)DO\n'));
+  assert.ok(flagged('\n[r]: /u\n\nT![O][r]DO\n'));
+  // An escaped `!` is text.
+  assert.ok(!flagged('\nT\\![O](x)DO\n'));
+  // A title of any length, up to a blank line.
+  assert.ok(flagged(`\n[r]: /url "\n${'title line\n'.repeat(30)}"\n\nT[O][r]DO\n`));
+});
