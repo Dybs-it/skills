@@ -2757,3 +2757,82 @@ test('a definition that opens a list after prose counts, and intraword underscor
   assert.ok(validateDoc('prd', VALID_PRD + '\nT*O*DO\n').rules.includes('placeholder'));
   assert.ok(validateDoc('prd', VALID_PRD + '\nT`O`DO\n').rules.includes('placeholder'));
 });
+
+test('the common named references count as the characters they render', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  // As written they would glue into one longer word; rendered, they split.
+  assert.equal(wordCount('A&nbsp;B\n'), wordCount('A B\n'));
+  assert.equal(wordCount('A&mdash;B\n'), wordCount('A—B\n'));
+  assert.equal(wordCount('Don&apos;t &ldquo;stop&rdquo;\n'), wordCount('Don\'t “stop”\n'));
+});
+
+test('--accept refuses when the method rules go missing while it runs', () => {
+  const dir = copySample();
+  const ui = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(ui, 'utf8');
+  assert.throws(() => acceptDoc(dir, 'ui', '2026-10-04', {
+    beforeWrite: () => rmSync(join(dir, 'dybs/README.md')),
+  }), /README\.md changed while/);
+  assert.equal(readFileSync(ui, 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept never drops a doc whose aside name was replaced right after the link', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const ui = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(ui, 'utf8');
+  const real = mod.fsOps.link;
+  let aside = null;
+  mod.fsOps.link = (from, to) => {
+    const r = real(from, to);
+    if (!aside && from === ui && /\.old$/.test(to)) { aside = to; rmSync(to); writeFileSync(to, 'someone else'); }
+    return r;
+  };
+  try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /something replaced/); } finally { mod.fsOps.link = real; }
+  assert.ok(aside);
+  assert.equal(readFileSync(ui, 'utf8'), before);
+  assert.equal(readFileSync(aside, 'utf8'), 'someone else');
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept project with checkins: none refuses a context folder it cannot search', async (t) => {
+  const { chmodSync: chmod, mkdtempSync: mk, cpSync: cp } = await import('node:fs');
+  const { execFileSync: run } = await import('node:child_process');
+  const dir = mk(join(tmpdir(), 'dybs-unsearchable-'));
+  cp(SAMPLE, dir, { recursive: true });
+  edit(dir, 'project.md', (t2) => t2.replace('checkins: each-doc', 'checkins: none'));
+  chmod(dir, 0o755);
+  chmod(join(dir, 'dybs'), 0o777);
+  chmod(join(dir, 'dybs/project.md'), 0o666);
+  chmod(join(dir, 'dybs/context'), 0o000);
+  const script = join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs');
+  const cmd = unprivileged([script, dir, '--accept', 'project', '--json']);
+  if (!cmd) { chmod(join(dir, 'dybs/context'), 0o755); rmSync(dir, { recursive: true }); return t.skip(UNPRIVILEGED_SKIP); }
+  const before = readFileSync(join(dir, 'dybs/project.md'), 'utf8');
+  let out;
+  try { out = run(cmd[0], cmd[1], { encoding: 'utf8' }); } catch (e) { out = `${e.stdout}`; }
+  chmod(join(dir, 'dybs/context'), 0o755);
+  assert.match(out, /cannot be checked/);
+  assert.equal(readFileSync(join(dir, 'dybs/project.md'), 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept never waits on a FIFO swapped in for the placed doc', () => {
+  const dir = copySample();
+  const ui = join(dir, 'dybs/context/ui.md');
+  const script = `
+    import * as mod from ${JSON.stringify(join(ROOT, 'skills/dybs-start/scripts/dybs-validate.mjs'))};
+    import { rmSync } from 'node:fs';
+    import { execFileSync } from 'node:child_process';
+    const beforePlacedCheck = (p) => { rmSync(p); execFileSync('mkfifo', [p]); };
+    try { const r = mod.acceptDoc(${JSON.stringify(dir)}, 'ui', '2026-10-04', { beforePlacedCheck }); console.log('result ' + JSON.stringify(r)); } catch (e) { console.log('refused: ' + e.message); }
+  `;
+  let out = '';
+  let signal = null;
+  try { out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 10000 }); } catch (e) { out = `${e.stdout}`; signal = e.signal; }
+  assert.equal(signal, null, 'never hangs');
+  assert.match(out, /refused: .*changed while/);
+  rmSync(ui, { force: true });
+  rmSync(dir, { recursive: true });
+});

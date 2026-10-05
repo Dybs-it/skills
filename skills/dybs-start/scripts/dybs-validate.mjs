@@ -146,7 +146,14 @@ function outsideCode(line, fn) {
 // decoded in full; of the named ones, those that can spell a placeholder
 // (the braces, and any letter or digit written as a reference). Decoding
 // inside code too can only find more, never less.
-const NAMED = { lbrace: '{', lcub: '{', rbrace: '}', rcub: '}', amp: '&' };
+// Of the named ones: the braces, and the common ones a doc may use in a
+// heading or prose (`&apos;`, `&nbsp;`, dashes, quotes). The full HTML5
+// table is not carried; an unknown name stays as written (counts more).
+const NAMED = {
+  lbrace: '{', lcub: '{', rbrace: '}', rcub: '}', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  nbsp: '\u00a0', ndash: '\u2013', mdash: '\u2014', hellip: '\u2026', lsquo: '\u2018', rsquo: '\u2019',
+  ldquo: '\u201c', rdquo: '\u201d', copy: '\u00a9', reg: '\u00ae', trade: '\u2122', middot: '\u00b7', bull: '\u2022',
+};
 export function decodeReferences(text) {
   return text.replace(/&(?:#(\d{1,7})|#[xX]([0-9A-Fa-f]{1,6})|([A-Za-z][A-Za-z0-9]{1,31}));/g, (m, dec, hex, name) => {
     if (dec || hex) {
@@ -1347,7 +1354,7 @@ export function localDate(d = new Date()) {
 // its content. Refuses a doc that would not validate as accepted.
 // Filesystem calls acceptDoc uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { lstat: lstatSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)), link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync, write: writeFileSync };
+export const fsOps = { lstat: lstatSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)), link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync, write: writeFileSync };
 
 // Puts `from` at `to` without overwriting anything there: link() where the
 // filesystem has hard links, an exclusive copy (COPYFILE_EXCL, O_EXCL) where
@@ -1429,6 +1436,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   // docs), checked again right before and right after the doc is placed: an
   // input edited meanwhile undoes the acceptance instead of standing behind it.
   const inputs = [];
+  // The method rules are an input too: removed or made unreadable meanwhile,
+  // the acceptance is undone rather than left standing without them.
+  try { inputs.push(['dybs/README.md', readDoc(join(root, 'dybs', 'README.md'))]); } catch (e) {
+    return { ok: false, errors: [`dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix it and run --accept again.`] };
+  }
   const inputsUnchanged = () => {
     for (const [r, t] of inputs) {
       let same = false;
@@ -1484,7 +1496,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     for (const other of LISTABLE) {
       if (skip.has(other)) continue;
       const otherRel = `dybs/${DOCS[other].file}`;
-      if (!existsSync(join(root, otherRel))) continue;
+      // Only a doc that is provably not there is skipped: a folder that
+      // cannot be searched never passes as "no such doc".
+      const there = lookup(join(root, otherRel));
+      if (there === 'missing') continue;
+      if (there !== 'present') return { ok: false, errors: [`${otherRel} cannot be checked (${there}), so "checkins: none" cannot be confirmed for it. Fix its permissions and run --accept again.`] };
       const otherUnsafe = unsafePath(root, otherRel);
       if (otherUnsafe) return { ok: false, errors: [`refusing to accept: ${otherUnsafe}`] };
       const otherText = readDoc(join(root, otherRel));
@@ -1602,6 +1618,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
         const note = dropLinked(pinned);
         throw Object.assign(notRegular(), { message: notRegular().message + note });
       }
+      // The doc's own name is dropped only while the aside name is still the
+      // very same file: one swapped in after the link would make this the
+      // document's last name.
+      if (pathId(old) !== oldId) throw new Error(`something replaced ${old} during the accept; nothing was changed, ${rel} is untouched and ${old} was left in place, run --accept again`);
       moved = true;
       rmIfOurs(path, oldId, pinned);
     } catch (e) {

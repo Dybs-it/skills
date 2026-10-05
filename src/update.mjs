@@ -320,7 +320,7 @@ export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: nul
 // `expect` (a sha), it must also still hold those bytes once under its
 // private name: an editor writing through an open file keeps the identity,
 // so only the content can tell, and an edited file is put back, not removed.
-function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
+function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -336,7 +336,9 @@ function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   let st = null;
   try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
-  let disposable = Boolean(st) && idOfStat(st) === id && (!sole || st.nlink === 1n);
+  // `shared`: only a second name of a file that still has another one; a
+  // file whose other name went meanwhile is put back, never unlinked.
+  let disposable = Boolean(st) && idOfStat(st) === id && (!sole || st.nlink === 1n) && (!shared || st.nlink >= 2n);
   if (disposable && expect) {
     let x = null;
     try { x = readById(aside, id); } catch { x = null; }
@@ -445,6 +447,10 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
   const { skill, dir } = install;
   const want = shippedFiles(skill);
   const root = rootIdentity(dir);
+  // No real skill folder, no planning reads: through a folder swapped for a
+  // link every lookup below would read outside the install.
+  const refused = (why) => ({ ...install, actions: [{ op: 'unsafe', rel: '.', why }], blocked: true, want, root: null });
+  if (!root) return refused('the skill folder is no longer a real folder');
   const isKnown = (rel, hash) => (known[`${skill}/${rel}`] || []).includes(hash);
   // A checkout with core.autocrlf turns LF into CRLF; that is the same
   // shipped file, so match it with line endings normalised too.
@@ -486,6 +492,9 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
   }
 
   const blocked = actions.some((a) => a.op === 'conflict' || a.op === 'unsafe');
+  // Still the same folder after every read: a swap during planning is not
+  // planned on.
+  if (rootIdentity(dir) !== root) return refused('the skill folder changed while the update was planned');
   return { ...install, actions, blocked, want, root };
 }
 
@@ -530,7 +539,7 @@ function mkdirNoFollow(root, relDir, onMade) {
 // `link` to act like a filesystem without hard links.
 // `open` is the one way a file is opened for reading: never through a link
 // at its own name.
-export const fsOps = { lstat: lstatSync, link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)) };
+export const fsOps = { lstat: lstatSync, link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0)) };
 
 // Puts a copy of `from` at `to` without overwriting anything there, and
 // leaves `from` for the caller to remove once it has recorded the placement:
@@ -727,6 +736,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         if (chainOf(dir, a.rel) !== chain) throw swapped();
         const orig = readNoFollowStat(p);
         if (!orig) throw new Error(`${a.rel} is no longer a regular file; nothing was changed, run update again`);
+        // Exactly the bytes the plan saw: through a folder swapped and
+        // restored around the read, an outside file would be backed up while
+        // the user's version is later deleted.
+        if (sha(orig.data) !== a.hash) throw new Error(`${a.rel} changed since the update was planned; nothing was changed, run update again`);
         const bytes = orig.data;
         const backup = { path: b, hash: sha(bytes), entry };
         if (chainOf(dir, a.rel) !== chain) throw swapped();
@@ -1135,7 +1148,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
               // around the link passes the pins while the name went outside.
               if (idOf(s.old) !== trashId) throw new Error('not put back at its name');
               s.a.kept = s.old;
-              try { rmIfOurs(trash, trashId, chainCheck(s)); } catch (e) { s.a.kept = `${s.old} (and ${e.keptAt ?? trash})`; }
+              const restored = () => {
+                chainCheck(s)();
+                if (idOf(s.old) !== trashId) throw new Error('not put back at its name');
+              };
+              try { rmIfOurs(trash, trashId, restored, { shared: true }); } catch (e) { s.a.kept = `${s.old} (and ${e.keptAt ?? trash})`; }
             } catch { s.a.kept = trash; }
           }
         }
