@@ -803,7 +803,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           fsOps.link(s.p, old);
           const dropOld = (check) => {
             const now = idOf(old);
-            if (now === null) return provablyGone(old) ? '' : ` (${old} could not be checked and may be left in place)`;
+            // The link succeeded, so a name that is not here now was made in
+            // a folder swapped in for the call and since put back: it cannot
+            // be reached to remove, so it is named.
+            if (now === null) return provablyGone(old) ? ` (a second name for ${s.a.rel}, ${basename(old)}, may have been created in a folder swapped in during the update; it could not be reached to remove it)` : ` (${old} could not be checked and may be left in place)`;
             if (now !== idOf(s.p)) return ` (${old} is not provably this update's and was left in place)`;
             try { rmIfOurs(old, now, check); return ''; } catch (e) { return ` (${e.message})`; }
           };
