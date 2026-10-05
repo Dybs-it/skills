@@ -2968,3 +2968,27 @@ test('an installed file swapped for a FIFO is never waited on', () => {
   assert.match(out, /refused/);
   rmSync(root, { recursive: true });
 });
+
+test('an edited original put back at cleanup keeps its last name when the put-back name is replaced', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let oldAt = null;
+  let replaced = false;
+  const beforeCleanup = (s) => { oldAt = s.old; writeFileSync(s.old, 'EDITED in place', { flag: 'r+' }); };
+  // Right before the private trash name goes: the put-back name is swapped
+  // for another file, so the trash name is the edit's last one.
+  mod.testHooks.beforeMove = (p) => {
+    if (replaced || !oldAt || !p.startsWith(`${oldAt}.`) || !p.endsWith('.rm')) return;
+    replaced = true;
+    rmSync(oldAt);
+    writeFileSync(oldAt, 'someone else');
+  };
+  try { mod.applyPlan(plan, { beforeCleanup }); } catch { /* reported */ } finally { mod.testHooks.beforeMove = null; }
+  assert.ok(replaced);
+  assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('EDITED'); } catch { return false; } }), 'the edit still has a name');
+  rmSync(root, { recursive: true });
+});
