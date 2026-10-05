@@ -3284,3 +3284,18 @@ test('without hard links, the original is kept when its snapshot cannot be put b
   assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8') === 'old shipped version'; } catch { return false; } }), 'the original survives');
   rmSync(root, { recursive: true });
 });
+
+test('an empty skill folder in an unrelated dot folder is never written into', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dybs-update-'));
+  const stray = join(root, '.cache/skills/dybs-prd');
+  mkdirSync(stray, { recursive: true });
+  const { results, skipped } = update([root]);
+  assert.equal(results.length, 0);
+  assert.deepEqual(readdirSync(stray), []);
+  assert.ok(skipped.some((s) => s.dir === stray && /not treated as an install/.test(s.why)));
+  // Beside a real install in the same folder, a damaged one is repaired.
+  mkdirSync(join(root, '.cache/skills/dybs-scope'), { recursive: true });
+  writeFileSync(join(root, '.cache/skills/dybs-scope', SKILL), shippedFiles('dybs-scope')[SKILL]);
+  assert.equal(update([root]).results.length, 2);
+  rmSync(root, { recursive: true });
+});
