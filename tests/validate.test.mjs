@@ -1064,15 +1064,16 @@ test('--accept restores the original without overwriting a save that appeared', 
   const real = mod.fsOps.link;
   const dir = copySample();
   const path = join(dir, 'dybs/context/ui.md');
+  const realOpen = mod.fsOps.open;
   let calls = 0;
   // The placement of the accepted copy fails after an editor saved a new
   // version at the path; the restore must not overwrite that save.
-  // (The first link moves the original aside; the placement link is the one
-  // from the temporary copy.)
-  mod.fsOps.link = (from, to) => { if (String(from).endsWith('.tmp') && ++calls === 1) { writeFileSync(to, 'saved meanwhile'); throw Object.assign(new Error('EIO'), { code: 'EIO' }); } return real(from, to); };
+  // (The placing copy opens the temporary file.)
+  mod.fsOps.open = (from) => { if (String(from).endsWith('.tmp') && ++calls === 1) { writeFileSync(path, 'saved meanwhile'); throw Object.assign(new Error('EIO'), { code: 'EIO' }); } return realOpen(from); };
   try {
     assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /original is kept at/);
-  } finally { mod.fsOps.link = real; }
+  } finally { mod.fsOps.link = real; mod.fsOps.open = realOpen; }
+  assert.equal(calls, 1);
   assert.equal(readFileSync(path, 'utf8'), 'saved meanwhile');
   rmSync(dir, { recursive: true });
 });
@@ -1339,21 +1340,18 @@ test('more CommonMark boundaries: ordered fences, comment blocks after lists, se
   assert.equal(wordCount('Heading\n--\n    code words\n'), 1);
 });
 
-test('--accept catches a write through the temporary name after a link placement', async () => {
+test('--accept: a write through the temporary name after placement never reaches the doc', async () => {
   const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
-  const realLink = mod.fsOps.link;
   const dir = copySample();
   const path = join(dir, 'dybs/context/ui.md');
   let wrote = false;
-  // A watcher writes into the shared inode through the temporary name,
-  // after placement and before that name is gone.
-  mod.fsOps.link = (from, to) => { const r = realLink(from, to); if (from.endsWith('.tmp')) { writeFileSync(from, 'a watcher wrote this'); wrote = true; } return r; };
-  try {
-    assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /changed while it was being accepted/);
-  } finally { mod.fsOps.link = realLink; }
+  // A watcher writes through the temporary name after placement and before
+  // that name is gone: the placement is a copy, a file of its own.
+  const afterPlace = (tmp) => { writeFileSync(tmp, 'a watcher wrote this'); wrote = true; };
+  const r = mod.acceptDoc(dir, 'ui', '2026-10-04', { afterPlace });
   assert.ok(wrote);
-  // The changed file is someone's now: kept, never deleted.
-  assert.equal(readFileSync(path, 'utf8'), 'a watcher wrote this');
+  assert.equal(r.ok, true);
+  assert.match(readFileSync(path, 'utf8'), /status: accepted/);
   rmSync(dir, { recursive: true });
 });
 
@@ -1849,14 +1847,15 @@ test('without hard links, --accept checks the folders before a fallback copy wri
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   mkdirSync(join(outside, 'context'));
   let swapped = false;
-  mod.fsOps.link = (from) => {
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  mod.fsOps.open = (from) => {
     if (!swapped && from.endsWith('.tmp')) {
       swapped = true;
       writeFileSync(join(outside, 'context', from.split('/').at(-1)), 'staged elsewhere');
       renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
       symlinkSync(outside, join(dir, 'dybs'));
     }
-    throw Object.assign(new Error('no hard links'), { code: 'EPERM' });
+    return real.open(from);
   };
   try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /changed/); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
@@ -1973,14 +1972,14 @@ test('a folder swapped during the --accept placement leaves no new name outside 
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   mkdirSync(join(outside, 'context'));
   let swapped = null;
-  mod.fsOps.link = (from, to) => {
-    if (!swapped && from.endsWith('.tmp') && to.endsWith('ui.md')) {
+  mod.fsOps.open = (from) => {
+    if (!swapped && from.endsWith('.tmp') && from.includes('ui.md')) {
       swapped = from.split('/').at(-1);
       writeFileSync(join(outside, 'context', swapped), 'theirs');
       renameSync(join(dir, 'dybs'), join(dir, 'dybs.moved'));
       symlinkSync(outside, join(dir, 'dybs'));
     }
-    return real.link(from, to);
+    return real.open(from);
   };
   try { assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04'), /changed/); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
@@ -2103,15 +2102,17 @@ test('--accept rollback never restores the doc outside the project through a swa
   rmSync(outside, { recursive: true });
 });
 
-test('--accept never removes a file that replaced the placed doc right after the link', async () => {
+test('--accept never removes a file that replaced the placed doc right after placement', async () => {
   const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   const real = { ...mod.fsOps };
   const dir = copySample();
   const doc = join(dir, 'dybs/context/prd.md');
   let replaced = false;
-  mod.fsOps.link = (from, to) => {
-    const r = real.link(from, to);
-    if (!replaced && String(from).endsWith('.tmp') && to === doc) {
+  // The placing copy writes the accepted text; right after, another writer
+  // renames its own file over the doc.
+  mod.fsOps.write = (fd, data) => {
+    const r = real.write(fd, data);
+    if (!replaced && /status: accepted/.test(String(data))) {
       replaced = true;
       writeFileSync(`${doc}.x`, 'theirs');
       renameSync(`${doc}.x`, doc);
@@ -2860,5 +2861,30 @@ test('--accept never waits on a FIFO swapped in for the placed doc', () => {
   assert.equal(signal, null, 'never hangs');
   assert.match(out, /refused: .*changed while/);
   rmSync(ui, { force: true });
+  rmSync(dir, { recursive: true });
+});
+
+test('--accept never installs a temporary file swapped only while it is placed', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const doc = join(dir, 'dybs/context/scope.md');
+  const before = readFileSync(doc, 'utf8');
+  let swapped = false;
+  // For the length of a link from the temporary name to the doc, that name
+  // holds someone else's file; it is back when link returns.
+  mod.fsOps.link = (from, to) => {
+    if (swapped || to !== doc || !String(from).endsWith('.tmp')) return real.link(from, to);
+    swapped = true;
+    renameSync(from, `${from}.mine`);
+    writeFileSync(from, 'evil');
+    try { return real.link(from, to); } finally { rmSync(from); renameSync(`${from}.mine`, from); }
+  };
+  let r;
+  try { r = mod.acceptDoc(dir, 'scope', '2026-10-04'); } catch (e) { r = { ok: false, errors: [e.message] }; } finally { Object.assign(mod.fsOps, real); }
+  const now = readFileSync(doc, 'utf8');
+  assert.notEqual(now, 'evil');
+  if (r.ok) assert.match(now, /status: accepted/);
+  else assert.equal(now, before);
   rmSync(dir, { recursive: true });
 });

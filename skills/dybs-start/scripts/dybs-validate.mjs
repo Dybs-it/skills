@@ -1714,8 +1714,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     let modeNow = null;
     try { const st = fsOps.lstat(old, BIG); if (idOf(st) === oldId) modeNow = Number(st.mode) & 0o7777; } catch { modeNow = null; }
     if (modeNow !== null && modeNow !== mode) throw new Error(`${rel} had its permissions changed during acceptance; nothing was written, run --accept again`);
-    // What was actually placed, checked at once (see placeChecked).
-    const placedNow = placeChecked(tmp, path, tmpId).id;
+    // What was actually placed, checked at once (see placeChecked). Copied
+    // from a descriptor checked to be the temporary file, never linked:
+    // link() takes whatever the name holds at that instant, and a file
+    // swapped in only for the call would land at the doc's name, not ours
+    // to remove, with the original stranded aside.
+    const placedNow = placeChecked(tmp, path, tmpId, true).id;
     placed = true;
     placedId = placedNow;
     afterPlace?.(tmp);

@@ -310,7 +310,7 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterPlace: null, afterLook: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -880,7 +880,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         let how;
         const copied = {};
         try {
-          how = placeNoClobber(s.tmp, s.p, chainCheck(s), s.tmpId, copied);
+          // Copied from a descriptor checked to be the staged file, never
+          // linked: link() takes whatever the staging name holds at that
+          // instant, and a replacement linked in is not provably ours to
+          // remove, so neither the rollback nor the original could come back.
+          copied.id = copyExclusive(s.tmp, s.p, chainCheck(s), s.tmpId);
+          how = 'copy';
+          testHooks.afterPlace?.(s);
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`${s.a.rel} appeared since the update was planned; nothing was changed, run update again`);
           throw err;
