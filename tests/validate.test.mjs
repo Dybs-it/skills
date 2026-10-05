@@ -3097,3 +3097,34 @@ test('--accept and --doc need every prerequisite, not only the direct one', asyn
   assert.ok(validateProject(dir, 'ui').results.some((x) => x.name === 'prd'));
   rmSync(dir, { recursive: true });
 });
+
+test('a link title may run over several lines, never across a blank one', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(flagged("\n[foo]: /url '\ntitle\n'\n\nT[O][foo]DO\n"));
+  assert.ok(flagged("\n[foo]: /url\n'title\nmore'\n\nT[O][foo]DO\n"));
+  assert.ok(flagged('\nT[O](/u "a\nb")DO\n'));
+  assert.equal(wordCount("[foo]: /url '\ntitle\n'\n"), 0);
+  // A blank line ends the title, and with it the definition.
+  assert.ok(!flagged("\n[foo]: /url 'title\n\nwith blank'\n\nT[O][foo]DO\n"));
+});
+
+test('--accept rollback keeps the original when its restored name is removed first', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const doc = join(ctx, 'ui.md');
+  const before = readFileSync(doc, 'utf8');
+  let removed = false;
+  mod.testHooks.beforeMove = (p) => {
+    if (removed || !/\.old$/.test(p)) return;
+    removed = true;
+    rmSync(doc);
+  };
+  const beforePlacedCheck = () => { throw new Error('stop here'); };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04', { beforePlacedCheck }); } catch { /* reported */ } finally { mod.testHooks.beforeMove = null; }
+  assert.ok(removed);
+  assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8') === before; } catch { return false; } }), 'the original still has a name');
+  rmSync(dir, { recursive: true });
+});
