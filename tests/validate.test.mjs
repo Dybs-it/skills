@@ -3009,3 +3009,16 @@ test('link metadata and labels matched as written never make a placeholder', () 
   assert.ok(flagged('\nTO&#68;O\n'));
   assert.ok(flagged('\n<https://example.test/TODO>\n'));
 });
+
+test('a block quote that interrupts prose and a code span across lines are read as rendered', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  // A quote opened under a paragraph starts a block: its definition counts.
+  assert.ok(flagged('\nordinary paragraph\n> [r]: /url\n\nT[O][r]DO\n'));
+  assert.equal(wordCount('ordinary paragraph\n> [r]: /url\n'), 2);
+  // After a lazy line the quote's paragraph goes on: no new block there.
+  assert.equal(wordCount('> [r]: /u\nlazy words\n> [r]: /u\n'), 4);
+  // The line ending in a code span is a space, then the padding goes.
+  assert.ok(flagged('\nT` O\n`DO\n'));
+});
