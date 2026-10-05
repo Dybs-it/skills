@@ -1412,7 +1412,7 @@ function stillAtName(p, st) {
 // name: an editor writing through an open file keeps the identity, so only
 // the content can tell, and an edited file is put back, not removed.
 export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: null };
-function rmIfOurs(p, id, check, { sole = false, expect = null, mode = null } = {}) {
+function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, mode = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -1431,7 +1431,10 @@ function rmIfOurs(p, id, check, { sole = false, expect = null, mode = null } = {
   try { fsOps.rename(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   let st = null;
   try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
-  let disposable = Boolean(st) && idOf(st) === id && (!sole || st.nlink === 1n);
+  // `shared`: only a second name of a file that still has another one, so
+  // a put-back whose restored name was removed meanwhile never loses its
+  // last name here.
+  let disposable = Boolean(st) && idOf(st) === id && (!sole || st.nlink === 1n) && (!shared || st.nlink >= 2n);
   if (disposable && expect !== null) {
     let x = null;
     try { x = readById(aside, id); } catch { x = null; }
@@ -1835,7 +1838,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // original itself (which an editor may still be writing) is kept.
       const { how } = placeChecked(old, path, oldId);
       moved = false;
-      if (how === 'link') rmIfOurs(old, oldId, pinned);
+      if (how === 'link') rmIfOurs(old, oldId, pinned, { shared: true });
       rmIfOurs(tmp, tmpId, pinned);
       const kept = how === 'link' ? '' : `; it was put back as a copy, the file itself is kept at ${old}`;
       return { ok: false, errors: [`the doc changed while it was being accepted; nothing was written, run --accept again${kept}`] };
@@ -1942,7 +1945,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // A copy is a snapshot: the original itself is kept, since an editor
       // may still be writing to it.
       if (restored && how === 'link') {
-        try { rmIfOurs(old, oldId, pinned); } catch (e) { err.message += `; ${e.message}`; }
+        try { rmIfOurs(old, oldId, pinned, { shared: true }); } catch (e) { err.message += `; ${e.message}`; }
       }
       else if (restored) err.message += `; the doc was put back as a copy, the file itself is kept at ${old}`;
       else err.message += `; something appeared at ${rel} meanwhile, the original is kept at ${old}`;
