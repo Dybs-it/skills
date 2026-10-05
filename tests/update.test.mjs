@@ -3110,3 +3110,16 @@ test('an original whose permissions change before cleanup is kept, never deleted
     rmSync(root, { recursive: true });
   }
 });
+
+test('status refuses the update-only options instead of ignoring them', async () => {
+  const { run } = await import('../bin/dybs-skills.mjs');
+  const root = project(['dybs-prd']);
+  const err = console.error; const log = console.log;
+  console.error = () => {}; console.log = () => {};
+  try {
+    assert.equal(run(['status', root, '--force']), 2);
+    assert.equal(run(['status', root, '--dry-run']), 2);
+    assert.equal(run(['status', root, '--json']), 0);
+  } finally { console.error = err; console.log = log; }
+  rmSync(root, { recursive: true });
+});

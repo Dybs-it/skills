@@ -70,6 +70,9 @@ export function run(argv, deps = {}) {
   const opts = parse(rest);
   if (opts.help) { console.log(HELP); return 0; }
   if (opts.error) { console.error(`${opts.error}\n\n${HELP}`); return 2; }
+  // `--force` and `--dry-run` only mean something to `update`: on `status`
+  // they would be ignored while the run still reports success.
+  if (cmd === 'status' && (opts.force || opts.dryRun)) { console.error(`status takes only --global and --json, got ${opts.force ? '--force' : '--dry-run'}\n\n${HELP}`); return 2; }
   // `list` takes no options or folder: anything else is a mistake, not a list.
   if (cmd === 'list') {
     if (rest.length) { console.error(`list takes no arguments, got: ${rest.join(' ')}\n\n${HELP}`); return 2; }
