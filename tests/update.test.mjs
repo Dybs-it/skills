@@ -3450,3 +3450,34 @@ test('rollback keeps a placed file whose permissions were changed', async () => 
   assert.equal(readFileSync(prd(root), 'utf8'), String(plan.want[SKILL]));
   rmSync(root, { recursive: true });
 });
+
+test('rollback keeps a --force backup whose permissions were changed', async () => {
+  const { planInstall, applyPlan } = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own edit');
+  chmodSync(prd(root), 0o644);
+  const plan = planInstall(findInstalls([root])[0], { force: true });
+  let backup;
+  const steps = plan.actions.filter((a) => ['update', 'replace', 'remove'].includes(a.op)).length;
+  assert.throws(() => applyPlan(plan, {
+    failAt: steps,
+    beforeFail: () => { backup = plan.actions.find((a) => a.rel === SKILL).backup; chmodSync(backup, 0o600); },
+  }), /injected failure/);
+  assert.ok(existsSync(backup), 'the backup is kept');
+  assert.equal(statSync(backup).mode & 0o777, 0o600);
+  rmSync(root, { recursive: true });
+});
+
+test('install evidence that cannot be looked up is an error, never "not installed"', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = mkdtempSync(join(tmpdir(), 'dybs-update-'));
+  mkdirSync(join(root, '.cache/skills/dybs-prd'), { recursive: true });
+  mod.fsOps.lstat = (p, o) => {
+    if (String(p).endsWith(join('dybs-prd', SKILL))) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    return real.lstat(p, o);
+  };
+  try { assert.throws(() => mod.discover([root]), /permission denied/); } finally { Object.assign(mod.fsOps, real); }
+  rmSync(root, { recursive: true });
+});

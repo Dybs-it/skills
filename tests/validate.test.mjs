@@ -3128,3 +3128,13 @@ test('--accept rollback keeps the original when its restored name is removed fir
   assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8') === before; } catch { return false; } }), 'the original still has a name');
   rmSync(dir, { recursive: true });
 });
+
+test('link syntax inside a code span stays literal for the placeholder check', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(!flagged('\nT`[O](x)`DO\n'));
+  assert.ok(!flagged('\nT`*O*`DO here\n'));
+  // A span never crosses a blank line.
+  assert.ok(!flagged('\n`DO\n\nT` O\n'));
+  assert.ok(flagged('\n`TODO`\n'));
+});
