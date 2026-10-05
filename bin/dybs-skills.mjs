@@ -148,6 +148,7 @@ export function run(argv, deps = {}) {
         console.log(`  ${SYMBOL[a.op]} ${a.rel}${a.why ? `  (${a.why})` : ''}${a.backup ? `  backup: ${a.backup}` : ''}`);
         if (a.kept) console.log(`    the old version changed during the update; kept at ${a.kept}`);
         if (a.alsoAt) console.log(`    the same file is also at ${a.alsoAt}; either name can go`);
+        if (a.stray) console.log(`    ${a.stray}; it could not be reached to remove it`);
       }
     }
     if (notInstalled.length) {

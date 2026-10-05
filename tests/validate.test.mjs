@@ -3097,3 +3097,15 @@ test('--accept and --doc need every prerequisite, not only the direct one', asyn
   assert.ok(validateProject(dir, 'ui').results.some((x) => x.name === 'prd'));
   rmSync(dir, { recursive: true });
 });
+
+test('a link title may run over several lines, never across a blank one', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(flagged("\n[foo]: /url '\ntitle\n'\n\nT[O][foo]DO\n"));
+  assert.ok(flagged("\n[foo]: /url\n'title\nmore'\n\nT[O][foo]DO\n"));
+  assert.ok(flagged('\nT[O](/u "a\nb")DO\n'));
+  assert.equal(wordCount("[foo]: /url '\ntitle\n'\n"), 0);
+  // A blank line ends the title, and with it the definition.
+  assert.ok(!flagged("\n[foo]: /url 'title\n\nwith blank'\n\nT[O][foo]DO\n"));
+});
