@@ -3245,3 +3245,30 @@ test('status refuses the update-only options instead of ignoring them', async ()
   } finally { console.error = err; console.log = log; }
   rmSync(root, { recursive: true });
 });
+
+test('a mode changed inside the cleanup removal keeps the original', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  for (const noHardLinks of [false, true]) {
+    const real = { ...mod.fsOps };
+    const root = project(['dybs-prd']);
+    writeFileSync(prd(root), 'old shipped version');
+    chmodSync(prd(root), 0o644);
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const plan = mod.planInstall(findInstalls([root])[0], { known });
+    let s0 = null;
+    let changed = false;
+    const beforeCleanup = (s) => { s0 = s; };
+    // After the cleanup's own checks, right before the guarded move.
+    mod.testHooks.beforeMove = (p) => {
+      if (changed || !s0 || !(p === s0.orig || (!s0.orig && p.startsWith(`${s0.old}.`)))) return;
+      changed = true;
+      chmodSync(p, 0o600);
+    };
+    if (noHardLinks) noLinks(mod);
+    try { mod.applyPlan(plan, { beforeCleanup }); } catch { /* reported */ } finally { Object.assign(mod.fsOps, real); mod.testHooks.beforeMove = null; }
+    assert.ok(changed, `the hook fired (noHardLinks=${noHardLinks})`);
+    assert.ok(readdirSync(dirname(prd(root))).some((n) => { const p = join(dirname(prd(root)), n); try { return readFileSync(p, 'utf8') === 'old shipped version' && (statSync(p).mode & 0o777) === 0o600; } catch { return false; } }), `the original survives (noHardLinks=${noHardLinks})`);
+    rmSync(root, { recursive: true });
+  }
+});
