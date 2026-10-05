@@ -3181,26 +3181,26 @@ test('an installed file swapped for a FIFO is never waited on', () => {
   rmSync(root, { recursive: true });
 });
 
-test('an edited original put back at cleanup keeps its last name when the put-back name is replaced', async () => {
+test('an edited original put back at cleanup never loses its private name, even when the put-back name goes', async () => {
   const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
   const root = project(['dybs-prd']);
   const dir = dirname(prd(root));
   writeFileSync(prd(root), 'old shipped version');
   const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
   const plan = mod.planInstall(findInstalls([root])[0], { known });
   let oldAt = null;
-  let replaced = false;
+  let raced = false;
   const beforeCleanup = (s) => { oldAt = s.old; writeFileSync(s.old, 'EDITED in place', { flag: 'r+' }); };
-  // Right before the private trash name goes: the put-back name is swapped
-  // for another file, so the trash name is the edit's last one.
-  mod.testHooks.beforeMove = (p) => {
-    if (replaced || !oldAt || !p.startsWith(`${oldAt}.`) || !p.endsWith('.rm')) return;
-    replaced = true;
-    rmSync(oldAt);
-    writeFileSync(oldAt, 'someone else');
+  // Any removal of a name derived from the private one: the put-back name
+  // goes first, as another process could do in that instant.
+  mod.fsOps.rm = (p, o) => {
+    if (!raced && oldAt && p.startsWith(`${oldAt}.`) && /\.rm/.test(p)) { raced = true; real.rm(oldAt); }
+    return real.rm(p, o);
   };
-  try { mod.applyPlan(plan, { beforeCleanup }); } catch { /* reported */ } finally { mod.testHooks.beforeMove = null; }
-  assert.ok(replaced);
+  let plan2;
+  try { plan2 = mod.applyPlan(plan, { beforeCleanup }); } catch { /* reported */ } finally { Object.assign(mod.fsOps, real); }
   assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8').startsWith('EDITED'); } catch { return false; } }), 'the edit still has a name');
+  if (plan2) assert.ok(plan2.actions.find((a) => a.rel === SKILL).alsoAt);
   rmSync(root, { recursive: true });
 });

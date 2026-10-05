@@ -320,7 +320,7 @@ export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: nul
 // `expect` (a sha), it must also still hold those bytes once under its
 // private name: an editor writing through an open file keeps the identity,
 // so only the content can tell, and an edited file is put back, not removed.
-function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null } = {}) {
+function rmIfOurs(p, id, check, { sole = false, expect = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -336,9 +336,7 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null } 
   try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   let st = null;
   try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
-  // `shared`: only a second name of a file that still has another one; a
-  // file whose other name went meanwhile is put back, never unlinked.
-  let disposable = Boolean(st) && idOfStat(st) === id && (!sole || st.nlink === 1n) && (!shared || st.nlink >= 2n);
+  let disposable = Boolean(st) && idOfStat(st) === id && (!sole || st.nlink === 1n);
   if (disposable && expect) {
     let x = null;
     try { x = readById(aside, id); } catch { x = null; }
@@ -1147,12 +1145,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
               // At its name, the very file: a folder swapped and restored
               // around the link passes the pins while the name went outside.
               if (idOf(s.old) !== trashId) throw new Error('not put back at its name');
+              // The private name stays: no check before an unlink can prove
+              // the put-back name still exists at the unlink itself, and
+              // dropping the last name would lose the edit. Both are one file.
               s.a.kept = s.old;
-              const restored = () => {
-                chainCheck(s)();
-                if (idOf(s.old) !== trashId) throw new Error('not put back at its name');
-              };
-              try { rmIfOurs(trash, trashId, restored, { shared: true }); } catch (e) { s.a.kept = `${s.old} (and ${e.keptAt ?? trash})`; }
+              s.a.alsoAt = trash;
             } catch { s.a.kept = trash; }
           }
         }
