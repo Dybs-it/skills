@@ -763,13 +763,16 @@ const containerQuotes = (l) => (/^(?: {0,3}>[ \t]?| {0,3}(?:[-*+]|\d{1,9}[.)])[ 
 const DEF_HEAD = new RegExp(String.raw`^(?:${CONTAINERS})${LABEL}:`);
 function definitions(lines) {
   const defs = new Map();
-  // Continuation lines are read without their quote markers, never past a
-  // blank line or into a deeper quote; up to 20 lines are tried.
+  // Continuation lines are read without their quote markers, up to a blank
+  // line or a deeper quote and no further. Only a line that could close a
+  // title (holding `"`, `'` or `)`) is tried, so a long paragraph stays cheap.
   const strip = (x) => x.replace(/^(?: {0,3}>[ \t]?)*/, '');
   const spanEnd = (i, fits) => {
-    for (let j = i + 1; j < lines.length && j - i <= 20; j++) {
+    let joined = lines[i];
+    for (let j = i + 1; j < lines.length; j++) {
       if (strip(lines[j]).trim() === '' || containerQuotes(lines[j]) > containerQuotes(lines[i])) return -1;
-      if (fits(lines.slice(i, j + 1).map((x, k) => (k ? strip(x) : x)).join('\n'))) return j;
+      joined += `\n${strip(lines[j])}`;
+      if (/["')]/.test(lines[j]) && fits(joined)) return j;
     }
     return -1;
   };
@@ -990,6 +993,9 @@ export function validateDoc(name, text) {
     .replace(new RegExp(INLINE_LINK, 'g'), (m, t) => LINK(t))
     .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? LINK(t.slice(1, -1)) : m))
     .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (labels.has(label(x)) ? LINK(x) : m))
+    // An image shows its description as text (`T![O](x)DO` reads TODO): the
+    // `!` of a resolved image goes with its brackets.
+    .replace(/(?<!\\)!(?=\ue0f0)/g, '')
     .replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
     // Only markup that renders as such is read through: paired `*`
     // emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
