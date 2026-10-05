@@ -3150,3 +3150,18 @@ test('a mode changed inside the cleanup removal keeps the original', async () =>
     rmSync(root, { recursive: true });
   }
 });
+
+test('a SKILL.md that is a link or a folder is no evidence of an install', async () => {
+  for (const fake of ['link', 'folder']) {
+    const root = mkdtempSync(join(tmpdir(), 'dybs-update-'));
+    const stray = join(root, '.cache/skills/dybs-prd');
+    mkdirSync(stray, { recursive: true });
+    const decoy = join(root, '.cache/skills/dybs-scope');
+    mkdirSync(decoy, { recursive: true });
+    if (fake === 'link') { writeFileSync(join(root, 'elsewhere.md'), 'x'); symlinkSync(join(root, 'elsewhere.md'), join(decoy, SKILL)); }
+    else mkdirSync(join(decoy, SKILL));
+    update([root]);
+    assert.deepEqual(readdirSync(stray), [], `${fake}: nothing written`);
+    rmSync(root, { recursive: true });
+  }
+});

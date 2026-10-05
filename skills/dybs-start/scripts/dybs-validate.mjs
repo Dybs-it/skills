@@ -761,6 +761,15 @@ function definitions(lines) {
   const defs = new Map();
   let titleMayFollow = false;
   let depth = 0;
+  // The quotes each line's paragraph is in: a lazy line (fewer `>`, still
+  // the same paragraph) keeps the depth of the paragraph it continues.
+  const inQuotes = [];
+  for (let i = 0, cur = null; i < lines.length; i++) {
+    if (lines[i].replace(/^(?: {0,3}>[ \t]?)*/, '').trim() === '') { cur = null; inQuotes.push(0); continue; }
+    const d = containerQuotes(lines[i]);
+    if (cur === null || d >= cur) cur = d;
+    inQuotes.push(cur);
+  }
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (titleMayFollow && containerQuotes(l) <= depth && DEF_TITLE_LINE.test(l)) {
@@ -779,7 +788,9 @@ function definitions(lines) {
     // After a definition the paragraph goes on: an ordered item that cannot
     // interrupt one (`2.`) is text there, not a new block.
     const continues = !opensItem && /^(?: {0,3}>[ \t]?)* {0,3}\d{1,9}[.)]/.test(l);
-    const blockStart = i === 0 || (defs.has(i - 1) && !continues) || opensItem || ended || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
+    // A block quote opened on this line interrupts the paragraph before it.
+    const opensQuote = i > 0 && containerQuotes(l) > inQuotes[i - 1];
+    const blockStart = i === 0 || (defs.has(i - 1) && !continues) || opensItem || opensQuote || ended || /^(?: {0,3}>[ \t]?)*[ \t]*$/.test(lines[i - 1]);
     // A label holds at most 999 characters; a longer one is no label, and
     // the line is ordinary text.
     const m = DEF_LINE.exec(l);
@@ -941,9 +952,10 @@ export function validateDoc(name, text) {
     // Only markup that renders as such is read through: code spans, paired
     // `*` emphasis, and `_` emphasis at word boundaries (`T_O_DO` stays as
     // written). Resolved link brackets go; `~` is text in CommonMark.
-    // A code span loses one space on each side when both are there and it
-    // is not all spaces (`` ` O ` `` shows `O`).
-    .replace(/(`+)([^`]+?)\1/g, (m, ticks, c) => (/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c))
+    // A code span turns its line endings into spaces, then loses one space
+    // on each side when both are there and it is not all spaces
+    // (`` ` O ` `` and `` ` O`` / ``` `` ``` across lines show `O`).
+    .replace(/(`+)([^`]+?)\1/g, (m, ticks, raw) => { const c = raw.replace(/\n/g, ' '); return /^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c; })
     .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
     .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2')
     .replace(/[\ue0f0\ue0f1]/g, '');
