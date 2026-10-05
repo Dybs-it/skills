@@ -652,7 +652,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     const src = s.orig ?? s.old;
     const srcId = s.orig ? s.origId : s.oldId;
     let now = null;
-    try { const st = fsOps.lstat(src, BIG); if (idOfStat(st) === srcId) now = Number(st.mode) & 0o7777; } catch { now = null; }
+    // Only an original that is provably gone has no permissions to keep; a
+    // lookup that fails otherwise (EIO, ESTALE) is no answer, so it stops.
+    try { const st = fsOps.lstat(src, BIG); if (idOfStat(st) === srcId) now = Number(st.mode) & 0o7777; } catch (e) {
+      if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw new Error(`the permissions of ${s.a.rel} could not be checked (${e.code || e.message}); nothing was changed, run update again`);
+    }
     if (now !== null && now !== s.mode) throw new Error(`${s.a.rel} had its permissions changed during the update; nothing was changed, run update again`);
   };
   const pinned = (s) => {
@@ -1002,7 +1006,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           ours = Boolean(x) && sha(x) === sha(want[s.a.rel]);
         } catch { ours = false; }
         if (!ours) {
-          stuck.push(`${s.a.rel} changed after the update wrote it; kept as is${s.old ? `, the original is at ${s.old}` : ''}`);
+          // Without hard links the original itself is `s.orig` (an edit
+          // through an open file lands there); `s.old` is only a snapshot.
+          const where = s.orig ? `, the original is at ${s.orig}${s.old ? ` (a snapshot copy is at ${s.old})` : ''}` : (s.old ? `, the original is at ${s.old}` : '');
+          stuck.push(`${s.a.rel} changed after the update wrote it; kept as is${where}`);
           continue;
         }
         testHooks.beforeUndoRm?.(s);
@@ -1018,6 +1025,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // and only while the name still leads, through the pinned folders, to
       // the very file we moved aside: a folder swapped for a link could show
       // an outside file under the same name, which is never ours to move.
+      // Whether a copy of the original is back at its name: until then the
+      // original itself (`s.orig`) is the only one, and is never removed.
+      let restored = false;
       if (s.old) {
         undo(s.a.rel, () => {
           if (chainOf(dir, s.a.rel) !== s.chain || idOf(s.old) !== s.oldId) {
@@ -1049,6 +1059,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
               ? `a folder on the way changed while the original was put back (${note}); the original is at ${s.old}`
               : `the moved-aside original was replaced before it was put back (${note}); it is not at ${s.old} any more`);
           }
+          restored = true;
           if (how === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s));
           else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
         });
@@ -1063,6 +1074,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             const x = chainOf(dir, s.a.rel) === s.chain ? readById(s.orig, s.origId) : null;
             ours = Boolean(x) && sha(x) === s.a.hash;
           } catch { ours = false; }
+          if (ours && !restored) throw new Error(`the original could not be put back at its name; it is kept at ${s.orig}`);
           if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash });
           else if (!provablyGone(s.orig)) throw new Error(`the original changed during the update (an edit through an open file), or could not be read; that version is kept at ${s.orig}`);
         });
