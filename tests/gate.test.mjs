@@ -986,14 +986,16 @@ test('a gate reached through a task folder link retargeted mid-check gets no dec
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   writeFileSync(join(outside, 'gate.md'), body);
   const gatePath = join(repo, 'dybs/work/link/gate.md');
-  // On the second `git log` (after the last status check), the link moves
-  // to an outside folder holding the very same bytes.
+  // Right after the last status check (the third), the link moves to an
+  // outside folder holding the very same bytes: only the folder pin can
+  // see that.
   const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
   const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
-  writeFileSync(join(bin, 'git'), `#!/bin/sh\ncase " $* " in *" log "*) echo x >> "${bin}/n"; if [ "$(wc -l < "${bin}/n")" -eq 2 ]; then ln -sfn "${outside}" "${join(repo, 'dybs/work/link')}"; fi;; esac\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\n"${realGit}" "$@"\ncode=$?\ncase " $* " in *" status "*) echo x >> "${bin}/n"; if [ "$(wc -l < "${bin}/n")" -eq 3 ]; then ln -sfn "${outside}" "${join(repo, 'dybs/work/link')}"; fi;; esac\nexit $code\n`, { mode: 0o755 });
   const run = (env) => { try { return { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
   assert.equal(run(process.env).code, 0, 'fresh as found');
   const r = run({ ...process.env, PATH: `${bin}:${process.env.PATH}` });
+  assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim().split('\n').length, 3, 'moved after the last status check');
   assert.equal(r.code, 2, r.out);
   for (const d of [repo, outside, bin]) rmSync(d, { recursive: true });
 });
@@ -1075,4 +1077,36 @@ test('a file that is not dybs/work/<task>/gate.md gets no decision', () => {
   writeFileSync(join(repo, 'dybs/work/t/gate.md'), body);
   assert.equal(run(join(repo, 'dybs/work/t/gate.md')).code, 0);
   rmSync(repo, { recursive: true });
+});
+
+// --- Codex review on PR #3 (7e28efa): the tree is checked after the last history query ---
+test('a file saved during the final history query gets no decision', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const head = g('rev-parse', '--short=7', 'HEAD');
+  const gatePath = join(repo, 'dybs/work/t/gate.md');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${head}\n`));
+  // The second `git log` (the last history query) is when the editor saves.
+  const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh
+"${realGit}" "$@"
+code=$?
+case " $* " in *" log "*)
+  n=$(cat "${bin}/n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "${bin}/n"
+  if [ "$n" = 2 ]; then printf two > "${repo}/code.js"; fi;;
+esac
+exit $code
+`, { mode: 0o755 });
+  let r;
+  try { r = { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } }) }; } catch (e) { r = { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+  assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim(), '2', 'the edit landed during the second history query');
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: uncommitted changes/);
+  rmSync(repo, { recursive: true });
+  rmSync(bin, { recursive: true });
 });

@@ -628,14 +628,17 @@ export function freshness(gatePath, text) {
   if (named !== head) {
     return { status: 'stale', head: short, reason: `gate.md says commit: ${field || '(not set)'}, but the evidence is at ${short}. Check the tables against ${short}, set commit: ${short}, and run the gate again` };
   }
-  // Checked once more, last: a file saved or a commit made while git ran
-  // above would otherwise go unseen. What is left is the instant between
-  // this and the decision, which then describes the tree as it was.
+  // Checked once more: a file saved or a commit made while git ran above
+  // would otherwise go unseen. The history query cannot see the tree, so
+  // the tree is checked after it, last of all. What is left is the instant
+  // between that and the decision, which then describes the tree as it was.
   const after = dirty();
   if (after) return after;
   let again = null;
   try { again = evidenceHead(); } catch { again = null; }
   if (again !== head) return { status: 'stale', head: short, reason: 'the evidence changed while the gate was checking it. Run the gate again' };
+  const last = dirty();
+  if (last) return last;
   return { status: 'fresh', head: short };
 }
 
