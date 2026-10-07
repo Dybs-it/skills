@@ -61,7 +61,7 @@ export const MANUAL_RULES = [
   { id: 'accepted-date', text: 'An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human\'s word.' },
   { id: 'sections', text: 'Every required `##` section is present (see the template or the doc contract).' },
   { id: 'cap', text: 'The doc is under its word cap, counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.' },
-  { id: 'html', text: 'No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in a line, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments and autolinks (`<https://…>`) are fine.' },
+  { id: 'html', text: 'No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.' },
 ];
 

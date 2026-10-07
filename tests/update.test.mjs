@@ -3898,3 +3898,29 @@ test('the README says what a replaced file keeps, and what it does not', () => {
   const t = readFileSync(join(PKG_ROOT, 'README.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(t, /A replaced file keeps its permissions and owner\. Extended attributes and ACLs on it are not carried over/);
 });
+
+test('a rename inside a folder swapped for a link to a folder holding the same file moves nothing outside', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let name = null;
+  // Right before the staging name is moved aside, the skill folder becomes
+  // a link to an outside folder holding a second name of the very file.
+  mod.testHooks.beforeMove = (p) => {
+    if (name || !String(p).endsWith('.new')) return;
+    name = basename(String(p));
+    linkSync(p, join(outside, name));
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  try { try { mod.applyPlan(plan); } catch { /* reported */ } } finally { mod.testHooks.beforeMove = null; }
+  assert.ok(name, 'the hook ran');
+  assert.deepEqual(readdirSync(outside), [name], 'the outside entry keeps its name');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
