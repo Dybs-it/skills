@@ -3942,3 +3942,46 @@ test('a skill folder linked to a folder of another name is no evidence of an ins
   assert.deepEqual(readdirSync(join(root, '.cache/skills/dybs-prd')), [], 'the empty folder is not written into');
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #1 (363dcdf): owners everywhere modes are kept ---
+test('a removed file whose owner changed after the plan stops the update', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../src/update.mjs');
+  const { chownSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const gone = join(dirname(prd(root)), 'gone.md');
+  writeFileSync(gone, 'old gone');
+  const plan = mod.planInstall(findInstalls([root])[0], { known: { ...knownHashes(), 'dybs-prd/gone.md': [sha('old gone')] } });
+  chownSync(gone, 65534, 65534);
+  assert.throws(() => mod.applyPlan(plan), /owner changed since the update was planned/);
+  assert.equal(readFileSync(gone, 'utf8'), 'old gone');
+  rmSync(root, { recursive: true });
+});
+
+test('rollback keeps a placed file whose owner changed', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../src/update.mjs');
+  const { chownSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const plan = mod.planInstall(findInstalls([root])[0], { known: { 'dybs-prd/SKILL.md': [sha('old shipped version')] } });
+  // The new file is placed, then re-owned, then the update fails.
+  const beforeCommit = () => { chownSync(prd(root), 65534, 65534); throw new Error('failed before commit'); };
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit }));
+  const dir = dirname(prd(root));
+  assert.ok(readdirSync(dir).some((n) => { try { return statSync(join(dir, n)).uid === 65534 && readFileSync(join(dir, n), 'utf8') === shippedFiles('dybs-prd')[SKILL].toString(); } catch { return false; } }), 'the re-owned placed file is kept');
+  rmSync(root, { recursive: true });
+});
+
+test('rollback keeps a --force backup whose owner changed', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../src/update.mjs');
+  const { chownSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own version');
+  const plan = mod.planInstall(findInstalls([root])[0], { force: true });
+  const beforeCommit = () => { chownSync(`${prd(root)}.bak`, 65534, 65534); throw new Error('failed before commit'); };
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit }));
+  assert.equal(statSync(`${prd(root)}.bak`).uid, 65534, 'the re-owned backup is kept');
+  rmSync(root, { recursive: true });
+});
