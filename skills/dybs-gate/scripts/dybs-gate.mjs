@@ -714,13 +714,17 @@ export function freshness(gatePath, text) {
 // Never through a link at its own name (O_NOFOLLOW), and only while the
 // opened file is what the name itself is (no link followed, same device
 // and inode): a gate swapped for a link mid-check is no input at all.
-function readGate(p) {
-  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
+// With `id` (from pinPath), only that very file is read: O_NOFOLLOW guards
+// the name alone, so a folder on the way swapped for a link during the open
+// would hand over another file, which the descriptor's identity shows.
+function readGate(p, id) {
+  const fd = gateFs.open(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
   try {
-    const st = fstatSync(fd);
+    const st = fstatSync(fd, { bigint: true });
     if (!st.isFile()) throw Object.assign(new Error('not a regular file'), { code: 'not a regular file' });
-    const own = lstatSync(p);
+    const own = lstatSync(p, { bigint: true });
     if (own.isSymbolicLink() || own.dev !== st.dev || own.ino !== st.ino) throw Object.assign(new Error('not a regular file'), { code: 'not a regular file' });
+    if (id !== undefined && `${st.dev}:${st.ino}:${st.birthtimeNs}` !== id) throw Object.assign(new Error('a folder on the way changed'), { code: 'a folder on the way changed' });
     return readFileSync(fd, 'utf8');
   } finally { closeSync(fd); }
 }
@@ -732,9 +736,9 @@ function readGate(p) {
 // A folder removed and recreated can get the very same inode back, so each
 // identity carries its birth time too (nanoseconds, where the filesystem
 // records one).
-export const gateFs = { lstat: lstatSync };
+export const gateFs = { lstat: lstatSync, open: openSync, realpath: realpathSync };
 function pinPath(p) {
-  const real = realpathSync(p);
+  const real = gateFs.realpath(p);
   const ids = [];
   for (let cur = real; dirname(cur) !== cur;) {
     cur = dirname(cur);
@@ -742,7 +746,10 @@ function pinPath(p) {
     if (st.isSymbolicLink() || !st.isDirectory()) return null;
     ids.push(`${st.dev}:${st.ino}:${st.birthtimeNs}`);
   }
-  return { real, chain: ids.join('/') };
+  // The gate itself too: every read must be this very file.
+  const own = gateFs.lstat(real, { bigint: true });
+  if (own.isSymbolicLink() || !own.isFile()) throw Object.assign(new Error('not a regular file'), { code: 'not a regular file' });
+  return { real, chain: ids.join('/'), id: `${own.dev}:${own.ino}:${own.birthtimeNs}` };
 }
 
 export function main(argv) {
@@ -758,9 +765,14 @@ export function main(argv) {
   let text;
   let pin;
   try {
-    text = readGate(resolve(file));
+    // Pinned first, then read only as the pinned file, then pinned again:
+    // checks around a read alone would pass a read made through a folder
+    // swapped for a link and back in between.
     pin = pinPath(resolve(file));
     if (!pin) throw Object.assign(new Error('a folder on the way changed'), { code: 'a folder on the way changed' });
+    text = readGate(resolve(file), pin.id);
+    const again = pinPath(resolve(file));
+    if (!again || again.real !== pin.real || again.chain !== pin.chain || again.id !== pin.id) throw Object.assign(new Error('a folder on the way changed'), { code: 'a folder on the way changed' });
   } catch (err) {
     // A link at the gate's name is the freshness rule's to explain: Git
     // cannot see the file it points to change.
@@ -801,8 +813,8 @@ export function main(argv) {
   // gate.md itself is exempt from the dirty check, so an edit saved while
   // git ran would go unseen: the decision is only for the bytes still there.
   let after = null;
-  const same = () => { const now = pinPath(resolve(file)); return Boolean(now) && now.real === pin.real && now.chain === pin.chain; };
-  try { after = same() ? readGate(pin.real) : null; if (!same()) after = null; } catch { after = null; }
+  const same = () => { const now = pinPath(resolve(file)); return Boolean(now) && now.real === pin.real && now.chain === pin.chain && now.id === pin.id; };
+  try { after = same() ? readGate(pin.real, pin.id) : null; if (!same()) after = null; } catch { after = null; }
   if (after !== text) {
     const problem = `${file} changed while it was being checked; run the gate again`;
     if (json) console.log(JSON.stringify({ schema: 1, decision: null, problems: [problem] }, null, 2));

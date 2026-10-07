@@ -1227,3 +1227,44 @@ test('a cited test that is a link, or reached through one, gets no decision', ()
     rmSync(outside, { recursive: true });
   }
 });
+
+// --- Codex review on PR #3 (b789b61): every read is bound to the pinned gate ---
+test('a gate read through a task folder swapped for a link during the read gets no decision', async () => {
+  const mod = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  const { renameSync } = await import('node:fs');
+  const { repo, gatePath } = gateRepo();
+  // The repository's real gate fails; an outside copy with the same commit passes.
+  const passing = readFileSync(gatePath, 'utf8');
+  writeFileSync(gatePath, passing.replace(/\| a \| P0 \| FULL \| tests\/a\.test\.js:1 \|/, '| a | P0 | NONE | none |'));
+  assert.notEqual(readFileSync(gatePath, 'utf8'), passing, 'the real gate was changed to a failing one');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'gate.md'), passing);
+  const taskDir = dirname(gatePath);
+  const real = { ...mod.gateFs };
+  let swaps = 0;
+  let swapped = false;
+  const restore = () => { if (swapped) { rmSync(taskDir); renameSync(`${taskDir}.moved`, taskDir); swapped = false; } };
+  // Every read of the gate goes through the task folder swapped for a link
+  // to the outside folder, put back only when the next pin starts: pins
+  // before and after see the real tree, the whole read sees the outside one.
+  mod.gateFs.open = (p, flags) => {
+    if (p === gatePath || p === realpathSync(gatePath)) {
+      swaps++;
+      swapped = true;
+      renameSync(taskDir, `${taskDir}.moved`);
+      symlinkSync(outside, taskDir);
+    }
+    return real.open(p, flags);
+  };
+  mod.gateFs.realpath = (p) => { restore(); return real.realpath(p); };
+  const log = console.log; const err = console.error;
+  let out = '';
+  console.log = (...a) => { out += a.join(' ') + '\n'; }; console.error = console.log;
+  let code;
+  try { code = mod.main(['node', 'dybs-gate.mjs', gatePath]); } finally { restore(); Object.assign(mod.gateFs, real); console.log = log; console.error = err; }
+  assert.ok(swaps >= 1, 'the gate was read through the swapped folder');
+  assert.notEqual(code, 0, out);
+  assert.doesNotMatch(out, /Decision: PASS/);
+  rmSync(repo, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
