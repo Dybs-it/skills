@@ -3480,3 +3480,41 @@ test('a required section heading with nested images and links reads as rendered'
   // A link never holds a link: `[[Problem](u)](v)` shows `[Problem](v)`.
   assert.ok(!has('## [[Problem](u)](v)'));
 });
+
+// --- Codex review on PR #2 (53638c2): log writes, URL metadata, a save during a read ---
+test('every doc skill declares the decision log among what it writes', () => {
+  for (const doc of ['prd', 'scope', 'domain', 'architecture', 'ux', 'ui']) {
+    const t = readFileSync(join(ROOT, `skills/dybs-${doc}/SKILL.md`), 'utf8');
+    const writes = t.split('**Writes:**')[1].split('\n\n')[0];
+    assert.ok(writes.includes('`dybs/log.md`'), doc);
+  }
+});
+
+test('a frontmatter value that is a URL may hold TODO, other values may not', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const withValue = (v) => validateDoc('prd', accepted.replace('status: accepted', `status: accepted\nsource: ${v}`)).rules.includes('placeholder');
+  assert.ok(!withValue('https://example.test/TODO/123'));
+  assert.ok(!withValue('"https://example.test/TBD"'));
+  assert.ok(withValue('TODO'));
+  assert.ok(withValue('see TODO later'));
+  assert.ok(withValue('{{source_url}}'));
+});
+
+test('a doc replaced while its bytes are read is reported, never passed', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  for (const name of ['prd', 'project']) {
+    const dir = copySample();
+    const file = name === 'project' ? 'dybs/project.md' : 'dybs/context/prd.md';
+    const doc = join(dir, file);
+    mod.validateHooks.beforeBytes = (p) => {
+      if (p !== doc) return;
+      writeFileSync(`${doc}.new`, 'INVALID');
+      renameSync(`${doc}.new`, doc);
+    };
+    let r;
+    try { r = validateProject(dir, 'prd'); } finally { mod.validateHooks.beforeBytes = null; }
+    assert.equal(r.ok, false, name);
+    assert.match(r.results.find((x) => x.name === name).errors.join(' '), /changed while it was read/, name);
+    rmSync(dir, { recursive: true });
+  }
+});

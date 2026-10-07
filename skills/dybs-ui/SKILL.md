@@ -11,7 +11,8 @@ under `skip:`, say so and stop.
 
 **Reads:** `project.md`, `context/ux.md`, `context/domain.md`, `log.md`.
 **Writes:** `dybs/context/ui.md` from `template.md` (cap: 700 words quick,
-1400 thorough).
+1400 thorough), and appends each round's answers and any **Needs you** items
+to `dybs/log.md`.
 
 ## Read first
 
