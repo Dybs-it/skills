@@ -1562,17 +1562,22 @@ test('the moved-aside original is checked against the identity it was created wi
   const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
   const plan = mod.planInstall(findInstalls([root])[0], { known });
   let replaced = null;
-  // After the original name is dropped, a watcher replaces the .old entry
-  // with its own file holding the same bytes.
-  mod.testHooks.afterLook = (p) => {
-    if (replaced || !p.endsWith(SKILL)) return;
-    const old = readdirSync(dirname(p)).find((n) => n.endsWith('.old'));
-    if (!old) return;
-    replaced = join(dirname(p), old);
-    writeFileSync(`${replaced}.x`, 'old shipped version');
-    renameSync(`${replaced}.x`, replaced);
+  // After the original name is dropped (its private name removed), a
+  // watcher replaces the .old entry with its own file holding the same bytes.
+  const real = { ...mod.fsOps };
+  mod.fsOps.rm = (p, ...rest) => {
+    const r = real.rm(p, ...rest);
+    if (!replaced && basename(p).startsWith(`${SKILL}.`) && p.endsWith('.rm')) {
+      const old = readdirSync(dirname(p)).find((n) => n.endsWith('.old'));
+      if (old) {
+        replaced = join(dirname(p), old);
+        writeFileSync(`${replaced}.x`, 'old shipped version');
+        renameSync(`${replaced}.x`, replaced);
+      }
+    }
+    return r;
   };
-  try { assert.throws(() => mod.applyPlan(plan), /not where it was moved aside/); } finally { mod.testHooks.afterLook = null; }
+  try { assert.throws(() => mod.applyPlan(plan), /not where it was moved aside/); } finally { Object.assign(mod.fsOps, real); }
   assert.ok(replaced);
   assert.ok(existsSync(replaced), 'the watcher\'s file is never deleted');
   rmSync(root, { recursive: true });
@@ -3364,4 +3369,73 @@ test('a folder swapped during the removed file mode lookup stops the update', as
   assert.ok(rd(join(skill, 'sub')).some((n) => { try { return readFileSync(join(skill, 'sub', n), 'utf8') === 'old gone'; } catch { return false; } }), 'the file is kept');
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
+});
+
+// --- Codex review on PR #1 (74f1095) and #2 (b5d477f) ---
+test('the original name is dropped only while the moved-aside link still holds the file', async () => {
+  const mod = await import('../src/update.mjs');
+  const { unlinkSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let removed = null;
+  // Right after link(), someone removes the new .old name again.
+  mod.testHooks.afterLook = (p) => {
+    if (removed || !p.endsWith(SKILL)) return;
+    const old = readdirSync(dirname(p)).find((n) => n.endsWith('.old'));
+    if (!old) return;
+    removed = join(dirname(p), old);
+    unlinkSync(removed);
+  };
+  try { assert.throws(() => mod.applyPlan(plan)); } finally { mod.testHooks.afterLook = null; }
+  assert.ok(removed);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version', 'the original keeps its name');
+  rmSync(root, { recursive: true });
+});
+
+test('without hard links, rollback keeps an original whose mode changed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(join(dir, 'gone.md'), 'old gone');
+  chmodSync(join(dir, 'gone.md'), 0o644);
+  const known = { ...knownHashes(), 'dybs-prd/gone.md': [sha('old gone')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let tightened = null;
+  // The original, moved to its private name, is tightened through an open
+  // file; then the update fails and rolls back.
+  const beforeCommit = () => {
+    tightened = readdirSync(dir).find((n) => n.startsWith('gone.md.') && n.endsWith('.rm'));
+    chmodSync(join(dir, tightened), 0o600);
+    throw new Error('failed before commit');
+  };
+  try { assert.throws(() => mod.applyPlan(plan, { beforeCommit })); } finally { Object.assign(mod.fsOps, real); }
+  assert.ok(tightened);
+  const kept = readdirSync(dir).filter((n) => { try { return readFileSync(join(dir, n), 'utf8') === 'old gone' && (statSync(join(dir, n)).mode & 0o777) === 0o600; } catch { return false; } });
+  assert.ok(kept.length, `the tightened original is kept: ${readdirSync(dir).join(', ')}`);
+  rmSync(root, { recursive: true });
+});
+
+test('a moved-aside original replaced by another file stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const dir = dirname(prd(root));
+  let replaced = null;
+  const beforeCommit = () => {
+    const old = readdirSync(dir).find((n) => n.endsWith('.old'));
+    replaced = join(dir, old);
+    writeFileSync(`${replaced}.x`, 'old shipped version');
+    renameSync(`${replaced}.x`, replaced);
+  };
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /was replaced during the update/);
+  assert.ok(replaced);
+  rmSync(root, { recursive: true });
 });

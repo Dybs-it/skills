@@ -673,9 +673,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     let now = null;
     // Only an original that is provably gone has no permissions to keep; a
     // lookup that fails otherwise (EIO, ESTALE) is no answer, so it stops.
-    try { const st = fsOps.lstat(src, BIG); if (idOfStat(st) === srcId) now = Number(st.mode) & 0o7777; } catch (e) {
+    // Another file at the private name is no answer either: the original
+    // may still be held open somewhere and its permissions changed there.
+    let st = null;
+    try { st = fsOps.lstat(src, BIG); } catch (e) {
       if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw new Error(`the permissions of ${s.a.rel} could not be checked (${e.code || e.message}); nothing was changed, run update again`);
     }
+    if (st && idOfStat(st) !== srcId) throw new Error(`the original of ${s.a.rel} was replaced during the update; nothing was changed, run update again`);
+    if (st) now = Number(st.mode) & 0o7777;
     if (now !== null && now !== s.mode) throw new Error(`${s.a.rel} had its permissions changed during the update; nothing was changed, run update again`);
   };
   // At cleanup too: an original whose permissions changed after the commit
@@ -848,7 +853,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           s.old = old;
           s.oldId = linkedId;
           done.push(s);
-          rmIfOurs(s.p, s.oldId, () => pinned(s));
+          // Only while the name just made still holds it too: a second
+          // name removed by someone meanwhile leaves this as the last one.
+          rmIfOurs(s.p, s.oldId, () => pinned(s), { shared: true });
         } catch (err) {
           if (err.code === 'EEXIST') throw new Error(`something appeared at ${basename(old)} during the update; nothing was changed, run update again`);
           if (s.old || !NO_HARD_LINKS.includes(err.code)) throw err;
@@ -1132,7 +1139,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             ours = Boolean(x) && sha(x) === s.a.hash;
           } catch { ours = false; }
           if (ours && !restored) throw new Error(`the original could not be put back at its name; it is kept at ${s.orig}`);
-          if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash });
+          if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null });
           else if (!provablyGone(s.orig)) throw new Error(`the original changed during the update (an edit through an open file), or could not be read; that version is kept at ${s.orig}`);
         });
       }
