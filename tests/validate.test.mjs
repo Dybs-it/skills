@@ -3413,3 +3413,58 @@ test('a required section written as an image heading is present', () => {
   // An escaped `!` is text: the heading reads `!Problem`.
   assert.ok(validateDoc('prd', VALID_PRD.replace('## Problem', '## \\![Problem](x)')).rules.includes('sections'));
 });
+
+// --- Codex review on PR #2 (faa2fdc): literal private-use characters stay in a heading ---
+test('a heading holding private-use characters is not read as the required one', () => {
+  for (const c of ['\ue0f0', '\ue0f1', '\ue200', '\ue201']) {
+    const doc = VALID_PRD.replace('## Problem', `## ${c}Problem${c}`);
+    assert.ok(validateDoc('prd', doc).rules.includes('sections'), JSON.stringify(c));
+  }
+  // The image heading still reads as its alt text.
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Problem', '## ![Problem](x)')).rules.includes('sections'));
+});
+
+// --- Codex review on PR #2 (faa2fdc): acceptance keeps owner changes like mode changes ---
+test('an owner change on the original during --accept stops it', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { chownSync } = await import('node:fs');
+  for (const noLinks of [false, true]) {
+    const dir = copySample();
+    const ctx = join(dir, 'dybs/context');
+    const before = readFileSync(join(ctx, 'ui.md'), 'utf8');
+    const real = { ...mod.fsOps };
+    if (noLinks) mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+    // The original, moved aside (its .old link, or its private .rm name), is re-owned.
+    const beforePlace = () => {
+      const n = readdirSync(ctx).find((x) => x.startsWith('ui.md.') && (noLinks ? x.endsWith('.rm') : x.endsWith('.old')));
+      chownSync(join(ctx, n), 65534, 65534);
+    };
+    let r;
+    try { r = mod.acceptDoc(dir, 'ui', '2026-10-04', { beforePlace }); } catch (e) { r = { ok: false, errors: [e.message] }; } finally { Object.assign(mod.fsOps, real); }
+    assert.equal(r.ok, false, `noLinks=${noLinks}`);
+    assert.match(r.errors.join(' '), /owner changed during acceptance/, `noLinks=${noLinks}`);
+    assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8') === before; } catch { return false; } }));
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('--accept rollback keeps a placed doc whose owner changed', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { chownSync, statSync } = await import('node:fs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const doc = join(ctx, 'ui.md');
+  const project = join(dir, 'dybs/project.md');
+  // Placed, then re-owned; an input changes, so acceptance rolls back.
+  const afterPlace = () => {
+    chownSync(doc, 65534, 65534);
+    writeFileSync(project, `${readFileSync(project, 'utf8')}\nchanged\n`);
+  };
+  let r;
+  try { r = mod.acceptDoc(dir, 'ui', '2026-10-04', { afterPlace }); } catch (e) { r = { ok: false, errors: [e.message] }; }
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.ok(readdirSync(ctx).some((n) => { try { return statSync(join(ctx, n)).uid === 65534 && /status: accepted/.test(readFileSync(join(ctx, n), 'utf8')); } catch { return false; } }), 'the re-owned placed doc is kept');
+  rmSync(dir, { recursive: true });
+});

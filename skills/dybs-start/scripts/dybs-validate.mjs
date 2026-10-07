@@ -1078,12 +1078,17 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
     // A resolved link or image shows its text; an image (`## ![Why](x)`)
     // loses its `!` too, as its alt text is what renders. Marked first, so
     // only a `!` right before a resolved one goes (an escaped `\!` is text).
+    // The marks are two characters the heading itself does not hold, so a
+    // literal private-use character is never taken for one and dropped.
+    let open = 0xe200;
+    while (t.includes(String.fromCharCode(open)) || t.includes(String.fromCharCode(open + 1))) open += 2;
+    const [O, C] = [String.fromCharCode(open), String.fromCharCode(open + 1)];
     t = t.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
-      .replace(new RegExp(INLINE_LINK, 'g'), '\ue0f0$1\ue0f1')
-      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(raw(l || x))) ? `\ue0f0${x}\ue0f1` : m))
-      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? `\ue0f0${x}\ue0f1` : m))
-      .replace(/!(?=\ue0f0)/g, '')
-      .replace(/[\ue0f0\ue0f1]/g, '')
+      .replace(new RegExp(INLINE_LINK, 'g'), `${O}$1${C}`)
+      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(raw(l || x))) ? `${O}${x}${C}` : m))
+      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? `${O}${x}${C}` : m))
+      .replace(new RegExp(`!(?=${O})`, 'g'), '')
+      .split(O).join('').split(C).join('')
       .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
       .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2');
     return decodeReferences(t)
@@ -1492,7 +1497,7 @@ function renameInFolder(from, to, id) {
   } finally { try { process.chdir(back); } catch { /* the caller's folder is gone; nothing of ours depends on it */ } }
 }
 
-function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, mode = null } = {}) {
+function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, mode = null, owner = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -1526,6 +1531,8 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
   // The permissions too, under the private name: a mode changed through an
   // open file up to this instant is someone's work, and the file is kept.
   if (disposable && mode !== null) disposable = (Number(st.mode) & 0o7777) === mode;
+  // And its owner: a chown made meanwhile is someone's work, kept the same way.
+  if (disposable && owner) disposable = Number(st.uid) === owner.uid && Number(st.gid) === owner.gid;
   if (disposable) {
     // A failed unlink leaves the file under its private name: say where.
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
@@ -1811,11 +1818,13 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   // The doc's owner too: run as another user (root on a developer's
   // checkout), the accepted doc must still be its owner's to edit.
   const owner = { uid: Number(was.uid), gid: Number(was.gid) };
+  const ownedBy = (st) => Number(st.uid) === owner.uid && Number(st.gid) === owner.gid;
   let tmpId = null;
   let moved = false;
   let placed = false;
   let placedId = null;
   let placedMode = null;
+  let placedOwner = null;
   // Without hard links: the original itself, under a private name, kept
   // until the very end (an editor may still be writing to it).
   let origAside = null;
@@ -1824,9 +1833,9 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const dropOrigAside = () => {
     if (!origAside) return '';
     let same = false;
-    try { same = folderChain(root, rel) === dirs && readById(origAside.path, origAside.id) === text && (Number(fsOps.lstat(origAside.path, BIG).mode) & 0o7777) === mode; } catch { same = false; }
+    try { const st = fsOps.lstat(origAside.path, BIG); same = folderChain(root, rel) === dirs && readById(origAside.path, origAside.id) === text && (Number(st.mode) & 0o7777) === mode && ownedBy(st); } catch { same = false; }
     if (!same) return `the original was changed (an edit through an open file) or could not be confirmed; it is kept at ${origAside.path}`;
-    try { rmIfOurs(origAside.path, origAside.id, pinned, { expect: text, mode }); return ''; } catch (e) { return e.message; }
+    try { rmIfOurs(origAside.path, origAside.id, pinned, { expect: text, mode, owner }); return ''; } catch (e) { return e.message; }
   };
   let tmpWarning = null;
   let oldId = null;
@@ -1986,6 +1995,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       const st = fsOps.lstat(old, BIG);
       if (idOf(st) !== oldId) throw new Error(`the original of ${rel} was replaced during acceptance; nothing was written, run --accept again`);
       modeNow = Number(st.mode) & 0o7777;
+      if (!ownedBy(st)) throw new Error(`${rel} had its owner changed during acceptance; nothing was written, run --accept again`);
     } catch (e) {
       if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw e.code ? new Error(`the permissions of ${rel} could not be checked (${e.code}); nothing was written, run --accept again`) : e;
     }
@@ -1999,6 +2009,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
         const st = fsOps.lstat(origAside.path, BIG);
         if (idOf(st) !== origAside.id) throw new Error(`the original of ${rel} was replaced during acceptance; nothing was written, run --accept again`);
         asideMode = Number(st.mode) & 0o7777;
+        if (!ownedBy(st)) throw new Error(`${rel} had its owner changed during acceptance; nothing was written, run --accept again`);
       } catch (e) {
         if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw e.code ? new Error(`the permissions of ${rel} could not be checked (${e.code}); nothing was written, run --accept again`) : e;
       }
@@ -2013,7 +2024,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     placed = true;
     placedId = placedNow;
     // Its permissions as placed: a rollback removes it only while they hold.
-    try { placedMode = Number(fsOps.lstat(path, BIG).mode) & 0o7777; } catch { placedMode = null; }
+    try { const st = fsOps.lstat(path, BIG); placedMode = Number(st.mode) & 0o7777; placedOwner = { uid: Number(st.uid), gid: Number(st.gid) }; } catch { placedMode = null; }
     afterPlace?.(tmp);
     pinned();
     try { rmIfOurs(tmp, tmpId, pinned); } catch (e) {
@@ -2039,7 +2050,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (ours) {
       // Re-pinned inside the removal, right before its move: a folder
       // swapped for a link since the check above is never acted through.
-      try { rmIfOurs(old, oldId, pinned, { expect: text, mode }); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
+      try { rmIfOurs(old, oldId, pinned, { expect: text, mode, owner }); } catch (e) { ours = false; keptAt = e.keptAt ?? old; }
     }
     const done = [...check.warnings, ...(tmpWarning ? [tmpWarning] : [])];
     if (!ours) done.push(`the previous version changed or could not be confirmed during acceptance; kept at ${keptAt}`);
@@ -2052,13 +2063,14 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     if (placed) {
       let ours = false;
       try {
-        ours = folderChain(root, rel) === dirs && readById(path, placedId) === next && placedMode !== null && (Number(fsOps.lstat(path, BIG).mode) & 0o7777) === placedMode;
+        const st = fsOps.lstat(path, BIG);
+        ours = folderChain(root, rel) === dirs && readById(path, placedId) === next && placedMode !== null && (Number(st.mode) & 0o7777) === placedMode && Number(st.uid) === placedOwner?.uid && Number(st.gid) === placedOwner?.gid;
       } catch { ours = false; }
       // Removed by identity through a private name, never by a separate
       // look followed by an unlink: a save that replaces the doc in between
       // is kept, and the original is then not put back over it.
       if (ours) {
-        try { rmIfOurs(path, placedId, pinned, { expect: next, mode: placedMode }); } catch (e) { err.message += `; ${e.message}`; }
+        try { rmIfOurs(path, placedId, pinned, { expect: next, mode: placedMode, owner: placedOwner }); } catch (e) { err.message += `; ${e.message}`; }
       }
     }
     try { rmIfOurs(tmp, tmpId, pinned); } catch (e) { err.message += `; ${e.message}`; }
