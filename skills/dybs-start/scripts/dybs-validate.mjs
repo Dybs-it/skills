@@ -1534,7 +1534,7 @@ function stillAtName(p, st) {
 // text it must hold), it must also still hold it once under its private
 // name: an editor writing through an open file keeps the identity, so only
 // the content can tell, and an edited file is put back, not removed.
-export const testHooks = { afterLook: null, beforeMove: null, inFolder: null, beforePutBack: null, beforeDirBack: null };
+export const testHooks = { afterLook: null, beforeMove: null, inFolder: null, beforePutBack: null };
 // Renames `from` to `to` (same folder) only as the very file `id`. Node has
 // no renameat(), so a check by path and a rename by path can resolve through
 // different folders (one swapped for a link in between). The process steps
@@ -1595,22 +1595,10 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
     return;
   }
   // A folder that replaced the file in the last instant cannot be linked
-  // or copied back: it is renamed back, only while its name is still free
-  // and the folders on the way are still the pinned ones.
+  // or copied back, and a rename back could take the place of an empty
+  // folder that appeared at the name since: it stays at its private name.
   if (st?.isDirectory()) {
-    let free = false;
-    try { fsOps.lstat(p); } catch (e) { free = e.code === 'ENOENT'; }
-    // Moved inside the very folder it is in (renameInFolder), never by a
-    // path a folder swapped for a link could send elsewhere.
-    try {
-      if (!free) throw new Error('taken');
-      check?.();
-      testHooks.beforeDirBack?.(aside);
-      if (!renameInFolder(aside, p, idOf(st))) throw new Error('moved');
-    } catch {
-      throw Object.assign(new Error(`${p} changed while it was being removed; it is kept at ${aside}`), { keptAt: aside });
-    }
-    throw new Error(`${p} changed while it was being removed; left in place`);
+    throw Object.assign(new Error(`${p} changed while it was being removed; it is a folder now, kept at ${aside}`), { keptAt: aside });
   }
   // Put back without overwriting anything: by link where the filesystem
   // has them, else as an exclusive copy (a snapshot, so the file itself is

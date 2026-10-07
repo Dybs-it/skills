@@ -4081,36 +4081,27 @@ test('a file put back whose restored name is removed keeps its private name', as
   rmSync(root, { recursive: true });
 });
 
-test('a folder that took the staging name goes back inside the pinned folder, never through a swapped one', async () => {
+test('a folder that took the staging name stays at its private name, never renamed over a new one', async () => {
   const mod = await import('../src/update.mjs');
-  const { renameSync } = await import('node:fs');
   const root = project(['dybs-prd']);
-  const dir = join(root, '.agents/skills/dybs-prd');
   writeFileSync(prd(root), 'old shipped version');
   const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
   const plan = mod.planInstall(findInstalls([root])[0], { known });
-  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   let replaced = null;
-  let swapped = null;
   mod.testHooks.inFolder = (p) => {
     if (replaced || !String(p).endsWith('.new')) return;
     replaced = String(p);
     rmSync(replaced);
     mkdirSync(replaced);
+    writeFileSync(join(replaced, 'theirs.txt'), 'their folder');
   };
-  // Right before the folder is moved back, the skill folder is swapped for
-  // a link to an outside folder holding an entry of the same private name.
-  mod.testHooks.beforeDirBack = (aside) => {
-    swapped = basename(aside);
-    mkdirSync(join(outside, swapped));
-    renameSync(dir, `${dir}.moved`);
-    symlinkSync(outside, dir);
-  };
-  try { try { mod.applyPlan(plan); } catch { /* reported */ } } finally { mod.testHooks.inFolder = null; mod.testHooks.beforeDirBack = null; }
-  assert.ok(swapped, 'the folder reached the move back');
-  assert.deepEqual(readdirSync(outside).sort(), [swapped], 'nothing outside was renamed');
+  let err = null;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { mod.testHooks.inFolder = null; }
+  assert.ok(replaced, 'the folder took the staging name');
+  const kept = err?.message.match(/it is a folder now, kept at (\S+?\.rm)/)?.[1];
+  assert.ok(kept, err?.message);
+  assert.equal(readFileSync(join(kept, 'theirs.txt'), 'utf8'), 'their folder');
   rmSync(root, { recursive: true });
-  rmSync(outside, { recursive: true });
 });
 
 test('the README says what a replaced file keeps, and what it does not', () => {
@@ -4234,4 +4225,35 @@ test('a skill folder swapped for a link right after the commit-time read stops t
   assert.match(err?.message ?? '(no error: reported as applied)', /changed during the update/);
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
+});
+
+// --- Codex review on PR #1 (cc15e61): snapshot-only rollback, folders pruned newest first ---
+test('without hard links, a stop before the original moves leaves no snapshot behind', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let err = null;
+  try { mod.applyPlan(plan, { beforeAside: () => { throw new Error('stop here'); } }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.match(err?.message ?? '', /stop here/);
+  assert.doesNotMatch(err.message, /could not undo/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  assert.deepEqual(readdirSync(dirname(prd(root))).filter((n) => n.includes('.dybs-')), [], 'no snapshot or staging file left');
+  rmSync(root, { recursive: true });
+});
+
+test('a rollback removes sibling folders it made under a new parent, and the parent', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  const plan = mod.planInstall(findInstalls([root])[0]);
+  // Two added files in sibling folders under a parent that is not there.
+  plan.want = { ...plan.want, 'nest/a/one.md': Buffer.from('one'), 'nest/b/two.md': Buffer.from('two') };
+  plan.actions = [...plan.actions, { op: 'add', rel: 'nest/a/one.md' }, { op: 'add', rel: 'nest/b/two.md' }];
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit: () => { throw new Error('stop at commit'); } }), /stop at commit/);
+  assert.ok(!existsSync(join(dir, 'nest')), 'the parent the update made is gone too');
+  rmSync(root, { recursive: true });
 });

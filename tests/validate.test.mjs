@@ -3605,31 +3605,25 @@ test('acceptance: a file put back whose restored name is removed keeps its priva
   rmSync(dir, { recursive: true });
 });
 
-test('acceptance: a folder that took the staging name goes back inside the pinned folder', async () => {
+test('acceptance: a folder that took the staging name stays at its private name', async () => {
   const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
-  const { mkdirSync, readdirSync } = await import('node:fs');
+  const { mkdirSync } = await import('node:fs');
   const dir = copySample();
-  const ctx = join(dir, 'dybs/context');
-  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   let replaced = null;
-  let swapped = null;
   mod.testHooks.inFolder = (p) => {
     if (replaced || !p.endsWith('.tmp')) return;
     replaced = p;
     rmSync(p);
     mkdirSync(p);
+    writeFileSync(join(p, 'theirs.txt'), 'their folder');
   };
-  mod.testHooks.beforeDirBack = (aside) => {
-    swapped = aside.split('/').at(-1);
-    mkdirSync(join(outside, swapped));
-    renameSync(ctx, `${ctx}.moved`);
-    symlinkSync(outside, ctx);
-  };
-  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* reported */ } finally { mod.testHooks.inFolder = null; mod.testHooks.beforeDirBack = null; }
-  assert.ok(swapped, 'the folder reached the move back');
-  assert.deepEqual(readdirSync(outside).sort(), [swapped], 'nothing outside was renamed');
+  let err = null;
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch (e) { err = e; } finally { mod.testHooks.inFolder = null; }
+  assert.ok(replaced, 'the folder took the staging name');
+  const kept = err?.message.match(/it is a folder now, kept at (\S+?\.rm)/)?.[1];
+  assert.ok(kept, err?.message);
+  assert.equal(readFileSync(join(kept, 'theirs.txt'), 'utf8'), 'their folder');
   rmSync(dir, { recursive: true });
-  rmSync(outside, { recursive: true });
 });
 
 test('every doc skill reads every doc earlier in the order', async () => {

@@ -389,7 +389,7 @@ function writeOwnFile(p, data, mode, onCreate, owner) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterPlace: null, beforePlacedMode: null, inFolder: null, afterLook: null, afterMkdir: null, afterCommitRead: null, beforeMove: null, beforePutBack: null, beforeDirBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterPlace: null, beforePlacedMode: null, inFolder: null, afterLook: null, afterMkdir: null, afterCommitRead: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -456,22 +456,11 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
     return;
   }
   // A folder that replaced the file in the last instant cannot be linked
-  // or copied back: it is renamed back, only while its name is still free
-  // and the folders on the way are still the pinned ones.
+  // or copied back, and a rename back could replace an empty folder that
+  // appeared at the name since (rename takes an empty target folder's
+  // place): it stays at its private name, which the error gives.
   if (st?.isDirectory()) {
-    let free = false;
-    try { fsOps.lstat(p); } catch (e) { free = e.code === 'ENOENT'; }
-    // Moved inside the very folder it is in (renameInFolder), never by a
-    // path a folder swapped for a link could send elsewhere.
-    try {
-      if (!free) throw new Error('taken');
-      check?.();
-      testHooks.beforeDirBack?.(aside);
-      if (!renameInFolder(aside, p, idOfStat(st))) throw new Error('moved');
-    } catch {
-      throw Object.assign(new Error(`${p} is not the file the update wrote; it is kept at ${aside}`), { keptAt: aside });
-    }
-    throw new Error(`${p} is not the file the update wrote; left in place`);
+    throw Object.assign(new Error(`${p} is not the file the update wrote; it is a folder now, kept at ${aside}`), { keptAt: aside });
   }
   // Put back without overwriting anything: by link where the filesystem
   // has them, else as an exclusive copy. A copy is a snapshot (an editor
@@ -1026,6 +1015,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           }
           s.old = old;
           s.oldId = copyId;
+          // Only a snapshot so far: the original is still at its own name,
+          // so a rollback from here removes the snapshot and nothing else.
+          s.snapshotOnly = true;
           done.push(s);
           beforeAside?.(s);
           // Re-pinned right before the move: through a folder swapped for a
@@ -1039,6 +1031,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // original itself: through a folder swapped for a link it moves nothing.
           testHooks.beforeMove?.(s.p);
           if (!renameInFolder(s.p, aside, origId)) throw new Error(`${s.a.rel} changed while it was being moved aside; nothing was changed, run update again`);
+          s.snapshotOnly = false;
           let same = false;
           try { const x = readById(aside, origId); const y = readById(old, s.oldId); same = Boolean(x && y) && sha(x) === sha(y); } catch { same = false; }
           if (!same) {
@@ -1269,6 +1262,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // original itself (`s.orig`) is the only one, and is never removed.
       let restored = false;
       let restoredHow = null;
+      // Stopped before the original moved (no hard links): it is still at
+      // its name, and the snapshot is all there is to remove.
+      if (s.snapshotOnly) {
+        undo(s.a.rel, () => rmIfOurs(s.old, s.oldId, chainCheck(s), { expect: s.a.hash }));
+        continue;
+      }
       if (s.old) {
         undo(s.a.rel, () => {
           if (chainOf(dir, s.a.rel) !== s.chain || idOf(s.old) !== s.oldId) {
@@ -1350,7 +1349,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       });
     }
     for (const a of actions) delete a.backup;
-    for (const d of createdDirs) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop, d.stopId));
+    // Newest first: a later file's folders may sit inside an earlier one's
+    // (nest/b inside the nest/ that nest/a/ made), which only empties after.
+    for (const d of [...createdDirs].reverse()) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop, d.stopId));
     if (stuck.length) err.message += `; could not undo everything, check by hand: ${stuck.join('; ')}`;
     throw err;
   }
