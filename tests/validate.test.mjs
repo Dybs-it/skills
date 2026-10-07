@@ -3468,3 +3468,15 @@ test('--accept rollback keeps a placed doc whose owner changed', async (t) => {
   assert.ok(readdirSync(ctx).some((n) => { try { return statSync(join(ctx, n)).uid === 65534 && /status: accepted/.test(readFileSync(join(ctx, n), 'utf8')); } catch { return false; } }), 'the re-owned placed doc is kept');
   rmSync(dir, { recursive: true });
 });
+
+// --- Codex review on PR #1 (a74b7c6): nested images and links in a heading ---
+test('a required section heading with nested images and links reads as rendered', () => {
+  const has = (h) => !validateDoc('prd', VALID_PRD.replace('## Problem', h)).rules.includes('sections');
+  // Checked against commonmark.js: an image may hold a link or an image, a link an image.
+  assert.ok(has('## ![[Problem](u)](v)'));
+  assert.ok(has('## [![Problem](u)](v)'));
+  assert.ok(has('## ![![Problem](u)](v)'));
+  assert.ok(has('[r]: /x\n\n## ![[Problem](u)][r]'));
+  // A link never holds a link: `[[Problem](u)](v)` shows `[Problem](v)`.
+  assert.ok(!has('## [[Problem](u)](v)'));
+});
