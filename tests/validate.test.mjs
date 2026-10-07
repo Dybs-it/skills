@@ -3532,3 +3532,99 @@ test('a method README that is a link is refused, never read through', async () =
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+// --- Codex review on PR #1 (12a94c1): cap text, brackets in link text, code blocks ---
+test('the hand-check cap rule names everything the word count leaves out', async () => {
+  const { MANUAL_RULES, wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const cap = MANUAL_RULES.find((r) => r.id === 'cap').text;
+  for (const part of ['HTML comments', 'code blocks', 'link destinations and titles', 'reference definitions']) assert.ok(cap.includes(part), part);
+  // What the rule names is what the count leaves out.
+  assert.equal(wordCount('[one](/a-long/path "a long title")\n\n[r]: /u "more words here"\n'), 1);
+});
+
+test('link text may hold balanced brackets, and its target is still metadata', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const doc = VALID_PRD.replace('## Goals', '## Goals\n\nSee [shown [note]](/u "<div>") here.\n');
+  assert.ok(!validateDoc('prd', doc).rules.includes('html'));
+  assert.equal(wordCount('[shown [note]](/u "a b c d e f")\n'), 2);
+  // A link inside link text keeps the outer brackets as text: its target shows.
+  assert.equal(wordCount('[a [b](u) c](v w)\n'), wordCount('a b c](v w)\n') + 0);
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  assert.ok(!validateDoc('prd', `${accepted}\nSee [shown [x]](/TODO).\n`).rules.includes('placeholder'));
+  assert.ok(validateDoc('prd', `${accepted}\nT[O [x]](/u)DO\n`).rules.includes('placeholder') === false);
+});
+
+test('a code block shows its text literally to the placeholder check', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(!flagged('\n```\nT[O](x)DO\n```\n'));
+  // After a paragraph that ends the fixture's last list (indented under
+  // the list it would continue the item, and render as a paragraph).
+  assert.ok(!flagged('\nText.\n\n    T[O](x)DO\n'));
+  assert.ok(!flagged('\n```\nT*O*DO\n```\n'));
+  // Literal text in a block is still read: a TODO written there shows.
+  assert.ok(flagged('\n```\nTODO\n```\n'));
+  assert.ok(flagged('\nText.\n\n    TBD\n'));
+});
+
+// --- Codex review on PR #2 (a44a495): acceptance put-backs keep a last name, folders go back in place ---
+test('acceptance: a file put back whose restored name is removed keeps its private name', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { readdirSync, unlinkSync } = await import('node:fs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  let replaced = null;
+  let removed = false;
+  mod.testHooks.inFolder = (p) => {
+    if (replaced || !p.endsWith('.tmp')) return;
+    replaced = p;
+    writeFileSync(`${p}.x`, 'someone else');
+    renameSync(`${p}.x`, p);
+  };
+  mod.testHooks.beforeMove = (p) => {
+    if (!replaced || removed || !String(p).startsWith(`${replaced}.`) || !String(p).endsWith('.rm')) return;
+    removed = true;
+    unlinkSync(replaced);
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* reported */ } finally { mod.testHooks.inFolder = null; mod.testHooks.beforeMove = null; }
+  assert.ok(removed, 'the restored name was removed');
+  assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8') === 'someone else'; } catch { return false; } }), 'their file still has a name');
+  rmSync(dir, { recursive: true });
+});
+
+test('acceptance: a folder that took the staging name goes back inside the pinned folder', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { mkdirSync, readdirSync } = await import('node:fs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let replaced = null;
+  let swapped = null;
+  mod.testHooks.inFolder = (p) => {
+    if (replaced || !p.endsWith('.tmp')) return;
+    replaced = p;
+    rmSync(p);
+    mkdirSync(p);
+  };
+  mod.testHooks.beforeDirBack = (aside) => {
+    swapped = aside.split('/').at(-1);
+    mkdirSync(join(outside, swapped));
+    renameSync(ctx, `${ctx}.moved`);
+    symlinkSync(outside, ctx);
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* reported */ } finally { mod.testHooks.inFolder = null; mod.testHooks.beforeDirBack = null; }
+  assert.ok(swapped, 'the folder reached the move back');
+  assert.deepEqual(readdirSync(outside).sort(), [swapped], 'nothing outside was renamed');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('every doc skill reads every doc earlier in the order', async () => {
+  const { ORDER } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const docs = ORDER.filter((d) => d !== 'project');
+  for (const [i, doc] of docs.entries()) {
+    const t = readFileSync(join(ROOT, `skills/dybs-${doc}/SKILL.md`), 'utf8');
+    const reads = t.split('**Reads:**')[1].split('**Writes:**')[0];
+    for (const earlier of docs.slice(0, i)) assert.ok(reads.includes(`context/${earlier}.md`), `${doc} reads ${earlier}`);
+  }
+});

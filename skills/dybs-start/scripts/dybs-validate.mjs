@@ -64,7 +64,7 @@ export const MANUAL_RULES = [
   { id: 'accepted-date', text: 'An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human\'s word.' },
   { id: 'sections', text: 'Every required `##` section is present (see the template or the doc contract).' },
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
-  { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), not counting HTML comments and code blocks.' },
+  { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.' },
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
   { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
@@ -799,7 +799,10 @@ const INLINE_TARGET = String.raw`\(${GAP}${LINK_DEST}(?:(?:[ \t]+(?:\n[ \t]*)?|\
 // Only after an unescaped `[` opener, with no brackets in the link text: a
 // bare `](x)` is text, and so is `[a [b](c)](x)`'s outer part (a link holds
 // no link). One pass only, so a stripped link never forms a new one.
-const INLINE_LINK = String.raw`(?<!\\)\[((?:[^\[\]\\\n]|\\.)*)\]${INLINE_TARGET}`;
+// Link text may hold balanced brackets (`[shown [note]](/u)`), but never
+// a link or a reference: a bracket pair followed by `(` or `[` is left as
+// written, so the outer brackets stay text, as CommonMark has them.
+const INLINE_LINK = String.raw`(?<!\\)\[((?:[^\[\]\\\n]|\\.|(?<!\\)\[(?:[^\[\]\\\n]|\\.)*\](?![(\[]))*)\]${INLINE_TARGET}`;
 function dropValidLinkTargets(text) {
   return text.replace(new RegExp(INLINE_LINK, 'g'), '[$1]');
 }
@@ -1132,7 +1135,15 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // text. Code that is not kept leaves an empty line, so the lines of both
   // readings line up.
   const kept = visibleText(body, { keepCode: true }).split('\n');
-  const rendered = (kept.length === visibleText(body).split('\n').length ? kept.map((l, i) => (defined.has(i) ? '' : l)) : kept).join('\n');
+  const bare = visibleText(body).split('\n');
+  const aligned = kept.length === bare.length;
+  // Code spans and code blocks are literal: set aside whole (a private
+  // character each) and put back last, so no link or emphasis rule reads
+  // into them (`T[O](x)DO` in a code block shows no TODO). A block line is
+  // one that only the reading with code kept has.
+  const codes = [];
+  const aside = (c) => { codes.push(c); return String.fromCharCode(0xe100 + codes.length - 1); };
+  const rendered = (aligned ? kept.map((l, i) => (defined.has(i) ? '' : bare[i] === '' && l !== '' ? aside(l) : l)) : kept).join('\n');
   // Backslash escapes of punctuation (`\{\{x\}\}`) render as the bare character.
   // An escaped marker (`T\*O\*DO`) is text, not formatting: escapes are set
   // aside before the markup is removed and come back as the bare character.
@@ -1149,12 +1160,10 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // emphasis inside), so it is set aside whole and put back last. A span
   // turns its line endings into spaces, then loses one space on each side
   // when both are there and it is not all spaces (`` ` O ` `` shows `O`).
-  const codes = [];
   let linked = rendered
     .replace(/(?<![`\\])(`+)(?!`)((?:[^\n]|\n(?![ \t>]*(?:\n|$)))*?[^`])\1(?!`)/g, (m, ticks, raw) => {
       const c = raw.replace(/\n/g, ' ');
-      codes.push(/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c);
-      return String.fromCharCode(0xe100 + codes.length - 1);
+      return aside(/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c);
     })
     .replace(new RegExp(INLINE_LINK, 'g'), (m, t) => LINK(t))
     .replace(/(?<!\\)(!?)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, bang, t, l) => ((bang || !holdsLink(t)) && labels.has(label(l || t.slice(1, -1))) ? `${bang}${LINK(t.slice(1, -1))}` : m))
@@ -1517,7 +1526,7 @@ function stillAtName(p, st) {
 // text it must hold), it must also still hold it once under its private
 // name: an editor writing through an open file keeps the identity, so only
 // the content can tell, and an edited file is put back, not removed.
-export const testHooks = { afterLook: null, beforeMove: null, inFolder: null, beforePutBack: null };
+export const testHooks = { afterLook: null, beforeMove: null, inFolder: null, beforePutBack: null, beforeDirBack: null };
 // Renames `from` to `to` (same folder) only as the very file `id`. Node has
 // no renameat(), so a check by path and a rename by path can resolve through
 // different folders (one swapped for a link in between). The process steps
@@ -1583,10 +1592,13 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
   if (st?.isDirectory()) {
     let free = false;
     try { fsOps.lstat(p); } catch (e) { free = e.code === 'ENOENT'; }
+    // Moved inside the very folder it is in (renameInFolder), never by a
+    // path a folder swapped for a link could send elsewhere.
     try {
       if (!free) throw new Error('taken');
       check?.();
-      fsOps.rename(aside, p);
+      testHooks.beforeDirBack?.(aside);
+      if (!renameInFolder(aside, p, idOf(st))) throw new Error('moved');
     } catch {
       throw Object.assign(new Error(`${p} changed while it was being removed; it is kept at ${aside}`), { keptAt: aside });
     }
@@ -1619,7 +1631,9 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
   if (how === 'copy') throw Object.assign(new Error(`${p} changed while it was being removed; it was put back as a copy, the file itself is kept at ${aside}`), { keptAt: aside });
   // The private name goes only as the very file just put back: one that
   // replaced it in the meantime is someone's and stays.
-  try { rmIfOurs(aside, theirs, check); } catch {
+  // `shared`: only while the name just put back still holds it too, so a
+  // name removed in between never makes this its last one.
+  try { rmIfOurs(aside, theirs, check, { shared: true }); } catch {
     throw Object.assign(new Error(`${p} changed while it was being removed; it is back, and also kept at ${aside}`), { keptAt: aside });
   }
   // Back at its name: the caller learns it was not removed, and reports it.

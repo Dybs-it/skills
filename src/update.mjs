@@ -372,7 +372,7 @@ function writeOwnFile(p, data, mode, onCreate, owner) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterPlace: null, beforePlacedMode: null, inFolder: null, afterLook: null, afterMkdir: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterPlace: null, beforePlacedMode: null, inFolder: null, afterLook: null, afterMkdir: null, beforeMove: null, beforePutBack: null, beforeDirBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -444,10 +444,13 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
   if (st?.isDirectory()) {
     let free = false;
     try { fsOps.lstat(p); } catch (e) { free = e.code === 'ENOENT'; }
+    // Moved inside the very folder it is in (renameInFolder), never by a
+    // path a folder swapped for a link could send elsewhere.
     try {
       if (!free) throw new Error('taken');
       check?.();
-      renameSync(aside, p);
+      testHooks.beforeDirBack?.(aside);
+      if (!renameInFolder(aside, p, idOfStat(st))) throw new Error('moved');
     } catch {
       throw Object.assign(new Error(`${p} is not the file the update wrote; it is kept at ${aside}`), { keptAt: aside });
     }
@@ -482,7 +485,9 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
   }
   // The private name goes only as the very file just put back: one that
   // replaced it in the meantime is someone's and stays.
-  try { rmIfOurs(aside, theirs, check); } catch {
+  // `shared`: only while the name just put back still holds it too, so a
+  // name removed in between never makes this its last one.
+  try { rmIfOurs(aside, theirs, check, { shared: true }); } catch {
     throw Object.assign(new Error(`${p} is not the file the update wrote; it is back, and also kept at ${aside}`), { keptAt: aside });
   }
   throw new Error(`${p} is not the file the update wrote; left in place`);
