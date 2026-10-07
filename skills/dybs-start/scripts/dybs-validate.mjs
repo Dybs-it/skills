@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, constants as fsConstants } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, fchownSync, constants as fsConstants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve, basename, dirname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1586,7 +1586,16 @@ export function localDate(d = new Date()) {
 // its content. Refuses a doc that would not validate as accepted.
 // Filesystem calls acceptDoc uses for no-clobber placement; a test swaps
 // `link` to act like a filesystem without hard links.
-export const fsOps = { lstat: lstatSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)), link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync, write: writeFileSync };
+// Gives a file this run created (open as `fd`) the owner `owner`, before its
+// mode is set (a change of owner can clear permission bits). One that cannot
+// be given it stops the caller: a doc its user cannot edit is never placed.
+function giveOwner(fd, made, owner, p) {
+  if (Number(made.uid) === owner.uid && Number(made.gid) === owner.gid) return;
+  try { fsOps.fchown(fd, owner.uid, owner.gid); } catch (e) {
+    throw new Error(`${basename(p)} could not be given its owner ${owner.uid}:${owner.gid} (${e.code || e.message}); run --accept as that user`);
+  }
+}
+export const fsOps = { fchown: fchownSync, lstat: lstatSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) | (fsConstants.O_NOFOLLOW ?? 0)), link: linkSync, copyFile: copyFileSync, rm: rmSync, rename: renameSync, write: writeFileSync };
 
 // Puts `from` at `to` without overwriting anything there: link() where the
 // filesystem has hard links, an exclusive copy (COPYFILE_EXCL, O_EXCL) where
@@ -1631,18 +1640,22 @@ function copyExclusive(from, to, check, fromId) {
   }
   let data;
   let mode;
+  let owner;
   try {
     const st = fstatSync(src, BIG);
     if (!st.isFile() || (fromId && idOf(st) !== fromId) || !stillAtName(from, st)) throw new Error(`${from} changed before it was copied; nothing was copied`);
     mode = Number(st.mode) & 0o7777;
+    owner = { uid: Number(st.uid), gid: Number(st.gid) };
     data = readFileSync(src);
   } finally { closeSync(src); }
   let id = null;
   try {
     const fd = openSync(to, 'wx', mode);
     try {
-      id = idOf(fstatSync(fd, BIG));
+      const made = fstatSync(fd, BIG);
+      id = idOf(made);
       fsOps.write(fd, data);
+      giveOwner(fd, made, owner, to);
       // The mode exactly as the source had it: open() applies the umask.
       fchmodSync(fd, mode);
     } finally { closeSync(fd); }
@@ -1788,7 +1801,11 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const run = `${process.pid}-${randomUUID()}`;
   const tmp = `${path}.dybs-${run}.tmp`;
   const old = `${path}.dybs-${run}.old`;
-  const mode = lstatSync(path).mode & 0o7777;
+  const was = lstatSync(path);
+  const mode = was.mode & 0o7777;
+  // The doc's owner too: run as another user (root on a developer's
+  // checkout), the accepted doc must still be its owner's to edit.
+  const owner = { uid: Number(was.uid), gid: Number(was.gid) };
   let tmpId = null;
   let moved = false;
   let placed = false;
@@ -1815,8 +1832,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   try {
     const fd = openSync(tmp, 'wx', mode);
     try {
-      tmpId = idOf(fstatSync(fd, BIG));
+      const made = fstatSync(fd, BIG);
+      tmpId = idOf(made);
       writeFileSync(fd, next);
+      giveOwner(fd, made, owner, tmp);
       fchmodSync(fd, mode);
     } finally { closeSync(fd); }
     beforeReplace?.();
