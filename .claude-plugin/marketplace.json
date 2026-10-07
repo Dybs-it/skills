@@ -10,7 +10,7 @@
     {
       "name": "dybs",
       "source": "./",
-      "description": "The Dybs method: Getting Started skills for a short, human-accepted project context."
+      "description": "The Dybs method: Getting Started skills for a short, human-accepted project context, and quality skills for test plans, reviews, the quality gate and PRs."
     }
   ]
 }
