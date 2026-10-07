@@ -1078,12 +1078,17 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
     // A resolved link or image shows its text; an image (`## ![Why](x)`)
     // loses its `!` too, as its alt text is what renders. Marked first, so
     // only a `!` right before a resolved one goes (an escaped `\!` is text).
+    // The marks are two characters the heading itself does not hold, so a
+    // literal private-use character is never taken for one and dropped.
+    let open = 0xe200;
+    while (t.includes(String.fromCharCode(open)) || t.includes(String.fromCharCode(open + 1))) open += 2;
+    const [O, C] = [String.fromCharCode(open), String.fromCharCode(open + 1)];
     t = t.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
-      .replace(new RegExp(INLINE_LINK, 'g'), '\ue0f0$1\ue0f1')
-      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(raw(l || x))) ? `\ue0f0${x}\ue0f1` : m))
-      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? `\ue0f0${x}\ue0f1` : m))
-      .replace(/!(?=\ue0f0)/g, '')
-      .replace(/[\ue0f0\ue0f1]/g, '')
+      .replace(new RegExp(INLINE_LINK, 'g'), `${O}$1${C}`)
+      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(raw(l || x))) ? `${O}${x}${C}` : m))
+      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? `${O}${x}${C}` : m))
+      .replace(new RegExp(`!(?=${O})`, 'g'), '')
+      .split(O).join('').split(C).join('')
       .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
       .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2');
     return decodeReferences(t)

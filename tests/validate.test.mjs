@@ -3413,3 +3413,13 @@ test('a required section written as an image heading is present', () => {
   // An escaped `!` is text: the heading reads `!Problem`.
   assert.ok(validateDoc('prd', VALID_PRD.replace('## Problem', '## \\![Problem](x)')).rules.includes('sections'));
 });
+
+// --- Codex review on PR #2 (faa2fdc): literal private-use characters stay in a heading ---
+test('a heading holding private-use characters is not read as the required one', () => {
+  for (const c of ['\ue0f0', '\ue0f1', '\ue200', '\ue201']) {
+    const doc = VALID_PRD.replace('## Problem', `## ${c}Problem${c}`);
+    assert.ok(validateDoc('prd', doc).rules.includes('sections'), JSON.stringify(c));
+  }
+  // The image heading still reads as its alt text.
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Problem', '## ![Problem](x)')).rules.includes('sections'));
+});
