@@ -1112,12 +1112,18 @@ test('a rollback that restores by copy keeps the original file itself', async ()
   const [install] = findInstalls([root]);
   const plan = mod.planInstall(install, { known });
   const steps = plan.actions.filter((a) => ['update', 'replace', 'remove'].includes(a.op)).length;
-  try {
-    assert.throws(() => mod.applyPlan(plan, { failAt: steps }), /put back as a copy; the file itself is kept at/);
-  } finally { Object.assign(mod.fsOps, real); }
+  // The original is followed by its inode: an editor holding it open writes
+  // there, so that very file must survive the rollback.
+  const { statSync: st } = await import('node:fs');
+  const ino = st(prd(root)).ino;
+  let err = null;
+  try { mod.applyPlan(plan, { failAt: steps }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.match(err?.message ?? '', /put back as a copy; the file itself is kept at (\S+)$/);
+  const keptAt = err.message.match(/kept at (\S+)$/)[1];
+  assert.equal(st(keptAt).ino, ino, 'the file named in the error is the original itself');
+  assert.equal(readFileSync(keptAt, 'utf8'), 'old shipped version');
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
-  const old = ls(dir).find((n) => n.endsWith('.old'));
-  assert.equal(readFileSync(join(dir, old), 'utf8'), 'old shipped version');
+  assert.ok(!ls(dir).some((n) => n.endsWith('.old')), 'the snapshot copy is not left behind');
   rmSync(root, { recursive: true });
 });
 
@@ -1267,11 +1273,14 @@ test('two runs in the same millisecond never share a run name', async () => {
     const plan = mod.planInstall(findInstalls([root])[0], { known });
     const steps = plan.actions.filter((a) => ['update', 'replace', 'remove'].includes(a.op)).length;
     // The first run fails and keeps its original under its own run name.
-    assert.throws(() => mod.applyPlan(plan, { failAt: steps }), /kept at/);
-    const kept = ls(dir).find((n) => n.endsWith('.old'));
+    let err = null;
+    try { mod.applyPlan(plan, { failAt: steps }); } catch (e) { err = e; }
+    assert.match(err?.message ?? '', /kept at (\S+)$/);
+    const kept = err.message.match(/kept at (\S+)$/)[1];
     // The second run, same pid and millisecond, must not collide with it.
     mod.applyPlan(mod.planInstall(findInstalls([root])[0], { known }));
-    assert.equal(readFileSync(join(dir, kept), 'utf8'), 'old shipped version');
+    assert.equal(readFileSync(kept, 'utf8'), 'old shipped version');
+    assert.ok(ls(dir).length > 0);
   } finally { Date.now = now; Object.assign(mod.fsOps, real); }
   rmSync(root, { recursive: true });
 });
@@ -3721,4 +3730,46 @@ test('the placed file mode is read only from the very file placed', async () => 
   assert.match(err.message, /changed while it was being installed/);
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
+});
+
+// --- Codex review on PR #1 (c6654e8): a replacement keeps its owner ---
+test('a replaced file keeps its owner when update runs as another user', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to give files another owner');
+  const mod = await import('../src/update.mjs');
+  const { chownSync, statSync } = await import('node:fs');
+  for (const noLinks of [false, true]) {
+    const root = project(['dybs-prd']);
+    writeFileSync(prd(root), 'old shipped version');
+    chownSync(prd(root), 65534, 65534);
+    const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+    const plan = mod.planInstall(findInstalls([root])[0], { known });
+    const real = { ...mod.fsOps };
+    if (noLinks) mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+    try { mod.applyPlan(plan); } finally { Object.assign(mod.fsOps, real); }
+    assert.notEqual(readFileSync(prd(root), 'utf8'), 'old shipped version', 'it was updated');
+    const st = statSync(prd(root));
+    assert.deepEqual([st.uid, st.gid], [65534, 65534], `owner kept (noLinks=${noLinks})`);
+    rmSync(root, { recursive: true });
+  }
+});
+
+test('a replacement that cannot be given its owner stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chownSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  // Seen as someone else's file, and the change of owner refused.
+  const own = statSync(prd(root));
+  const real = { ...mod.fsOps };
+  mod.fsOps.lstat = (p, o) => {
+    const st = real.lstat(p, o);
+    if (p === prd(root)) { st.uid = typeof st.uid === 'bigint' ? BigInt(own.uid + 1) : own.uid + 1; }
+    return st;
+  };
+  mod.fsOps.fchown = () => { throw Object.assign(new Error('not permitted'), { code: 'EPERM' }); };
+  try { assert.throws(() => mod.applyPlan(plan), /could not be given its owner/); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
 });
