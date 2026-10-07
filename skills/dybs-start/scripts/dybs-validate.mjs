@@ -1195,7 +1195,10 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // placeholder still shows. A literal `*` inside a placeholder word is
   // all this could misread, which no doc writes.
   const loose = unescape(flatMarked.replace(/\*+/g, ''));
-  const frontmatterValues = Object.values(data || {}).join('\n');
+  // A value that is a URL is a destination, like a link's: never shown as
+  // text, so TODO in its path is fine. Anything else is still scanned.
+  const frontmatterValues = Object.values(data || {})
+    .filter((v) => !/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*$/.test(v)).join('\n');
   if (PLACEHOLDER.test(flat) || PLACEHOLDER.test(loose) || PLACEHOLDER.test(decodeReferences(frontmatterValues))) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
@@ -1229,6 +1232,7 @@ function readmeProblem(root, snapshot = {}) {
   // acceptance keeps: never a second read outside them.
   try { snapshot.text = readRegular(readme, root); if (snapshot.text === null) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'; } catch (e) {
     if (e.code === 'EUNSAFE') return `${e.message}: keep dybs/ and its method rules as real files, then run dybs-start to restore them`;
+    if (e.code === 'ECHANGED') return e.message;
     return `dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`;
   }
   return linked();
@@ -1259,7 +1263,15 @@ function readRegular(p, root) {
       if (unsafe) throw Object.assign(new Error(unsafe), { code: 'EUNSAFE' });
     }
     validateHooks.beforeBytes?.(p);
-    return readFileSync(fd, 'utf8');
+    const text = readFileSync(fd, 'utf8');
+    // A save that replaced the file while it was read leaves these bytes
+    // describing a file the name no longer holds: never pass on them.
+    let now = null;
+    try { now = lstatSync(p); } catch {}
+    if (!now || now.isSymbolicLink() || now.dev !== st.dev || now.ino !== st.ino) {
+      throw Object.assign(new Error(`${p} changed while it was read; run the check again`), { code: 'ECHANGED' });
+    }
+    return text;
   } finally { closeSync(fd); }
 }
 // The same for a doc that was already checked to be a regular file: one
@@ -1296,7 +1308,12 @@ export function validateProject(root, only) {
   const projectPath = join(dir, DOCS.project.file);
   // A linked project.md is never opened: the loop below reports it.
   let projectText = null;
-  try { projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath, root) : null; } catch (e) { if (e.code !== 'EUNSAFE') throw e; }
+  // A project.md replaced while it was read gives no settings to trust.
+  let projectChanged = null;
+  try { projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath, root) : null; } catch (e) {
+    if (e.code === 'ECHANGED') projectChanged = e.message;
+    else if (e.code !== 'EUNSAFE') throw e;
+  }
   const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
   validateHooks.afterSettings?.();
   const skip = skipped(projectData);
@@ -1343,7 +1360,14 @@ export function validateProject(root, only) {
     if (!(name === 'project' && projectText !== null)) validateHooks.beforeRead?.(path);
     let text;
     let swapped = null;
-    try { text = name === 'project' && projectText !== null ? projectText : readRegular(path, root); } catch (e) {
+    try {
+      if (name === 'project' && projectChanged) throw Object.assign(new Error(projectChanged), { code: 'ECHANGED' });
+      text = name === 'project' && projectText !== null ? projectText : readRegular(path, root);
+    } catch (e) {
+      if (e.code === 'ECHANGED') {
+        results.push({ name, file: spec.file, status: null, words: 0, errors: [e.message], warnings: [] });
+        continue;
+      }
       if (e.code !== 'EUNSAFE') throw e;
       text = null;
       swapped = e.message;

@@ -15,7 +15,8 @@ Matt Pocock.
 
 **Reads:** `project.md`, `context/prd.md`, `context/scope.md`, `log.md`.
 **Writes:** `dybs/context/domain.md` from `template.md` (cap: 700 words
-quick, 1500 thorough).
+quick, 1500 thorough), and appends each round's answers and any **Needs you**
+items to `dybs/log.md`.
 
 This doc pays off more than any other for agents: a term defined here is a
 term every later task, spec and line of code can use without re-explaining.

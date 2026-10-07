@@ -11,7 +11,8 @@ Lead persona: **Mila** (experience designer). Run the interview in `interview.md
 
 **Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
 `context/domain.md`, `log.md`. **Writes:** `dybs/context/ux.md` from
-`template.md` (cap: 700 words quick, 1400 thorough).
+`template.md` (cap: 700 words quick, 1400 thorough), and appends each round's
+answers and any **Needs you** items to `dybs/log.md`.
 
 These are guidelines an agent applies while building any screen, not a
 screen-by-screen specification.

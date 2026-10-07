@@ -16,7 +16,8 @@ Copyright (c) 2026 Matt Pocock.
 **Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
 `context/domain.md`, `log.md`. **Writes:** `dybs/context/architecture.md` from
 `template.md` (cap: 900 words quick, 1800 thorough) and decision records in
-`dybs/context/decisions/` from `decision-template.md`.
+`dybs/context/decisions/` from `decision-template.md`, and appends each round's
+answers and any **Needs you** items to `dybs/log.md`.
 
 This is not a design for every module. It records what an agent building any
 one part must know so its part fits the rest.

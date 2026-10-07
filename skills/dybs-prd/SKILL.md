@@ -14,7 +14,8 @@ adapted from the BMad Method (https://github.com/bmad-code-org/BMAD-METHOD),
 MIT License, Copyright (c) 2025 BMad Code, LLC.
 
 **Reads:** `dybs/project.md`, `dybs/log.md`. **Writes:** `dybs/context/prd.md`
-from `template.md` (cap: 900 words quick, 1800 thorough).
+from `template.md` (cap: 900 words quick, 1800 thorough), and appends each
+round's answers and any **Needs you** items to `dybs/log.md`.
 
 ## Read first
 

@@ -12,7 +12,8 @@ item. Run the interview in `interview.md` (in this skill's folder) at the depth
 
 **Reads:** `project.md`, `context/prd.md`, `log.md`. **Writes:**
 `dybs/context/scope.md` from `template.md` (cap: 450 words quick, 800
-thorough).
+thorough), and appends each round's answers and any **Needs you** items to
+`dybs/log.md`.
 
 ## Read first
 
