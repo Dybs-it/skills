@@ -24,10 +24,17 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const LOCATION_TOKEN = /^(?:[A-Za-z]:[\\/])?[^\s:`]+:[1-9]\d*$/;
 // A code span is one token, as the reader sees it: `tests/a b.test.js:1`
 // is that path (which, with its space, is no location), never `b.test.js:1`.
+// Outside code spans a character reference renders as another character
+// (`a&#46;test.js` is `a.test.js`), and its `;` would split the path: a
+// word holding one is no location at all, never read in pieces.
+const CHAR_REF = /&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/;
 export const evidenceTokens = (evidence) => {
   const out = [];
   const rest = (evidence || '').replace(/(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (m, run, inner) => { out.push(inner.trim()); return ' '; });
-  for (const t of rest.split(/[\s,;]+/)) if (t) out.push(t.replace(/^`+|`+$/g, ''));
+  for (const word of rest.split(/\s+/)) {
+    if (!word || CHAR_REF.test(word)) continue;
+    for (const t of word.split(/[,;]+/)) if (t) out.push(t.replace(/^`+|`+$/g, ''));
+  }
   return out;
 };
 export const hasLocation = (evidence) => evidenceTokens(evidence).some((t) => LOCATION_TOKEN.test(t));
@@ -572,6 +579,11 @@ export function freshness(gatePath, text) {
   if (!/(^|\/)dybs\/work\/[^/]+\/gate\.md$/.test(gateRel)) {
     return { status: 'stale', reason: `${gateRel} is not a task gate. The gate is dybs/work/<task>/gate.md` };
   }
+  // The naming rule quality.md sets, so no command built from it is unsafe.
+  const taskName = gateRel.split('/').slice(-2)[0];
+  if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u.test(taskName)) {
+    return { status: 'stale', reason: `the task folder ${taskName} is not named by the rule in quality.md (letters and digits in any script, ".", "_" and "-", starting with a letter or digit). Rename it and run the gate again` };
+  }
   const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
   // The tests cited as FULL evidence, as repository paths: the project
   // root is the folder holding dybs/, and evidence is relative to it.
@@ -766,8 +778,13 @@ export function freshness(gatePath, text) {
   if (since.split('\0').some(Boolean)) return { status: 'stale', head: short, reason: 'the evidence changed while the gate was checking it. Run the gate again' };
   // The diff sees tracked files only: an ignored input added while it ran
   // is caught by one more look at the tree, the last thing before the decision.
+  // That look compares with HEAD, so a commit made while it ran would leave
+  // it clean: HEAD is read before and after it, and must not have moved.
+  const headNow = () => { try { return git(top, ['rev-parse', '--verify', 'HEAD']); } catch { return null; } };
+  const headBefore = headNow();
   const final = dirty();
   if (final) return final;
+  if (!headBefore || headNow() !== headBefore) return { status: 'stale', head: short, reason: 'the evidence changed while the gate was checking it. Run the gate again' };
   return { status: 'fresh', head: short };
 }
 
@@ -776,6 +793,14 @@ export function freshness(gatePath, text) {
 // there has none; one that cannot be read is put in `unreadable`.
 function gateInputs(top, rel, links = [], unreadable = []) {
   const out = [];
+  // The folder itself first: readdir() follows a link at its name, which
+  // would list the outside folder as if it were this one.
+  let st;
+  try { st = gateFs.lstat(join(top, rel)); } catch (e) {
+    if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') unreadable.push(`${rel} (${e.code || e.message})`);
+    return out;
+  }
+  if (st.isSymbolicLink()) { links.push(rel); return out; }
   const walk = (r) => {
     let entries;
     try { entries = gateFs.readdir(join(top, r), { withFileTypes: true }); } catch (e) {

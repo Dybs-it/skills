@@ -26,6 +26,9 @@ dybs/work/<task>/
 
 `<task>` is the work loop's task id when there is one, otherwise a short
 kebab-case name for the feature or code area (`invite-links`, `rotation-job`).
+It holds only letters and digits (in any script), `.`, `_` and `-`, and
+starts with a letter or digit, so it is safe in a shell command as written. A folder named otherwise
+is renamed first (ask the human); never run a command with such a name in it.
 Edit these files in place; never rewrite one from memory.
 
 ## Test plan layout

@@ -58,10 +58,13 @@ and needs a waiver like any other gap.
 From the project root, when Node is available:
 
 ```
-node <skills>/dybs-gate/scripts/dybs-gate.mjs dybs/work/<task>/gate.md
+node '<skills>/dybs-gate/scripts/dybs-gate.mjs' 'dybs/work/<task>/gate.md'
 ```
 
-(`<skills>` is the folder that holds this skill.) The evidence must be
+(`<skills>` is the folder that holds this skill.) Keep both paths in single
+quotes, and check `<task>` against the naming rule in `quality.md` first. A
+path that holds a `'`, or a task folder named against that rule, is never put
+in a command: stop and ask the human to rename it. The evidence must be
 committed first: if `git status --porcelain --untracked-files=all` shows any change other than
 this task's `gate.md` and `pr.md` (code, tests, and the gate's inputs such as
 `review.md`, `test-plan.md`, `task.md` and the context docs all count),
@@ -77,7 +80,7 @@ tracked file is flagged assume-unchanged or skip-worktree (git status cannot
 see its edits), while a test cited as FULL evidence is not a regular file in
 the evidence commit (missing, ignored by Git, a link, or outside the
 repository) or is cited at a line past its end, while a gate input (the
-task's files or a context doc) is ignored by Git or is a link, while `commit:` names another commit, or for any file that is not `dybs/work/<task>/gate.md`; never write a decision it did not give. Copy
+task's files or a context doc, or `dybs/context` itself) is ignored by Git or is a link, while the task folder is named against the rule in `quality.md`, while `commit:` names another commit, or for any file that is not `dybs/work/<task>/gate.md`; never write a decision it did not give. Copy
 the decision and its reasons into the Decision section. (Committing
 `gate.md` and `pr.md` afterwards changes no evidence, so it never makes the
 gate stale.) Without Node

@@ -1402,3 +1402,80 @@ test('a code span in evidence is one path, never its last word', async () => {
   assert.doesNotMatch(r.out, /PASS/);
   rmSync(repo, { recursive: true });
 });
+
+// --- Codex review on PR #3 (44d4b1a): linked context root, task names, HEAD around the last look, character references ---
+test('a dybs/context that is itself a link gets no decision', () => {
+  const { repo, g, gatePath } = gitRepo();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  symlinkSync(outside, join(repo, 'dybs/context'));
+  g('add', '.'); g('commit', '-qm', 'code');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  const r = runGate(gatePath);
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: gate inputs that are links, so the commit holds only where they point: dybs\/context/);
+  rmSync(repo, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a task folder named against the rule gets no decision, and the skill quotes its paths', () => {
+  const { repo, g } = gitRepo();
+  for (const name of ['a b', "it's", 'x$(touch y)', '-flag']) {
+    const gatePath = join(repo, 'dybs/work', name, 'gate.md');
+    mkdirSync(dirname(gatePath), { recursive: true });
+    g('add', '.'); g('commit', '-qm', `code ${name}`, '--allow-empty');
+    writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+    const r = runGate(gatePath);
+    assert.equal(r.code, 3, `${name}: ${r.out}`);
+    assert.match(r.out, /is not named by the rule in quality\.md/, name);
+    rmSync(dirname(gatePath), { recursive: true });
+  }
+  assert.ok(!existsSync(join(repo, 'y')));
+  const skill = readFileSync(join(ROOT, 'skills/dybs-gate/SKILL.md'), 'utf8');
+  assert.ok(skill.includes("node '<skills>/dybs-gate/scripts/dybs-gate.mjs' 'dybs/work/<task>/gate.md'"));
+  const quality = readFileSync(join(ROOT, 'skills/dybs-gate/quality.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(quality, /only letters and digits \(in any script\), `\.`, `_` and `-`, and starts with a letter or digit/);
+  rmSync(repo, { recursive: true });
+});
+
+test('a commit made while the last look at the tree runs gets no decision', () => {
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, 'app.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  // The fourth `git status` reports a clean tree, then app.js changes and
+  // is committed before the gate decides.
+  const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh
+"${realGit}" "$@"
+code=$?
+case " $* " in *" status "*)
+  echo x >> "${bin}/n"
+  if [ "$(wc -l < "${bin}/n")" -eq 4 ]; then printf two > "${repo}/app.js"; "${realGit}" -C "${repo}" commit -qam more >/dev/null; fi;;
+esac
+exit $code
+`, { mode: 0o755 });
+  const r = runGate(gatePath, { ...process.env, PATH: `${bin}:${process.env.PATH}` });
+  assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim().split('\n').length, 4, 'committed after the fourth status');
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: the evidence changed while the gate was checking it/);
+  rmSync(repo, { recursive: true });
+  rmSync(bin, { recursive: true });
+});
+
+test('a character reference in evidence makes no location of its pieces', async () => {
+  const { evidenceTokens, hasLocation } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  assert.deepEqual(evidenceTokens('tests/a&#46;test.js:1'), []);
+  assert.ok(!hasLocation('tests/a&#46;test.js:1'));
+  assert.ok(!hasLocation('tests/a&period;test.js:1'));
+  // Inside a code span a reference is literal text, and plain lists still split.
+  assert.deepEqual(evidenceTokens('`a&#46;b:1` x.test.js:2;y.test.js:3'), ['a&#46;b:1', 'x.test.js:2', 'y.test.js:3']);
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, 'test.js'), 'test');
+  g('add', '.'); g('commit', '-qm', 'code');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', 'tests/a&#46;test.js:1').replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  const r = runGate(gatePath);
+  assert.notEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /PASS/);
+  rmSync(repo, { recursive: true });
+});
