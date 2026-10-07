@@ -33,7 +33,17 @@ export const evidenceTokens = (evidence) => {
   const rest = (evidence || '').replace(/(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (m, run, inner) => { out.push(inner.trim()); return ' '; });
   for (const word of rest.split(/\s+/)) {
     if (!word || CHAR_REF.test(word)) continue;
-    for (const t of word.split(/[,;]+/)) if (t) out.push(t.replace(/^`+|`+$/g, ''));
+    // A comma or semicolon separates two locations only right after a
+    // `:line` (or at the end of the word): `tests/a,b.test.js:1` is one
+    // file name, never `tests/a` and `b.test.js:1`.
+    for (const t of word.split(/(?<=:\d+)[,;]+|[,;]+$/)) {
+      const loc = t.replace(/^`+|`+$/g, '');
+      // Markup outside a code span renders as something else (`*b.test.js*:1`
+      // shows b.test.js:1): such a word is no location. A path with these
+      // characters goes in a code span.
+      if (!loc || /[*~[\]<>]/.test(loc) || /^_|_(?=:\d+$)/.test(loc)) continue;
+      out.push(loc);
+    }
   }
   return out;
 };

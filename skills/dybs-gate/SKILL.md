@@ -80,7 +80,13 @@ tracked file is flagged assume-unchanged or skip-worktree (git status cannot
 see its edits), while a test cited as FULL evidence is not a regular file in
 the evidence commit (missing, ignored by Git, a link, outside the
 repository, or cited with a `\` instead of `/`) or is cited at a line past its end, while a gate input (the
-task's files or a context doc, or `dybs/context` itself) is ignored by Git, is a link, or is a FIFO, socket or device, while the task folder is named against the rule in `quality.md`, while `commit:` names another commit, or for any file that is not `dybs/work/<task>/gate.md`; never write a decision it did not give. Copy
+task's files or a context doc, or `dybs/context` itself) is ignored by Git, is a link, or is a FIFO, socket or device, while the task folder is named against the rule in `quality.md`, while `commit:` names another commit, or for any file that is not `dybs/work/<task>/gate.md`; never write a decision it did not give. The script proves the cited
+tests and the gate's own inputs are committed; it does not prove the tests
+pass from a clean checkout, and files Git ignores (dependencies, build
+output, local config) are not looked at. Running the tests in a clean
+checkout is CI's job: say so in the Decision section when no CI run on the
+evidence commit is cited. Cite a test location as plain `path:line`, or in a
+code span when the path holds a space, a comma or any Markdown character. Copy
 the decision and its reasons into the Decision section. (Committing
 `gate.md` and `pr.md` afterwards changes no evidence, so it never makes the
 gate stale.) Without Node

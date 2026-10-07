@@ -1531,3 +1531,32 @@ test('a risk status that is not open or mitigated is a format problem, never rea
     assert.ok(!parseGate(gate({ items: [full('a', 'P0')], risks: [['r1', 'technical', 2, status]] })).problems.length, status);
   }
 });
+
+// --- Codex review on PR #3 (dacd71d): commas and Markdown in evidence; what the gate does not prove ---
+test('a comma in a path is part of it, and Markdown-formatted evidence is no location', async () => {
+  const { evidenceTokens, hasLocation } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  assert.deepEqual(evidenceTokens('tests/a,b.test.js:1'), ['tests/a,b.test.js:1']);
+  assert.deepEqual(evidenceTokens('x.test.js:2;y.test.js:3, z.test.js:4,'), ['x.test.js:2', 'y.test.js:3', 'z.test.js:4']);
+  for (const md of ['*b.test.js*:1', '**b.test.js**:1', '_b.test.js_:1', '__init__.py:3', '[b.test.js](u):1', '<b.test.js>:1', '~~b.test.js~~:1']) {
+    assert.ok(!hasLocation(md), md);
+  }
+  assert.ok(hasLocation('`__init__.py:3`'));
+  assert.ok(hasLocation('tests/test_foo.py:3'));
+  // As a gate: the comma path is looked up whole, never as b.test.js.
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, 'b.test.js'), 'test');
+  g('add', '.'); g('commit', '-qm', 'code');
+  for (const ev of ['tests/a,b.test.js:1', '*b.test.js*:1']) {
+    writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', ev).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+    const r = runGate(gatePath);
+    assert.notEqual(r.code, 0, `${ev}: ${r.out}`);
+    assert.doesNotMatch(r.out, /PASS/, ev);
+  }
+  rmSync(repo, { recursive: true });
+});
+
+test('dybs-gate says what the script does not prove', () => {
+  const t = readFileSync(join(ROOT, 'skills/dybs-gate/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /it does not prove the tests pass from a clean checkout, and files Git ignores \(dependencies, build output, local config\) are not looked at/);
+  assert.match(t, /in a code span when the path holds a space, a comma or any Markdown character/);
+});
