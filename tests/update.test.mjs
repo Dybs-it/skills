@@ -3946,3 +3946,46 @@ test('a staging file whose permissions change before it is installed is never in
   assert.equal(statSync(prd(root)).mode & 0o7777, 0o640);
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #1 (e7ab8ed): placed files at the commit point, a new folder replaced at once ---
+test('a placed file removed right before the commit stops the update and keeps the original', async () => {
+  const mod = await import('../src/update.mjs');
+  const { unlinkSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let err = null;
+  try { mod.applyPlan(plan, { beforeCommit: () => unlinkSync(prd(root)) }); } catch (e) { err = e; }
+  // Never reported as applied: the update stops, and the original is kept
+  // (at its private name, which the error names) for a human to sort out.
+  assert.match(err?.message ?? '', /changed after it was placed/);
+  const kept = err.message.match(/the original is at (\S+?\.old)/)?.[1];
+  assert.ok(kept, err.message);
+  assert.equal(readFileSync(kept, 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+test('a folder that replaces one the update just made is never adopted or written into', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  const nested = Object.keys(shippedFiles('dybs-start')).find((r) => r.includes('/'));
+  const sub = nested.slice(0, nested.indexOf('/'));
+  rmSync(join(dir, sub), { recursive: true });
+  // Someone's folder, holding their file, takes the new folder's name.
+  const theirs = mkdtempSync(join(tmpdir(), 'dybs-theirs-'));
+  writeFileSync(join(theirs, 'mine.txt'), 'user file');
+  mod.testHooks.afterMkdir = (p) => {
+    if (p !== join(dir, sub)) return;
+    mod.testHooks.afterMkdir = null;
+    rmSync(p, { recursive: true });
+    renameSync(theirs, p);
+  };
+  let err = null;
+  try { update([root]); } catch (e) { err = e; } finally { mod.testHooks.afterMkdir = null; }
+  assert.match(err?.message ?? '', /was replaced right after the update made it/);
+  assert.deepEqual(readdirSync(join(dir, sub)), ['mine.txt'], 'nothing written into their folder');
+  rmSync(root, { recursive: true });
+});
