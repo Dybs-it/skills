@@ -101,6 +101,10 @@ only when it still matches a version this package shipped. Anything you
 changed is reported and left alone; `--force` replaces it and keeps a `.bak`.
 A file you changed that a release no longer ships stays too, and with
 `--force` the rest of the skill is updated around it.
+A replaced file keeps its permissions and owner. Extended attributes and ACLs
+on it are not carried over (Node has no portable way to read them), so give
+such a file its attributes again after an update, or leave the skill to
+update by hand.
 A skill with anything that needs you is left completely unchanged, so it
 never mixes files from two releases. Links inside a skill are never followed
 or written through, `--force` included. `--dry-run --json` prints the plan.
