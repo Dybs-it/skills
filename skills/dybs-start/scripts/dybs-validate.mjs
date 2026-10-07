@@ -1534,7 +1534,7 @@ function stillAtName(p, st) {
 // text it must hold), it must also still hold it once under its private
 // name: an editor writing through an open file keeps the identity, so only
 // the content can tell, and an edited file is put back, not removed.
-export const testHooks = { afterLook: null, beforeMove: null, inFolder: null, beforePutBack: null };
+export const testHooks = { afterLook: null, beforeMove: null, inFolder: null, beforePutBack: null, beforePlacedMeta: null };
 // Renames `from` to `to` (same folder) only as the very file `id`. Node has
 // no renameat(), so a check by path and a rename by path can resolve through
 // different folders (one swapped for a link in between). The process steps
@@ -1874,6 +1874,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   let placedId = null;
   let placedMode = null;
   let placedOwner = null;
+  let tmpMeta = null;
   // Without hard links: the original itself, under a private name, kept
   // until the very end (an editor may still be writing to it).
   let origAside = null;
@@ -1900,6 +1901,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       writeFileSync(fd, next);
       giveOwner(fd, made, owner, tmp);
       fchmodSync(fd, mode);
+      // What the accepted copy ended up with: the placed doc's expected mode
+      // and owner, should the look at it after placing fail.
+      const written = fstatSync(fd, BIG);
+      tmpMeta = { mode: Number(written.mode) & 0o7777, owner: { uid: Number(written.uid), gid: Number(written.gid) } };
     } finally { closeSync(fd); }
     beforeReplace?.();
     // Written through a folder swapped in before the open, the temporary
@@ -2073,7 +2078,12 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     placed = true;
     placedId = placedNow;
     // Its permissions as placed: a rollback removes it only while they hold.
-    try { const st = fsOps.lstat(path, BIG); placedMode = Number(st.mode) & 0o7777; placedOwner = { uid: Number(st.uid), gid: Number(st.gid) }; } catch { placedMode = null; }
+    // A failed look leaves the metadata the copy was written with, so a
+    // rollback can still tell the accepted copy is ours and remove it.
+    placedMode = tmpMeta?.mode ?? null;
+    placedOwner = tmpMeta?.owner ?? null;
+    testHooks.beforePlacedMeta?.(path);
+    try { const st = fsOps.lstat(path, BIG); placedMode = Number(st.mode) & 0o7777; placedOwner = { uid: Number(st.uid), gid: Number(st.gid) }; } catch { /* the written metadata stands */ }
     afterPlace?.(tmp);
     pinned();
     try { rmIfOurs(tmp, tmpId, pinned); } catch (e) {
