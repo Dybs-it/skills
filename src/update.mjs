@@ -344,7 +344,7 @@ function writeOwnFile(p, data, mode, onCreate, owner) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterPlace: null, beforePlacedMode: null, afterLook: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterPlace: null, beforePlacedMode: null, inFolder: null, afterLook: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -354,6 +354,24 @@ export const testHooks = { afterPlace: null, beforePlacedMode: null, afterLook: 
 // `expect` (a sha), it must also still hold those bytes once under its
 // private name: an editor writing through an open file keeps the identity,
 // so only the content can tell, and an edited file is put back, not removed.
+// Renames `from` to `to` (same folder) only as the very file `id`. Node has
+// no renameat(), so a check by path and a rename by path can resolve through
+// different folders (one swapped for a link in between). The process steps
+// into the folder instead: its working directory stays bound to that folder
+// whatever happens to the path, so the file checked by its bare name there
+// is the very file the bare-name rename moves. Through a folder swapped
+// before the step, the name holds another file, and nothing moves.
+function renameInFolder(from, to, id) {
+  const back = process.cwd();
+  process.chdir(dirname(from));
+  try {
+    if (idOfStat(lstatSync(basename(from), { bigint: true })) !== id) return false;
+    testHooks.inFolder?.(from);
+    renameSync(basename(from), basename(to));
+    return true;
+  } finally { try { process.chdir(back); } catch { /* the caller's folder is gone; nothing of ours depends on it */ } }
+}
+
 function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, mode = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
@@ -367,7 +385,12 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
   if (now !== id) throw new Error(`${p} is not the file the update wrote; left in place`);
   testHooks.beforeMove?.(p);
   const aside = `${p}.${randomUUID()}.rm`;
-  try { renameSync(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
+  // The move itself happens inside the very folder that was checked (see
+  // renameInFolder): through a folder swapped for a link at this instant it
+  // would otherwise take an outside file off its name.
+  try {
+    if (!renameInFolder(p, aside, id)) throw new Error(`${p} is not the file the update wrote; left in place`);
+  } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   let st = null;
   try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
   // `shared`: only a second name of a file that still has another one.
