@@ -978,7 +978,10 @@ export function validateDoc(name, text) {
       .replace(/[-]/g, (c) => code[c.charCodeAt(0) - CODE] ?? c)
       .trim();
   };
-  const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || plain(h).toLowerCase() === s.toLowerCase()));
+  // The reading above uses private-use characters as markers, so a heading
+  // that already holds one is matched only as written: a literal marker
+  // must never decode into text the heading does not show.
+  const missing = spec.sections.filter((s) => !found.some((h) => h.toLowerCase() === s.toLowerCase() || (!/[\ue000-\uf8ff]/.test(h) && plain(h).toLowerCase() === s.toLowerCase())));
   for (const s of missing) fail('sections', `missing section "## ${s}"`);
 
   const words = wordCount(body);

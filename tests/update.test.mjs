@@ -3910,3 +3910,39 @@ test('the current release checked out with CRLF line endings is left as it is', 
   assert.equal(readFileSync(prd(root), 'utf8'), crlf, 'not rewritten to LF');
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #1 (4284e1f): the folder owner is read from the pinned folder; staging metadata is checked ---
+test('an added file takes the owner of the pinned skill folder, never of what its path showed for an instant', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../src/update.mjs');
+  const { chownSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  rmSync(join(dir, 'template.md'));
+  chownSync(dir, 65534, 65534);
+  const other = mkdtempSync(join(tmpdir(), 'dybs-other-'));
+  const plan = mod.planInstall(findInstalls([root])[0]);
+  // Every look at the skill folder by its path shows a root-owned folder.
+  const real = mod.fsOps.lstat;
+  mod.fsOps.lstat = (p, o) => (p === dir ? real(other, o) : real(p, o));
+  try { mod.applyPlan(plan); } finally { mod.fsOps.lstat = real; }
+  const st = statSync(join(dir, 'template.md'));
+  assert.deepEqual([st.uid, st.gid], [65534, 65534]);
+  rmSync(root, { recursive: true });
+  rmSync(other, { recursive: true });
+});
+
+test('a staging file whose permissions change before it is installed is never installed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  chmodSync(prd(root), 0o640);
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const beforeStageCheck = (entry) => { if (entry.a.rel === SKILL) chmodSync(entry.tmp, 0o600); };
+  assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /had its permissions or owner changed before it was installed/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  assert.equal(statSync(prd(root)).mode & 0o7777, 0o640);
+  rmSync(root, { recursive: true });
+});

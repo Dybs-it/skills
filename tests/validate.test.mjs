@@ -1303,3 +1303,12 @@ test('the hand-check HTML rule names the link metadata the scan leaves out', asy
   for (const ok of ['\nSee [docs](<details>).\n', '\n[docs]: <details>\n']) assert.ok(!validateDoc('prd', VALID_PRD + ok).rules.includes('html'), ok);
   assert.ok(validateDoc('prd', `${VALID_PRD}\nSee <details>.\n`).rules.includes('html'));
 });
+
+// --- Codex review on PR #1 (4284e1f): a literal private-use character in a heading ---
+test('a heading that holds a private-use character is matched only as written', () => {
+  // U+E047 is the marker the reading uses for an escaped `G`: written
+  // literally, it renders as itself, so `## oals` is no Goals section.
+  const r = validateDoc('prd', VALID_PRD.replace('## Goals', '## oals'));
+  assert.ok(r.rules.includes('sections'), JSON.stringify(r.errors));
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '## Go&#97;ls')).rules.includes('sections'), 'a reference that renders Goals is still Goals');
+});
