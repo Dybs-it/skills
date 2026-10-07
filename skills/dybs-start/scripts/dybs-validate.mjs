@@ -1067,7 +1067,12 @@ export function validateDoc(name, text) {
   // placeholder still shows. A literal `*` inside a placeholder word is
   // all this could misread, which no doc writes.
   const loose = unescape(flatMarked.replace(/\*+/g, ''));
-  if (PLACEHOLDER.test(flat) || PLACEHOLDER.test(loose)) {
+  // A URL shown as text (an autolink, or a bare `scheme://` address) may
+  // hold TODO or TBD as part of the address, as a link destination may:
+  // only a `{{...}}` in it still counts, since no real address holds one.
+  const URL_TEXT = /<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>|[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/[^\s<>]*/g;
+  const scan = (t) => PLACEHOLDER.test(t.replace(URL_TEXT, (u) => (/\{\{[^}]*\}\}/.test(u) ? u : ' ')));
+  if (scan(flat) || scan(loose)) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);
     else warnings.push(msg);

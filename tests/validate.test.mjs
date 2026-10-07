@@ -1135,7 +1135,19 @@ test('link metadata and labels matched as written never make a placeholder', () 
   assert.ok(!flagged('\n[foo]: /url\n\nT[O][f&#111;o]DO\n'));
   // Shown text still counts, references decoded.
   assert.ok(flagged('\nTO&#68;O\n'));
-  assert.ok(flagged('\n<https://example.test/TODO>\n'));
+});
+
+// --- Codex review on PR #2 (e2ff4c7): a URL shown as text may hold TODO ---
+test('a URL shown as text may hold TODO, but never an unfilled {{...}}', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(!flagged('\n<https://example.test/TODO/123>\n'));
+  assert.ok(!flagged('\nSee https://example.test/TBD/1 for it.\n'));
+  assert.ok(!flagged('\n<mailto:todo@example.test>\n'));
+  // Text beside the address still counts.
+  assert.ok(flagged('\nSee https://example.test/a TODO\n'));
+  assert.ok(flagged('\n<https://example.test/{{id}}>\n'));
+  assert.ok(flagged('\nTODO: https://example.test\n'));
 });
 
 test('a block quote that interrupts prose and a code span across lines are read as rendered', async () => {

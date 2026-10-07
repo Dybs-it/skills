@@ -3899,3 +3899,14 @@ test('the README says what a replaced file keeps, and what it does not', () => {
   assert.match(t, /A replaced file keeps its permissions and owner\. Extended attributes and ACLs on it are not carried over/);
 });
 
+
+// --- Codex review on PR #2 (e2ff4c7): the current release with CRLF endings is up to date ---
+test('the current release checked out with CRLF line endings is left as it is', () => {
+  const root = project(['dybs-prd']);
+  const crlf = shippedFiles('dybs-prd')[SKILL].toString().replace(/\n/g, '\r\n');
+  writeFileSync(prd(root), crlf);
+  const [install] = findInstalls([root]);
+  assert.equal(ops(updateInstall(install))[SKILL], 'same');
+  assert.equal(readFileSync(prd(root), 'utf8'), crlf, 'not rewritten to LF');
+  rmSync(root, { recursive: true });
+});
