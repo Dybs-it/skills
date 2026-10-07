@@ -111,7 +111,20 @@ export function discover(roots) {
       // Only a path that is not there is "no evidence"; a lookup that fails
       // otherwise (EACCES, EIO) is an error, never an empty install.
       const realFile = (p) => { try { return fsOps.lstat(p).isFile(); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false; throw e; } };
-      const installed = basename(dirname(folder)) === '.agents' || skillNames().some((n) => realFile(join(folder, n, 'SKILL.md')));
+      // The skill folder holding it counts only as an install would: a
+      // real folder, or a link that resolves inside the requested folder
+      // (as `.claude/skills/x` linking to `.agents/skills/x` does). Through a
+      // link out of it, lstat() of SKILL.md reports a file that is not here.
+      const realDir = (p) => {
+        let st;
+        try { st = fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false; throw e; }
+        if (st.isDirectory()) return true;
+        if (!st.isSymbolicLink()) return false;
+        let real;
+        try { real = realpathSync(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR' || e.code === 'ELOOP') return false; throw e; }
+        return realRoots.some((r) => within(real, r));
+      };
+      const installed = basename(dirname(folder)) === '.agents' || skillNames().some((n) => realDir(join(folder, n)) && realFile(join(folder, n, 'SKILL.md')));
       for (const skill of skillNames()) {
         const dir = join(folder, skill);
         // An install is recognised by its folder, not by SKILL.md: an install
@@ -320,7 +333,7 @@ function writeOwnFile(p, data, mode, onCreate) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterPlace: null, afterLook: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterPlace: null, beforePlacedMode: null, afterLook: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -491,13 +504,16 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     if (at.state === 'missing') continue;
     if (at.state === 'unsafe') { actions.push({ op: 'unsafe', rel, why: at.why }); continue; }
     testHooks.beforePlanRead?.(join(dir, rel));
-    const cur = readNoFollow(join(dir, rel));
+    const read = readNoFollowStat(join(dir, rel));
+    const cur = read?.data ?? null;
     if (!cur) { actions.push({ op: 'unsafe', rel, why: 'it changed into something other than a regular file while it was read' }); continue; }
     const curHash = sha(cur);
     // An edited file this release no longer ships needs the user too: the
     // skill stays unchanged unless --force, which keeps the file (never
     // deleting an edit) and updates the rest.
-    if (isKnownFile(rel, cur)) actions.push({ op: 'remove', rel, hash: curHash });
+    // Its permissions are recorded with its bytes: a mode changed after the
+    // plan is someone's work, and the update stops rather than delete it.
+    if (isKnownFile(rel, cur)) actions.push({ op: 'remove', rel, hash: curHash, mode: read.mode });
     else actions.push(force
       ? { op: 'keep', rel, why: 'changed after install, no longer shipped; kept as you left it' }
       : { op: 'conflict', rel, why: 'changed after install, no longer shipped; --force keeps it and updates the rest' });
@@ -725,6 +741,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           mode = undefined;
         }
         if (!chain || chainOf(dir, a.rel) !== chain) throw new Error(`a folder on the way to ${a.rel} changed during the update; nothing was changed, run update again`);
+        if (mode !== undefined && a.mode !== undefined && mode !== a.mode) throw new Error(`${a.rel} had its permissions changed since the update was planned; nothing was changed, run update again`);
         staged.push({ a, p, chain, mode, modeId });
         continue;
       }
@@ -976,7 +993,17 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         s.placedId = placedNow;
         // Its permissions as placed: a rollback removes it only while they
         // still hold, so a mode changed on the new file is kept like an edit.
-        try { s.placedMode = Number(fsOps.lstat(s.p, BIG).mode) & 0o7777; } catch { s.placedMode = null; }
+        // Read between pins of the folders on the way and only from the very
+        // file placed: through a folder swapped for a link during the lookup
+        // it would be another file's mode, so the update stops instead.
+        s.placedMode = null;
+        let placedSt = null;
+        testHooks.beforePlacedMode?.(s);
+        try { placedSt = fsOps.lstat(s.p, BIG); } catch { placedSt = null; }
+        if (!placedSt || chainOf(dir, s.a.rel) !== s.chain || idOfStat(placedSt) !== s.placedId) {
+          throw new Error(`a folder on the way to ${s.a.rel} changed while it was being installed; nothing was kept, run update again`);
+        }
+        s.placedMode = Number(placedSt.mode) & 0o7777;
         if (s.a.op === 'add') done.push(s);
         pinned(s);
         // The staging name is removed only while it still leads, through

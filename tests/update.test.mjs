@@ -3348,6 +3348,9 @@ test('a folder swapped during the removed file mode lookup stops the update', as
   const known = { ...knownHashes(), 'dybs-prd/sub/gone.md': [sha('old gone')] };
   const plan = mod.planInstall(findInstalls([root])[0], { known });
   assert.equal(ops(plan)['sub/gone.md'], 'remove');
+  // Without the mode the plan recorded, so only the identity tie can tell
+  // the outside file from the planned one.
+  for (const a of plan.actions) if (a.rel === 'sub/gone.md') delete a.mode;
   const real = { ...mod.fsOps };
   let swapped = 0;
   mod.fsOps.lstat = (p, o) => {
@@ -3438,4 +3441,72 @@ test('a moved-aside original replaced by another file stops the update', async (
   assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /was replaced during the update/);
   assert.ok(replaced);
   rmSync(root, { recursive: true });
+});
+
+// --- Codex review on PR #1 (7daae18) ---
+test('a removed file whose mode changed after the plan stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  const gone = join(dir, 'gone.md');
+  writeFileSync(gone, 'old gone');
+  chmodSync(gone, 0o644);
+  const known = { ...knownHashes(), 'dybs-prd/gone.md': [sha('old gone')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  assert.equal(ops(plan)['gone.md'], 'remove');
+  chmodSync(gone, 0o600);
+  assert.throws(() => mod.applyPlan(plan), /permissions changed since the update was planned/);
+  assert.equal(readFileSync(gone, 'utf8'), 'old gone');
+  rmSync(root, { recursive: true });
+});
+
+test('a skill folder linked out of the project is no evidence of an install', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dybs-update-'));
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  cpSync(join(SKILLS_SRC, 'dybs-start'), join(outside, 'dybs-start'), { recursive: true });
+  mkdirSync(join(root, '.cache/skills/dybs-prd'), { recursive: true });
+  symlinkSync(join(outside, 'dybs-start'), join(root, '.cache/skills/dybs-start'));
+  const { notInstalled, skipped } = update([root]);
+  assert.ok(skipped.some((s) => s.skill === 'dybs-prd' && s.notInstall), JSON.stringify(skipped));
+  assert.ok(notInstalled.includes('dybs-prd'));
+  assert.deepEqual(readdirSync(join(root, '.cache/skills/dybs-prd')), [], 'the empty folder is not written into');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('the placed file mode is read only from the very file placed', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, chmodSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const dir = dirname(prd(root));
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, SKILL), 'theirs');
+  chmodSync(join(outside, SKILL), 0o600);
+  const real = { ...mod.fsOps };
+  let armed = false;
+  let swapped = false;
+  // The mode lookup itself goes through the skill folder swapped for a
+  // link to an outside folder, put back right after.
+  mod.testHooks.beforePlacedMode = () => { armed = true; };
+  mod.fsOps.lstat = (p, o) => {
+    if (armed && p === prd(root)) {
+      armed = false;
+      swapped = true;
+      renameSync(dir, `${dir}.moved`);
+      symlinkSync(outside, dir);
+      try { return real.lstat(p, o); } finally { rmSync(dir); renameSync(`${dir}.moved`, dir); }
+    }
+    return real.lstat(p, o);
+  };
+  let err = null;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); mod.testHooks.beforePlacedMode = null; }
+  assert.ok(swapped, 'the folder was swapped during the placed mode lookup');
+  assert.ok(err, 'the update stops');
+  assert.match(err.message, /changed while it was being installed/);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });
