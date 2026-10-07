@@ -952,6 +952,10 @@ test('a write through the staging name after placement never reaches the install
   // The placement is a copy, a file of its own: the staging name never
   // leads to it.
   assert.equal(readFileSync(prd(root), 'utf8'), String(plan.want[SKILL]));
+  // And the write itself is someone's work: kept and reported, not deleted.
+  const action = plan.actions.find((a) => a.rel === SKILL);
+  assert.ok(action.keptStaging, 'reported');
+  assert.equal(readFileSync(action.keptStaging, 'utf8'), 'a watcher wrote this');
   rmSync(root, { recursive: true });
 });
 
@@ -3876,11 +3880,13 @@ test('a folder that took the staging name stays at its private name, never renam
     mkdirSync(replaced);
     writeFileSync(join(replaced, 'theirs.txt'), 'their folder');
   };
-  let err = null;
-  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { mod.testHooks.inFolder = null; }
+  try { mod.applyPlan(plan); } finally { mod.testHooks.inFolder = null; }
   assert.ok(replaced, 'the folder took the staging name');
-  const kept = err?.message.match(/it is a folder now, kept at (\S+?\.rm)/)?.[1];
-  assert.ok(kept, err?.message);
+  // The file was already installed; the folder is someone's, kept at its
+  // private name (never renamed back) and reported.
+  assert.equal(readFileSync(prd(root), 'utf8'), String(plan.want[SKILL]));
+  const kept = plan.actions.find((a) => a.rel === SKILL).keptStaging;
+  assert.match(kept ?? '', /\.rm$/);
   assert.equal(readFileSync(join(kept, 'theirs.txt'), 'utf8'), 'their folder');
   rmSync(root, { recursive: true });
 });
@@ -4076,5 +4082,48 @@ test('a staging file edited in place is kept by the rollback, never deleted', as
   const d = dirname(prd(root));
   assert.ok(readdirSync(d).some((n) => { try { return readFileSync(join(d, n), 'utf8') === 'someone edited the staging file'; } catch { return false; } }), 'the edit survives');
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+// --- Codex review on PR #1/#2 (b04fc9c, 86aa64d): snapshot metadata, added files in the rollback, staging edits kept ---
+test('without hard links, a snapshot whose mode changed is kept by the rollback', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let snap = null;
+  let err = null;
+  try {
+    mod.applyPlan(plan, { beforeAside: (s) => { snap = s.old; chmodSync(s.old, 0o600); throw new Error('stop here'); } });
+  } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.match(err?.message ?? '', /stop here/);
+  assert.ok(existsSync(snap), 'the snapshot with its changed mode is kept');
+  assert.equal(statSync(snap).mode & 0o777, 0o600);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+test('an added file is rolled back even when the look at it right after placing fails', async () => {
+  const mod = await import('../src/update.mjs');
+  const real = { ...mod.fsOps };
+  const root = project(['dybs-prd']);
+  const target = join(root, '.agents/skills/dybs-prd/template.md');
+  rmSync(target);
+  const plan = mod.planInstall(findInstalls([root])[0]);
+  let failed = false;
+  mod.testHooks.beforePlacedMode = (s) => {
+    if (s.a.rel !== 'template.md' || failed) return;
+    failed = true;
+    mod.fsOps.lstat = (p, o) => { if (p === target) { mod.fsOps.lstat = real.lstat; throw Object.assign(new Error('I/O error'), { code: 'EIO' }); } return real.lstat(p, o); };
+  };
+  let err = null;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { mod.testHooks.beforePlacedMode = null; Object.assign(mod.fsOps, real); }
+  assert.ok(failed, 'the lookup failed');
+  assert.ok(err, 'the update stopped');
+  assert.ok(!existsSync(target), 'the added file is not left installed');
   rmSync(root, { recursive: true });
 });
