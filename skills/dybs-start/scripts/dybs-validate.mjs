@@ -939,10 +939,15 @@ export function validateDoc(name, text) {
       code.push(/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c);
       return String.fromCharCode(CODE + code.length - 1);
     });
+    // A resolved link or image shows its text; an image (`## ![Why](x)`)
+    // loses its `!` too, as its alt text is what renders. Marked first, so
+    // only a `!` right before a resolved one goes (an escaped `\!` is text).
     t = t.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
-      .replace(new RegExp(INLINE_LINK, 'g'), '$1')
-      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(raw(l || x))) ? x : m))
-      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? x : m))
+      .replace(new RegExp(INLINE_LINK, 'g'), '\ue0f0$1\ue0f1')
+      .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(raw(l || x))) ? `\ue0f0${x}\ue0f1` : m))
+      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? `\ue0f0${x}\ue0f1` : m))
+      .replace(/!(?=\ue0f0)/g, '')
+      .replace(/[\ue0f0\ue0f1]/g, '')
       .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')
       .replace(/(?<![\p{L}\p{N}_])(_+)(?![\s_])([^_]+?)(?<![\s_])\1(?![\p{L}\p{N}_])/gu, '$2');
     return decodeReferences(t)

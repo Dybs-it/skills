@@ -1200,3 +1200,14 @@ test('an image whose description holds a link is read as rendered', () => {
   assert.ok(flagged('\nT[![O](u)](v)DO\n'));
   assert.ok(!flagged('\n[r]: /u\n\nT[[O](u)][r]DO\n'));
 });
+
+// --- Codex review on PR #1 (363dcdf): an image heading reads as its alt text ---
+test('a required section written as an image heading is present', () => {
+  const doc = VALID_PRD.replace('## Problem', '## ![Problem](x)');
+  assert.notEqual(doc, VALID_PRD);
+  assert.ok(!validateDoc('prd', doc).rules.includes('sections'));
+  const byRef = VALID_PRD.replace('## Problem', '[p]: /url\n\n## ![Problem][p]');
+  assert.ok(!validateDoc('prd', byRef).rules.includes('sections'));
+  // An escaped `!` is text: the heading reads `!Problem`.
+  assert.ok(validateDoc('prd', VALID_PRD.replace('## Problem', '## \\![Problem](x)')).rules.includes('sections'));
+});
