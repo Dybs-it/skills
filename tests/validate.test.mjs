@@ -3322,3 +3322,40 @@ test('--accept cleanup through a folder swapped for a link moves no outside file
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+// --- Codex review on PR #2 (4a3c211): one delimiter rule, and the no-hard-link move inside the folder ---
+test('setFrontmatter accepts every opener the parser accepts', async () => {
+  const { setFrontmatter, parseFrontmatter } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const out = setFrontmatter('---  \ndoc: prd\n---\n# T\n', { status: 'accepted' });
+  assert.equal(parseFrontmatter(out).data.status, 'accepted');
+  assert.ok(out.startsWith('---  \ndoc: prd\nstatus: accepted\n---\n# T'), JSON.stringify(out));
+  assert.ok(setFrontmatter('---\r\ndoc: prd\r\n---\r\n# T\r\n', { a: 'b' }).startsWith('---\r\ndoc: prd\r\na: b\r\n---\r\n'));
+});
+
+test('without hard links, an --accept folder swapped right before the move aside moves no outside file', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const real = { ...mod.fsOps };
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const doc = join(ctx, 'ui.md');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let swapped = false;
+  mod.testHooks.beforeMove = (p) => {
+    if (swapped || p !== doc) return;
+    swapped = true;
+    writeFileSync(join(outside, 'ui.md'), 'an unrelated outside file');
+    renameSync(ctx, `${ctx}.moved`);
+    symlinkSync(outside, ctx);
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* refused is fine */ } finally {
+    mod.testHooks.beforeMove = null;
+    Object.assign(mod.fsOps, real);
+    if (swapped) { rmSync(ctx); renameSync(`${ctx}.moved`, ctx); }
+  }
+  assert.ok(swapped);
+  assert.equal(readFileSync(join(outside, 'ui.md'), 'utf8'), 'an unrelated outside file');
+  assert.deepEqual(readdirSync(outside), ['ui.md']);
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

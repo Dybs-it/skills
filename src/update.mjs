@@ -808,8 +808,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // A replaced file keeps its permissions: a 0600 file stays 0600.
       const was = a.op === 'add' ? null : fsOps.lstat(p);
       const mode = was ? was.mode & 0o7777 : undefined;
-      // And its owner: run as another user, the replacement is still theirs.
-      const owner = was ? { uid: was.uid, gid: was.gid } : undefined;
+      // And its owner: run as another user, the replacement is still theirs,
+      // and a new file belongs to whoever owns the skill folder.
+      const from = was ?? fsOps.lstat(dir);
+      const owner = { uid: from.uid, gid: from.gid };
       // Registered as soon as it exists, before any write that can fail
       // (disk full, quota), so the rollback always knows to remove it.
       const entry = { a, p, tmp, chain, mode };
@@ -949,7 +951,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // the update stops while it is still at its own name.
           if (idOf(s.p) !== origId || !isRegular(s.p)) throw new Error(`${s.a.rel} changed while it was being moved aside; nothing was changed, run update again`);
           const aside = `${s.p}.${randomUUID()}.rm`;
-          renameSync(s.p, aside);
+          // Inside the very folder checked (renameInFolder), and only as the
+          // original itself: through a folder swapped for a link it moves nothing.
+          testHooks.beforeMove?.(s.p);
+          if (!renameInFolder(s.p, aside, origId)) throw new Error(`${s.a.rel} changed while it was being moved aside; nothing was changed, run update again`);
           let same = false;
           try { const x = readById(aside, origId); const y = readById(old, s.oldId); same = Boolean(x && y) && sha(x) === sha(y); } catch { same = false; }
           if (!same) {
@@ -1273,8 +1278,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         testHooks.beforeTrash?.(s);
         try {
           if (chainOf(dir, s.a.rel) !== s.chain) throw new Error('a folder on the way changed');
-          renameSync(s.old, trash);
-          moved = true;
+          // Inside the very folder checked, and only as the moved-aside file.
+          testHooks.beforeMove?.(s.old);
+          moved = renameInFolder(s.old, trash, s.oldId);
+          if (!moved) s.a.kept = s.old;
         } catch { s.a.kept = s.old; }
         if (moved) {
           let ours = false;
