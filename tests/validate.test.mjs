@@ -3628,3 +3628,13 @@ test('every doc skill reads every doc earlier in the order', async () => {
     for (const earlier of docs.slice(0, i)) assert.ok(reads.includes(`context/${earlier}.md`), `${doc} reads ${earlier}`);
   }
 });
+
+// --- Codex review on PR #1 (6c331e7): the hand-check HTML rule names what the scan leaves out ---
+test('the hand-check HTML rule names the link metadata the scan leaves out', async () => {
+  const { MANUAL_RULES } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const html = MANUAL_RULES.find((r) => r.id === 'html').text;
+  assert.ok(html.includes('link destinations and titles and reference definitions'));
+  // What the rule allows, the validator allows.
+  for (const ok of ['\nSee [docs](<details>).\n', '\n[docs]: <details>\n']) assert.ok(!validateDoc('prd', VALID_PRD + ok).rules.includes('html'), ok);
+  assert.ok(validateDoc('prd', `${VALID_PRD}\nSee <details>.\n`).rules.includes('html'));
+});

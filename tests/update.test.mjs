@@ -4116,3 +4116,4 @@ test('the README says what a replaced file keeps, and what it does not', () => {
   const t = readFileSync(join(PKG_ROOT, 'README.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(t, /A replaced file keeps its permissions and owner\. Extended attributes and ACLs on it are not carried over/);
 });
+
