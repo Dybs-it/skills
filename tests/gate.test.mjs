@@ -640,6 +640,8 @@ test('the gate refuses to decide on evidence that is not the committed state gat
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -686,6 +688,8 @@ test('the freshness check reads non-ASCII task paths as they are', () => {
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/café'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -711,6 +715,8 @@ test('a gate.md linked outside the repository, or naming its commit only in the 
   const outside = mkdtempSync(join(tmpdir(), 'dybs-gate-outside-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -753,6 +759,8 @@ test('git missing or refusing the repository is STALE inside a repository, never
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -775,6 +783,8 @@ test('a repository git cannot read the status of is STALE, never a crash read as
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -798,6 +808,8 @@ test('waiver placeholders split by formatting, a second commit:, and a damaged .
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -829,6 +841,8 @@ test('a gate.md that changes while freshness is checked gets no decision', () =>
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -866,6 +880,8 @@ function gateRepo() {
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -920,6 +936,8 @@ test('changed evidence inside a submodule set to ignore = all is STALE', () => {
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   g('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', sub, 'vendor/lib');
   g('config', '-f', '.gitmodules', 'submodule.vendor/lib.ignore', 'all');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
@@ -939,6 +957,8 @@ test('a task folder named with a pathspec wildcard excludes only its own gate', 
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/*'), { recursive: true });
   mkdirSync(join(repo, 'dybs/work/other'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
@@ -959,6 +979,8 @@ test('a full SHA-256 commit id names the evidence', (t) => {
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   try { g('init', '-q', '--object-format=sha256'); } catch { rmSync(repo, { recursive: true }); return t.skip('git without SHA-256 support'); }
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
@@ -977,6 +999,8 @@ test('a gate reached through a task folder link retargeted mid-check gets no dec
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   symlinkSync('t', join(repo, 'dybs/work/link'));
   writeFileSync(join(repo, 'code.js'), 'one');
@@ -1055,6 +1079,8 @@ test('a file that is not dybs/work/<task>/gate.md gets no decision', () => {
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   mkdirSync(join(repo, 'notes'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
@@ -1084,6 +1110,8 @@ test('a file saved during the final history query gets no decision', () => {
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   writeFileSync(join(repo, 'code.js'), 'one');
   g('add', '.'); g('commit', '-qm', 'code');
@@ -1116,6 +1144,8 @@ const gitRepo = () => {
   const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
   const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
   g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  // The test every FULL row cites (tests/a.test.js) is committed with the code.
+  mkdirSync(join(repo, 'tests'), { recursive: true }); writeFileSync(join(repo, 'tests/a.test.js'), 'test');
   mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
   return { repo, g, gatePath: join(repo, 'dybs/work/t/gate.md') };
 };
@@ -1163,4 +1193,37 @@ exec "${realGit}" "$@"
   assert.match(r.out, /STALE: the evidence changed while the gate was checking it/);
   rmSync(repo, { recursive: true });
   rmSync(bin, { recursive: true });
+});
+
+// --- Codex review on PR #3 (c5f426c): cited evidence is in the commit, as a regular file ---
+test('a cited test the evidence commit does not hold gets no decision', () => {
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const body = gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', 'tests/does-not-exist.test.js:1').replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`);
+  assert.match(body, /does-not-exist/);
+  writeFileSync(gatePath, body);
+  const r = runGate(gatePath);
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: cited evidence not in commit [0-9a-f]{7}: tests\/does-not-exist\.test\.js/);
+  rmSync(repo, { recursive: true });
+});
+
+test('a cited test that is a link, or reached through one, gets no decision', () => {
+  for (const viaFolder of [false, true]) {
+    const { repo, g, gatePath } = gitRepo();
+    const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+    writeFileSync(join(outside, 'a.test.js'), 'the reviewed test');
+    rmSync(join(repo, 'tests'), { recursive: true });
+    if (viaFolder) symlinkSync(outside, join(repo, 'tests'));
+    else { mkdirSync(join(repo, 'tests')); symlinkSync(join(outside, 'a.test.js'), join(repo, 'tests/a.test.js')); }
+    writeFileSync(join(repo, 'code.js'), 'one');
+    g('add', '.'); g('commit', '-qm', 'code');
+    writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+    const r = runGate(gatePath);
+    assert.equal(r.code, 3, `${viaFolder}: ${r.out}`);
+    assert.match(r.out, viaFolder ? /cited evidence reached through a link, so no commit holds the test itself: tests\/a\.test\.js/ : /not a regular file in commit/);
+    rmSync(repo, { recursive: true });
+    rmSync(outside, { recursive: true });
+  }
 });

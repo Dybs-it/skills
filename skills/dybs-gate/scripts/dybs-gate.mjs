@@ -624,6 +624,8 @@ export function freshness(gatePath, text) {
       } catch (e) {
         if (e.status !== 1) {
           const said = String(e.stderr || '').trim().split('\n')[0];
+          const linked = said.match(/pathspec '(.*)' is beyond a symbolic link/);
+          if (linked) return { status: 'stale', reason: `cited evidence reached through a link, so no commit holds the test itself: ${linked[1]}. Cite the test file in its real folder and run the gate again` };
           return { status: 'stale', reason: `git could not check the cited evidence (${said || e.message}). Fix the repository and run the gate again` };
         }
       }
@@ -659,6 +661,28 @@ export function freshness(gatePath, text) {
   const short = head.slice(0, 7);
   if (named !== head) {
     return { status: 'stale', head: short, reason: `gate.md says commit: ${field || '(not set)'}, but the evidence is at ${short}. Check the tables against ${short}, set commit: ${short}, and run the gate again` };
+  }
+  // Every test cited as FULL evidence must be in the evidence commit
+  // itself, as a regular file: a path the commit lacks proves nothing, and
+  // a link stores only where it points, not the tests that were reviewed
+  // (a folder on the way that is a link leaves the path missing too).
+  if (cited.length) {
+    let listed;
+    try {
+      listed = execFileSync('git', ['--literal-pathspecs', '-C', top, 'ls-tree', '-z', '--full-tree', head, '--', ...new Set(cited)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      const said = String(e.stderr || '').trim().split('\n')[0];
+      return { status: 'stale', head: short, reason: `git could not list the cited evidence in ${short} (${said || e.message}). Fix the repository and run the gate again` };
+    }
+    const files = new Map();
+    for (const entry of listed.split('\0')) {
+      const tab = entry.indexOf('\t');
+      if (tab > 0) files.set(entry.slice(tab + 1), entry.slice(0, entry.indexOf(' ')));
+    }
+    const missing = [...new Set(cited)].filter((f) => !files.has(f));
+    if (missing.length) return { status: 'stale', head: short, reason: `cited evidence not in commit ${short}: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}. Commit the tests, or cite the tests that prove the item, and run the gate again` };
+    const notFiles = [...new Set(cited)].filter((f) => !['100644', '100755'].includes(files.get(f)));
+    if (notFiles.length) return { status: 'stale', head: short, reason: `cited evidence that is not a regular file in commit ${short} (a link or a folder): ${notFiles.slice(0, 5).join(', ')}${notFiles.length > 5 ? ', …' : ''}. Cite the test file itself and run the gate again` };
   }
   // Checked once more: a file saved or a commit made while git ran above
   // would otherwise go unseen. The history query cannot see the tree, so
