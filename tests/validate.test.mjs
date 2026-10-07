@@ -3669,3 +3669,22 @@ test('dybs-start accepts project.md through the validator, never by hand', () =>
   const t = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(t, /When the human accepts it, run the validator with `--accept project` \(it sets the status, the date and `accepted-hash`\); never set those by hand/);
 });
+
+// --- Codex review on PR #2 (86aa64d): a failed look after placing still lets the rollback undo the acceptance ---
+test('--accept undoes the acceptance even when the look at the placed doc failed', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const path = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(path, 'utf8');
+  const real = mod.fsOps.lstat;
+  mod.testHooks.beforePlacedMeta = (p) => {
+    mod.fsOps.lstat = (q, o) => { if (q === p) { mod.fsOps.lstat = real; throw Object.assign(new Error('I/O error'), { code: 'EIO' }); } return real(q, o); };
+  };
+  try {
+    assert.throws(() => mod.acceptDoc(dir, 'ui', '2026-10-04', {
+      beforePlacedCheck: () => writeFileSync(join(dir, 'dybs/project.md'), 'not a valid doc any more'),
+    }), /changed while/);
+  } finally { mod.testHooks.beforePlacedMeta = null; mod.fsOps.lstat = real; }
+  assert.equal(readFileSync(path, 'utf8'), before, 'the doc is back as it was');
+  rmSync(dir, { recursive: true });
+});
