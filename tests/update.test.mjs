@@ -2291,7 +2291,9 @@ test('putting back a file that was not the update\'s never lands it outside the 
   let replaced = null;
   let swapped = false;
   // A user's file takes the staging name right after the first look...
-  mod.testHooks.beforeMove = (p) => {
+  // Replaced after the in-folder identity check, right before the rename:
+  // earlier, the update refuses before moving anything.
+  mod.testHooks.inFolder = (p) => {
     if (replaced || !String(p).endsWith('.new')) return;
     replaced = String(p);
     writeFileSync(`${p}.x`, 'theirs');
@@ -2308,7 +2310,7 @@ test('putting back a file that was not the update\'s never lands it outside the 
     }
     return real.link(from, to);
   };
-  try { try { mod.applyPlan(plan); } catch { /* reported */ } } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  try { try { mod.applyPlan(plan); } catch { /* reported */ } } finally { mod.testHooks.inFolder = null; Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
   assert.deepEqual(readdirSync(outside).filter((f) => f.endsWith('.new')), [], 'nothing put back outside the install');
   rmSync(root, { recursive: true });
@@ -2642,7 +2644,9 @@ test('the private name of a file put back is removed only while it is that file'
   let replaced = false;
   // The rollback meets a user's file at the staging name; it is moved aside,
   // linked back, and then a watcher puts another file at the private name.
-  mod.testHooks.beforeMove = (p) => {
+  // Replaced after the in-folder identity check, right before the rename:
+  // earlier, the update refuses before moving anything.
+  mod.testHooks.inFolder = (p) => {
     if (p !== stagedAt || replaced) return;
     writeFileSync(`${p}.x`, 'first user file');
     renameSync(`${p}.x`, p);
@@ -2657,7 +2661,7 @@ test('the private name of a file put back is removed only while it is that file'
     return r;
   };
   const beforeStageCheck = (entry) => { stagedAt = entry.tmp; throw new Error('stop after staging'); };
-  try { assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /stop after staging/); } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  try { assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /stop after staging/); } finally { mod.testHooks.inFolder = null; Object.assign(mod.fsOps, real); }
   assert.ok(replaced);
   const dir = dirname(prd(root));
   const texts = readdirSync(dir).map((n) => { try { return readFileSync(join(dir, n), 'utf8'); } catch { return ''; } });
@@ -2699,7 +2703,9 @@ test('a put-back that landed outside through a folder swapped and restored keeps
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   let stagedAt = null;
   let swapped = false;
-  mod.testHooks.beforeMove = (p) => {
+  // Replaced after the in-folder identity check, right before the rename:
+  // earlier, the update refuses before moving anything.
+  mod.testHooks.inFolder = (p) => {
     if (p !== stagedAt || swapped) return;
     writeFileSync(`${p}.x`, 'a user file');
     renameSync(`${p}.x`, p);
@@ -2715,7 +2721,7 @@ test('a put-back that landed outside through a folder swapped and restored keeps
     try { return real.link(from, to); } finally { rmSync(dir); renameSync(`${dir}.moved`, dir); }
   };
   const beforeStageCheck = (entry) => { stagedAt = entry.tmp; throw new Error('stop after staging'); };
-  try { assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /stop after staging/); } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  try { assert.throws(() => mod.applyPlan(plan, { beforeStageCheck }), /stop after staging/); } finally { mod.testHooks.inFolder = null; Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
   assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8') === 'a user file'; } catch { return false; } }), 'the user file is still inside the install');
   rmSync(root, { recursive: true });
@@ -3560,4 +3566,35 @@ test('a replacement that cannot be given its owner stops the update', async () =
   try { assert.throws(() => mod.applyPlan(plan), /could not be given its owner/); } finally { Object.assign(mod.fsOps, real); }
   assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
   rmSync(root, { recursive: true });
+});
+
+// --- Codex review on PR #2 (63a6284): the removal's rename happens inside the checked folder ---
+test('a folder swapped for a link right before a removal moves no outside file', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, SKILL), 'an unrelated outside file');
+  let swapped = false;
+  // Right before the original's name is moved aside, after every check, the
+  // skill folder becomes a link to the outside folder.
+  mod.testHooks.beforeMove = (p) => {
+    if (swapped || p !== prd(root)) return;
+    swapped = true;
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  try { assert.throws(() => mod.applyPlan(plan)); } finally {
+    mod.testHooks.beforeMove = null;
+    if (swapped) { rmSync(dir); renameSync(`${dir}.moved`, dir); }
+  }
+  assert.ok(swapped);
+  assert.equal(readFileSync(join(outside, SKILL), 'utf8'), 'an unrelated outside file', 'the outside file keeps its name');
+  assert.deepEqual(readdirSync(outside), [SKILL], 'nothing was moved or left in the outside folder');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
 });
