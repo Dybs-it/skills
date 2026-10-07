@@ -20,14 +20,18 @@ fix nothing unless the human asks.
 ## 1. Pin the change
 
 Ask for the fixed point if the human did not give one (a commit, branch,
-tag or `main`). Check that it resolves before anything else. Review the
-change as it is now, committed or not: diff the working tree against the
-merge base, `git diff $(git merge-base <point> HEAD)`, which includes staged
-and unstaged edits, and list new untracked files with
+tag or `main`). Before anything else, resolve it to a commit id with the name
+in single quotes, so the shell never expands it (a branch name may hold `$(`
+or `;`): `git rev-parse --verify --end-of-options '<point>^{commit}'`. A name
+that holds a single quote is not used: ask for the commit id instead. From
+then on use only that id (`<id>`), never the name. Review the change as it is
+now, committed or not: diff the working tree against the merge base,
+`git diff $(git merge-base <id> HEAD)`, which includes staged and unstaged
+edits, and list new untracked files with
 `git status --short --untracked-files=all` and read them too. The change is
 empty only when both the diff and the untracked list are empty: a change made
-only of new files is still a change. `git log <point>..HEAD --oneline` lists
-the commits so far.
+only of new files is still a change. `git log <id>..HEAD --oneline` lists the
+commits so far.
 
 ## 2. Gather the sources
 
