@@ -4111,3 +4111,30 @@ test('a folder that replaces one the update just made is never adopted or writte
   assert.deepEqual(readdirSync(join(dir, sub)), ['mine.txt'], 'nothing written into their folder');
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #1 (35a9c60): the folders are checked again after the commit-time read ---
+test('a skill folder swapped for a link right after the commit-time read stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, linkSync } = await import('node:fs');
+  const root = project(['dybs-check']);
+  const dir = join(root, '.agents/skills/dybs-check');
+  writeFileSync(join(dir, SKILL), 'old shipped version');
+  const known = { 'dybs-check/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = false;
+  // The only file is updated, so no unchanged file is checked later.
+  mod.testHooks.afterCommitRead = (s) => {
+    if (swapped) return;
+    swapped = true;
+    linkSync(s.p, join(outside, SKILL));
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  let err = null;
+  try { mod.applyPlan(plan); } catch (e) { err = e; } finally { mod.testHooks.afterCommitRead = null; }
+  assert.ok(swapped, 'the hook ran');
+  assert.match(err?.message ?? '(no error: reported as applied)', /changed during the update/);
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
