@@ -984,7 +984,7 @@ export function validateDoc(name, text) {
   // turns its line endings into spaces, then loses one space on each side
   // when both are there and it is not all spaces (`` ` O ` `` shows `O`).
   const codes = [];
-  const flatMarked = rendered
+  let linked = rendered
     .replace(/(?<![`\\])(`+)(?!`)((?:[^\n]|\n(?![ \t>]*(?:\n|$)))*?[^`])\1(?!`)/g, (m, ticks, raw) => {
       const c = raw.replace(/\n/g, ' ');
       codes.push(/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c);
@@ -992,7 +992,17 @@ export function validateDoc(name, text) {
     })
     .replace(new RegExp(INLINE_LINK, 'g'), (m, t) => LINK(t))
     .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? LINK(t.slice(1, -1)) : m))
-    .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (labels.has(label(x)) ? LINK(x) : m))
+    .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (labels.has(label(x)) ? LINK(x) : m));
+  // An image may hold a link in its description (`T![[O](u)](v)DO` reads
+  // TODO), a link may not hold another: so only an image around links just
+  // resolved is resolved again, until nothing changes.
+  for (let prev = null; prev !== linked;) {
+    prev = linked;
+    linked = linked
+      .replace(new RegExp(String.raw`(?<=(?<!\\)!)${INLINE_LINK}`, 'g'), (m, t) => LINK(t))
+      .replace(/(?<=(?<!\\)!)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)+)\]/g, (m, t, l) => (labels.has(label(l)) ? LINK(t.slice(1, -1)) : m));
+  }
+  const flatMarked = linked
     // An image shows its description as text (`T![O](x)DO` reads TODO): the
     // `!` of a resolved image goes with its brackets.
     .replace(/(?<!\\)!(?=\ue0f0)/g, '')
