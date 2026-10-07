@@ -331,6 +331,20 @@ function isRegular(p) {
 // a replacement would otherwise belong to the updater, and the user it was
 // for could no longer edit it. One that cannot be given that owner stops the
 // update rather than install a file its user cannot change.
+// Gives a folder this run just created the owner `owner`, through a
+// descriptor opened without following a link; one that cannot be given it
+// stops the update (the caller's rollback removes the folder).
+function ownFolder(p, owner) {
+  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const st = fstatSync(fd, BIG);
+    if (sameOwner(st, owner)) return;
+    try { fsOps.fchown(fd, owner.uid, owner.gid); } catch (e) {
+      throw new Error(`${basename(p)} could not be given its owner ${owner.uid}:${owner.gid} (${e.code || e.message}); run update as that user`);
+    }
+  } finally { closeSync(fd); }
+}
+
 function writeOwnFile(p, data, mode, onCreate, owner) {
   const fd = openSync(p, 'wx', mode ?? 0o666);
   try {
@@ -801,7 +815,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       let deepest = null;
       let stopId = null;
       try {
-        mkdirNoFollow(dir, dirname(a.rel), (d) => { if (!made) { made = d; stopId = idOf(dirname(d)); } deepest = d; });
+        mkdirNoFollow(dir, dirname(a.rel), (d) => {
+          if (!made) { made = d; stopId = idOf(dirname(d)); }
+          deepest = d;
+          // A new folder belongs to the skill folder's owner, as new files do:
+          // run as another user, the owner could not rename or add files in it.
+          ownFolder(d, ownerOf(fsOps.lstat(dir, BIG)));
+        });
       } finally {
         if (made) createdDirs.push({ deepest, stop: dirname(made), stopId });
       }
