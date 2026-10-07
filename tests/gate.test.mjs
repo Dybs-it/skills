@@ -1513,3 +1513,21 @@ test('dybs-review checks the merge base before it diffs', () => {
   assert.ok(!t.includes('$(git merge-base'), 'no merge base by command substitution');
   assert.match(t, /When it prints no commit \(unrelated histories, such as an orphan branch\), stop and ask the human/);
 });
+
+// --- Codex review on PR #3 (b750d60): a risk status is open or mitigated, nothing else ---
+test('a risk status that is not open or mitigated is a format problem, never read as open', () => {
+  for (const status of ['', 'mitigatd', '{{mitigated}}', 'closed']) {
+    const { problems } = parseGate(gate({ items: [full('a', 'P0')], risks: [['r1', 'technical', 2, status]] }));
+    assert.ok(problems.some((p) => /risk r1: status must be open or mitigated/.test(p)), JSON.stringify(status));
+    // The script gives no decision on such a gate (exit 2), never PASS.
+    const { repo, gatePath } = gitRepo();
+    writeFileSync(gatePath, gate({ items: [full('a', 'P0')], risks: [['r1', 'technical', 2, status]] }));
+    const r = runGate(gatePath);
+    assert.equal(r.code, 2, `${JSON.stringify(status)}: ${r.out}`);
+    assert.doesNotMatch(r.out, /PASS/);
+    rmSync(repo, { recursive: true });
+  }
+  for (const status of ['open', 'mitigated', 'Mitigated']) {
+    assert.ok(!parseGate(gate({ items: [full('a', 'P0')], risks: [['r1', 'technical', 2, status]] })).problems.length, status);
+  }
+});

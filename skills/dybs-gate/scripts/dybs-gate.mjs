@@ -412,7 +412,11 @@ export function parseGate(text) {
     // so a typo can never make a security risk waivable.
     const category = (r.category || '').trim().toLowerCase();
     if (!CATEGORIES.includes(category)) problems.push(`risk ${r.risk}: category must be one of ${CATEGORIES.join('|')}`);
-    return { id: r.risk, category: CATEGORIES.includes(category) ? category : 'security', score, open: !/^mitigated$/i.test(r.status || '') };
+    // Only the two documented values: a blank, misspelled or unfilled status
+    // is a format problem, never read as open (which a low score would pass).
+    const status = (r.status || '').trim().toLowerCase();
+    if (status !== 'open' && status !== 'mitigated') problems.push(`risk ${r.risk}: status must be open or mitigated`);
+    return { id: r.risk, category: CATEGORIES.includes(category) ? category : 'security', score, open: status !== 'mitigated' };
   });
   // Waivers are matched by id, so every id must name exactly one thing.
   const seen = new Set();
