@@ -3660,3 +3660,12 @@ test('dybs-check runs a cross-check only between docs that are not skipped', () 
   assert.match(t, /match the glossary, when domain is not skipped/);
   assert.match(t, /each pair only when neither of its docs is skipped/);
 });
+
+// --- Codex review on PR #1 (4284e1f): a literal private-use character in a heading ---
+test('a heading that holds a private-use character is matched only as written', () => {
+  // U+E047 is the marker the reading uses for an escaped `G`: written
+  // literally, it renders as itself, so `## oals` is no Goals section.
+  const r = validateDoc('prd', VALID_PRD.replace('## Goals', '## oals'));
+  assert.ok(r.rules.includes('sections'), JSON.stringify(r.errors));
+  assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '## Go&#97;ls')).rules.includes('sections'), 'a reference that renders Goals is still Goals');
+});

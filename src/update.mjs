@@ -251,6 +251,18 @@ function removeEmptyDirs(dir, stopAt, stopId) {
 // replaced by a link or another folder is noticed before anything is written.
 // Birth time included: a folder deleted and recreated can get the same
 // device and inode at once.
+// The skill folder's own metadata, read from a descriptor of the very
+// folder pinned at planning (`root`), never through a path that a folder
+// swapped for a link for an instant could send elsewhere.
+function pinnedFolderStat(dir, root) {
+  const fd = openSync(dir, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
+  try {
+    const st = fstatSync(fd, BIG);
+    if (idOfStat(st) !== root) throw new Error(`${dir} changed since the update was planned (the skill folder was moved or replaced); nothing was changed, run update again`);
+    return { uid: Number(st.uid), gid: Number(st.gid) };
+  } finally { closeSync(fd); }
+}
+
 function rootIdentity(dir) {
   const st = lstatSync(dir, BIG);
   if (!st.isDirectory() || realpathSync(dir) !== dir) return null;
@@ -358,6 +370,9 @@ function writeOwnFile(p, data, mode, onCreate, owner) {
     }
     // After the owner: a change of owner can clear permission bits.
     if (mode !== undefined) fchmodSync(fd, mode);
+    // What the file ended up with, for the check right before it is placed.
+    const done = fstatSync(fd, BIG);
+    return { mode: Number(done.mode) & 0o7777, uid: Number(done.uid), gid: Number(done.gid) };
   } finally { closeSync(fd); }
 }
 
@@ -841,7 +856,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       try {
         // A new folder belongs to the skill folder's owner, as new files do:
         // run as another user, the owner could not rename or add files in it.
-        const folderOwner = ownerOf(fsOps.lstat(dir, BIG));
+        const folderOwner = pinnedFolderStat(dir, plan.root);
         mkdirNoFollow(dir, dirname(a.rel), (d, name) => {
           if (!made) { made = d; stopId = idOfStat(lstatSync('.', BIG)); }
           deepest = d;
@@ -865,12 +880,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       const mode = was ? was.mode & 0o7777 : undefined;
       // And its owner: run as another user, the replacement is still theirs,
       // and a new file belongs to whoever owns the skill folder.
-      const from = was ?? fsOps.lstat(dir);
+      const from = was ?? pinnedFolderStat(dir, plan.root);
       const owner = { uid: from.uid, gid: from.gid };
       // Registered as soon as it exists, before any write that can fail
       // (disk full, quota), so the rollback always knows to remove it.
       const entry = { a, p, tmp, chain, mode, owner: was ? owner : undefined };
-      writeOwnFile(tmp, want[a.rel], mode, (id) => { entry.tmpId = id; staged.push(entry); }, owner);
+      entry.made = writeOwnFile(tmp, want[a.rel], mode, (id) => { entry.tmpId = id; staged.push(entry); }, owner);
       beforeStageCheck?.(entry);
       if (!chain || chainOf(dir, a.rel) !== chain || idOf(tmp) !== entry.tmpId) {
         // Written through a folder swapped in before the open, the staging
@@ -1053,6 +1068,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         try { staged = readById(s.tmp, s.tmpId); } catch { staged = null; }
         if (!staged || sha(staged) !== sha(want[s.a.rel])) {
           throw new Error(`the staged copy of ${s.a.rel} changed before it was installed; nothing was kept, run update again`);
+        }
+        // And its permissions and owner, which the copy below carries over:
+        // a chmod or chown of the staging file is never installed.
+        let tst = null;
+        try { tst = fsOps.lstat(s.tmp, BIG); } catch { tst = null; }
+        if (!tst || idOfStat(tst) !== s.tmpId || !s.made || (Number(tst.mode) & 0o7777) !== s.made.mode || !sameOwner(tst, { uid: s.made.uid, gid: s.made.gid })) {
+          throw new Error(`the staged copy of ${s.a.rel} had its permissions or owner changed before it was installed; nothing was kept, run update again`);
         }
         modeUnchanged(s);
         let how;
