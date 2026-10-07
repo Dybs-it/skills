@@ -4038,3 +4038,43 @@ test('a rollback removes sibling folders it made under a new parent, and the par
   assert.ok(!existsSync(join(dir, 'nest')), 'the parent the update made is gone too');
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #1 (ad29b9b): rollback prunes only the folders it made, keeps edited staging files ---
+test('a rollback never removes an empty folder that replaced one the update made', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  const nested = Object.keys(shippedFiles('dybs-start')).find((r) => r.includes('/'));
+  const sub = nested.slice(0, nested.indexOf('/'));
+  rmSync(join(dir, sub), { recursive: true });
+  let replacedId = null;
+  mod.testHooks.afterMkdir = (p) => {
+    if (p !== join(dir, sub)) return;
+    mod.testHooks.afterMkdir = null;
+    rmSync(p, { recursive: true });
+    mkdirSync(p);
+    replacedId = lstatSync(p).ino;
+  };
+  let err = null;
+  try { update([root]); } catch (e) { err = e; } finally { mod.testHooks.afterMkdir = null; }
+  assert.match(err?.message ?? '', /was replaced right after the update made it/);
+  assert.ok(existsSync(join(dir, sub)), 'the replacement folder is still there');
+  assert.equal(lstatSync(join(dir, sub)).ino, replacedId);
+  rmSync(root, { recursive: true });
+});
+
+test('a staging file edited in place is kept by the rollback, never deleted', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const beforeStageCheck = (entry) => { if (entry.a.rel === SKILL) writeFileSync(entry.tmp, 'someone edited the staging file'); };
+  let err = null;
+  try { mod.applyPlan(plan, { beforeStageCheck }); } catch (e) { err = e; }
+  assert.match(err?.message ?? '', /staged copy of SKILL\.md changed/);
+  const d = dirname(prd(root));
+  assert.ok(readdirSync(d).some((n) => { try { return readFileSync(join(d, n), 'utf8') === 'someone edited the staging file'; } catch { return false; } }), 'the edit survives');
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
