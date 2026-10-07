@@ -118,15 +118,18 @@ export function discover(roots) {
       const realDir = (p) => {
         let st;
         try { st = fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return false; throw e; }
-        if (st.isDirectory()) return true;
-        if (!st.isSymbolicLink()) return false;
+        if (!st.isDirectory() && !st.isSymbolicLink()) return false;
+        // A real folder too: lstat() follows the folders above it, so through
+        // a linked `.<agent>/skills` it may be a folder outside the project.
         let real;
         try { real = realpathSync(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR' || e.code === 'ELOOP') return false; throw e; }
         // And as its own skill: a link named dybs-start that resolves to a
         // folder named foo is no install, so it is no evidence either.
         return basename(real) === basename(p) && realRoots.some((r) => within(real, r));
       };
-      const installed = basename(dirname(folder)) === '.agents' || skillNames().some((n) => realDir(join(folder, n)) && realFile(join(folder, n, 'SKILL.md')));
+      // `.agents` vouches by its name only for a folder that is in the project.
+      const inside = (() => { try { return realRoots.some((r) => within(realpathSync(folder), r)); } catch { return false; } })();
+      const installed = (basename(dirname(folder)) === '.agents' && inside) || skillNames().some((n) => realDir(join(folder, n)) && realFile(join(folder, n, 'SKILL.md')));
       for (const skill of skillNames()) {
         const dir = join(folder, skill);
         // An install is recognised by its folder, not by SKILL.md: an install
@@ -328,14 +331,16 @@ function isRegular(p) {
 // update rather than install a file its user cannot change.
 // Gives a folder this run just created the owner `owner`, through a
 // descriptor opened without following a link; one that cannot be given it
-// stops the update (the caller's rollback removes the folder).
-function ownFolder(p, owner) {
-  const fd = openSync(p, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
+// stops the update (the caller's rollback removes the folder). `name` is
+// opened as given: mkdirNoFollow passes the bare name, from inside the
+// pinned parent, so no folder on the way is resolved again.
+function ownFolder(name, owner) {
+  const fd = openSync(name, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
   try {
     const st = fstatSync(fd, BIG);
     if (sameOwner(st, owner)) return;
     try { fsOps.fchown(fd, owner.uid, owner.gid); } catch (e) {
-      throw new Error(`${basename(p)} could not be given its owner ${owner.uid}:${owner.gid} (${e.code || e.message}); run update as that user`);
+      throw new Error(`${basename(name)} could not be given its owner ${owner.uid}:${owner.gid} (${e.code || e.message}); run update as that user`);
     }
   } finally { closeSync(fd); }
 }
@@ -362,7 +367,7 @@ function writeOwnFile(p, data, mode, onCreate, owner) {
 // replaces `p` in between. One that is not ours goes back, never over
 // anything, or stays under its new name and the error says where.
 // Test seam: runs between the first look at a name and acting on it.
-export const testHooks = { afterPlace: null, beforePlacedMode: null, inFolder: null, afterLook: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
+export const testHooks = { afterPlace: null, beforePlacedMode: null, inFolder: null, afterLook: null, afterMkdir: null, beforeMove: null, beforePutBack: null, beforePrune: null, beforeRmdir: null, beforeUndoRm: null, beforePlanRead: null, beforeTrash: null };
 
 // `check` runs immediately before the move (for example, that the folders
 // on the way are still the pinned ones), so nothing is moved through a
@@ -609,9 +614,23 @@ function mkdirNoFollow(root, relDir, onMade) {
     }
     testHooks.afterLook?.(p);
     if (!still()) throw new Error(`a folder on the way to ${posix(relative(root, p))} changed; nothing was changed, run update again`);
-    mkdirSync(p);
-    onMade?.(p);
-    pins.push([p, idOf(p)]);
+    // Made and handed over inside the very parent that was pinned: the
+    // working directory stays bound to it whatever happens to the path, so
+    // a folder on the way swapped for a link after the check above can
+    // neither receive the new folder nor have an outside one given an owner.
+    const back = process.cwd();
+    process.chdir(dirname(p));
+    let id;
+    try {
+      if (idOfStat(lstatSync('.', BIG)) !== pins[pins.length - 1][1]) {
+        throw new Error(`a folder on the way to ${posix(relative(root, p))} changed; nothing was changed, run update again`);
+      }
+      mkdirSync(part);
+      testHooks.afterMkdir?.(p);
+      onMade?.(p, part);
+      id = idOfStat(lstatSync(part, BIG));
+    } finally { try { process.chdir(back); } catch { /* the caller's folder is gone; nothing of ours depends on it */ } }
+    pins.push([p, id]);
     first = first || p;
   }
   return first;
@@ -810,12 +829,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       let deepest = null;
       let stopId = null;
       try {
-        mkdirNoFollow(dir, dirname(a.rel), (d) => {
-          if (!made) { made = d; stopId = idOf(dirname(d)); }
+        // A new folder belongs to the skill folder's owner, as new files do:
+        // run as another user, the owner could not rename or add files in it.
+        const folderOwner = ownerOf(fsOps.lstat(dir, BIG));
+        mkdirNoFollow(dir, dirname(a.rel), (d, name) => {
+          if (!made) { made = d; stopId = idOfStat(lstatSync('.', BIG)); }
           deepest = d;
-          // A new folder belongs to the skill folder's owner, as new files do:
-          // run as another user, the owner could not rename or add files in it.
-          ownFolder(d, ownerOf(fsOps.lstat(dir, BIG)));
+          ownFolder(name, folderOwner);
         });
       } finally {
         if (made) createdDirs.push({ deepest, stop: dirname(made), stopId });
