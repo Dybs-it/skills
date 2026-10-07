@@ -1617,3 +1617,27 @@ test('a tracked-file listing larger than 1 MiB still gets a decision', () => {
   assert.equal(r.code, 0, r.out);
   rmSync(repo, { recursive: true });
 });
+
+// --- Codex review on PR #3 (3c7afde): bare CR line endings, prototype names, full commit ids ---
+test('a bare CR ends a line, as it does to a reader', () => {
+  // `Archived<CR>---` under Items is a Setext heading: the table is no
+  // longer under Items, so the gate has no Items table.
+  const text = gate({ items: [full('a', 'P0')] }).replace('## Items\n\n', '## Items\n\nArchived\r---\n\n');
+  assert.ok(parseGate(text).problems.some((p) => /underlined/.test(p)), JSON.stringify(parseGate(text).problems));
+  // A whole file with CR line endings reads as with LF.
+  const lfText = gate({ items: [full('a', 'P0')] });
+  assert.deepEqual(parseGate(lfText.replace(/\n/g, '\r')).items, parseGate(lfText).items);
+});
+
+test('a Security cell naming a prototype property is no value', () => {
+  for (const v of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+    const p = parseGate(gate({ items: [['a', 'P1', 'NONE', '', v]] }));
+    assert.ok(p.problems.some((x) => /security must be yes or no/.test(x)), v);
+  }
+});
+
+test('dybs-pr compares the gate commit as a full id', () => {
+  const t = readFileSync(join(ROOT, 'skills/dybs-pr/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /git log -1 --format=%H/);
+  assert.match(t, /Compare full commit ids, never as written: resolve `commit:` with `git rev-parse --verify --end-of-options '<commit>\^\{commit\}'` first/);
+});

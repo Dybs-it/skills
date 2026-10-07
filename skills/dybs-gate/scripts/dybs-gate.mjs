@@ -18,6 +18,10 @@ import { fileURLToPath } from 'node:url';
 export const COVERAGE = ['FULL', 'PARTIAL', 'NONE'];
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+// CommonMark ends a line at LF, CRLF or a bare CR: every reading starts from
+// LF only, so a bare CR (`Archived<CR>---`, a Setext heading) is a line
+// break here exactly as it is to a reader.
+const lf = (t) => String(t ?? '').replace(/\r\n?/g, '\n');
 // Git's listings grow with the repository (16,000 tracked files is about
 // 1.2 MB of `ls-files -v -z`); Node's default 1 MiB buffer would turn every
 // gate in a large repository stale.
@@ -82,6 +86,7 @@ export const CATEGORIES = ['security', 'data', 'business', 'performance', 'techn
 // comment counts only where it starts a line; anything else that looks like
 // one (escaped, mid-line) is refused by markdownHazards(), not interpreted.
 export function visible(text) {
+  text = lf(text);
   const out = [];
   let fence = null;
   let inComment = false;
@@ -129,6 +134,7 @@ export function visible(text) {
 // after a comment's closing `-->`, and a fence opened inside a list item or
 // a quote (its contents could still look like a table here).
 export function markdownHazards(text) {
+  text = lf(text);
   const problems = [];
   const lines = text.split(/\r?\n/);
   let inComment = false;
@@ -247,6 +253,7 @@ function isHeading(line, heading) {
 
 // How often "## <heading>" appears in what a reader sees.
 export function headingCount(text, heading) {
+  text = lf(text);
   return visible(text).split(/\r?\n/).filter((l) => isHeading(l, heading)).length;
 }
 
@@ -255,6 +262,7 @@ export function headingCount(text, heading) {
 // missing or has no real table under it (a header line followed by a
 // separator row). Indented lines are code, never a table.
 export function tableAt(text, heading) {
+  text = lf(text);
   const lines = visible(text).split(/\r?\n/);
   const start = lines.findIndex((l) => isHeading(l, heading));
   if (start < 0) return null;
@@ -299,6 +307,7 @@ export function tableAt(text, heading) {
 
 // Rows only, for callers that do not need the column names.
 export function tableUnder(text, heading) {
+  text = lf(text);
   return tableAt(text, heading)?.rows ?? null;
 }
 
@@ -327,7 +336,9 @@ function schemaProblems(text, table, heading) {
 
 // Security must be stated explicitly: a blank, a typo or an unfilled
 // placeholder is a format problem, never a silent "no".
-const SECURITY = { yes: true, y: true, true: true, no: false, n: false, false: false };
+// No prototype: a Security cell such as `__proto__` or `constructor` is no
+// value at all, never an inherited object that slips past the checks.
+const SECURITY = Object.assign(Object.create(null), { yes: true, y: true, true: true, no: false, n: false, false: false });
 // For display only. Decisions compare whole counts, never rounded values.
 const pct = (part, all) => (all === 0 ? 100 : Math.round((part / all) * 1000) / 10);
 // part/all >= percent/100, in integers, so 79.95% never rounds up to 80%.
@@ -370,6 +381,7 @@ export function textOutsideCodeSpans(line) {
 }
 
 export function parseGate(text) {
+  text = lf(text);
   const problems = [...markdownHazards(text)];
   // Raw HTML can hide or show content in ways this parser does not follow
   // (<pre>, <details>, <table>). gate.md needs none, so any is refused.
@@ -580,6 +592,7 @@ function insideGitFolder(dir) {
 }
 
 export function freshness(gatePath, text) {
+  text = lf(text);
   const abs = resolve(gatePath);
   const git = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   let top;
