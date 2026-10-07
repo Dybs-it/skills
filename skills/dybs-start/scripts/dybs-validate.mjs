@@ -8,7 +8,7 @@
 
 import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, constants as fsConstants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
-import { join, resolve, basename } from 'node:path';
+import { join, resolve, basename, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const DOCS = {
@@ -767,10 +767,12 @@ const BOOKKEEPING = new Set(['status', 'updated', 'accepted', 'accepted-hash']);
 // `accepted-hash` when the human accepts, so a later edit is detectable.
 export function acceptedHash(data, body) {
   const meaning = Object.keys(data || {}).filter((k) => !BOOKKEEPING.has(k)).sort()
-    .map((k) => `${k}:${data[k]}\n`).join('');
+    .map((k) => [k, String(data[k])]);
   // Only line endings are normalised: leading or trailing whitespace can
   // change what Markdown shows (an indented title becomes code).
-  return createHash('sha256').update(meaning + body.replace(/\r\n/g, '\n')).digest('hex').slice(0, 12);
+  // Settings and body are encoded as a structure, never concatenated: a
+  // setting moved into the start of the body must change the fingerprint.
+  return createHash('sha256').update(JSON.stringify([meaning, body.replace(/\r\n/g, '\n')])).digest('hex').slice(0, 12);
 }
 
 // For counting, only a well-formed inline destination is left out
@@ -1198,7 +1200,8 @@ function readmeProblem(root, snapshot = {}) {
   // A file the skills cannot read is as good as missing.
   // The bytes read here, between the two link checks, are the snapshot
   // acceptance keeps: never a second read outside them.
-  try { snapshot.text = readRegular(readme); if (snapshot.text === null) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'; } catch (e) {
+  try { snapshot.text = readRegular(readme, root); if (snapshot.text === null) return 'dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'; } catch (e) {
+    if (e.code === 'EUNSAFE') return `${e.message}: keep dybs/ and its method rules as real files, then run dybs-start to restore them`;
     return `dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`;
   }
   return linked();
@@ -1209,7 +1212,11 @@ function readmeProblem(root, snapshot = {}) {
 // open descriptor, not on a separate look at the name. Never through a
 // link at its own name (O_NOFOLLOW), and only while the opened file is what
 // the name itself is (same device and inode, not a link). null otherwise.
-function readRegular(p) {
+// With `root`, the folders on the way are asked again between the open and
+// the read: O_NOFOLLOW guards only the name, so a folder swapped for a link
+// for the whole call would otherwise have its outside file read in full
+// (however large) before the check after the read refuses it.
+function readRegular(p, root) {
   let fd;
   try { fd = fsOps.open(p); } catch (e) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') return null;
@@ -1220,13 +1227,18 @@ function readRegular(p) {
     if (!st.isFile()) return null;
     const own = lstatSync(p);
     if (own.isSymbolicLink() || own.dev !== st.dev || own.ino !== st.ino) return null;
+    if (root !== undefined) {
+      const unsafe = unsafePath(root, relative(root, p).split(sep).join('/'));
+      if (unsafe) throw Object.assign(new Error(unsafe), { code: 'EUNSAFE' });
+    }
+    validateHooks.beforeBytes?.(p);
     return readFileSync(fd, 'utf8');
   } finally { closeSync(fd); }
 }
 // The same for a doc that was already checked to be a regular file: one
 // swapped since is an error, never a read that can hang.
-function readDoc(p) {
-  const t = readRegular(p);
+function readDoc(p, root) {
+  const t = readRegular(p, root);
   if (t === null) throw new Error(`${p} is not a regular file`);
   return t;
 }
@@ -1243,7 +1255,7 @@ function lookup(p) {
 // Test seams: right after project.md is read for its settings, right
 // before each doc is read, and (in --accept) right after the method rules
 // were read under their link checks.
-export const validateHooks = { afterSettings: null, beforeRead: null, afterReadme: null };
+export const validateHooks = { afterSettings: null, beforeRead: null, afterReadme: null, beforeBytes: null };
 
 export function validateProject(root, only) {
   const dir = join(root, 'dybs');
@@ -1256,7 +1268,8 @@ export function validateProject(root, only) {
 
   const projectPath = join(dir, DOCS.project.file);
   // A linked project.md is never opened: the loop below reports it.
-  const projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath) : null;
+  let projectText = null;
+  try { projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath, root) : null; } catch (e) { if (e.code !== 'EUNSAFE') throw e; }
   const projectData = projectText === null ? null : parseFrontmatter(projectText).data;
   validateHooks.afterSettings?.();
   const skip = skipped(projectData);
@@ -1301,10 +1314,16 @@ export function validateProject(root, only) {
     // project.md is validated from the very bytes its settings came from:
     // a save in between would otherwise mix two versions in one result.
     if (!(name === 'project' && projectText !== null)) validateHooks.beforeRead?.(path);
-    const text = name === 'project' && projectText !== null ? projectText : readRegular(path);
+    let text;
+    let swapped = null;
+    try { text = name === 'project' && projectText !== null ? projectText : readRegular(path, root); } catch (e) {
+      if (e.code !== 'EUNSAFE') throw e;
+      text = null;
+      swapped = e.message;
+    }
     // The name itself is read without following a link; a folder on the way
     // swapped for one around the read is caught by asking again after it.
-    const swapped = text !== null && unsafePath(root, `dybs/${spec.file}`);
+    swapped = swapped || (text !== null && unsafePath(root, `dybs/${spec.file}`));
     if (swapped) {
       results.push({ name, file: spec.file, status: null, words: 0, errors: [`${swapped}: keep the docs as real files in dybs/`], warnings: [] });
       continue;
@@ -1639,7 +1658,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   const inputsUnchanged = () => {
     for (const [r, t] of inputs) {
       let same = false;
-      try { same = !unsafePath(root, r) && readDoc(join(root, r)) === t; } catch { same = false; }
+      try { same = !unsafePath(root, r) && readDoc(join(root, r), root) === t; } catch { same = false; }
       if (!same) throw new Error(`${r} changed while ${rel} was being accepted; run --accept again`);
     }
   };
@@ -1655,7 +1674,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     const projectUnsafe = unsafePath(root, 'dybs/project.md');
     if (projectUnsafe) return { ok: false, errors: [`refusing to accept: ${projectUnsafe}`] };
     {
-      const projectText = readDoc(projectPath);
+      const projectText = readDoc(projectPath, root);
       inputs.push(['dybs/project.md', projectText]);
       const project = validateDoc('project', projectText, depthFor('project', parseFrontmatter(projectText).data));
       if (project.errors.length) return { ok: false, errors: project.errors.map((e) => `project.md: ${e}`) };
@@ -1672,7 +1691,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
         if (!existsSync(depPath)) return { ok: false, errors: [`${depRel} is missing: ${name} cannot be written without it. Write ${dep} first.`] };
         const depUnsafe = unsafePath(root, depRel);
         if (depUnsafe) return { ok: false, errors: [`refusing to accept: ${depUnsafe}`] };
-        const depText = readDoc(depPath);
+        const depText = readDoc(depPath, root);
         const r = validateDoc(dep, depText, depthFor(dep, projectData), projectData?.checkins);
         if (r.errors.length) return { ok: false, errors: r.errors.map((e) => `${DOCS[dep].file}: ${e}`) };
         inputs.push([depRel, depText]);
@@ -1680,7 +1699,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
     }
   }
   const path = join(root, rel);
-  const text = readDoc(path);
+  const text = readDoc(path, root);
   const { data, body } = parseFrontmatter(text);
   if (!data) return { ok: false, errors: validateDoc(name, text).errors };
   // project.md's check-ins bind the other docs too: `checkins: none` is not
@@ -1698,7 +1717,7 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       if (there !== 'present') return { ok: false, errors: [`${otherRel} cannot be checked (${there}), so "checkins: none" cannot be confirmed for it. Fix its permissions and run --accept again.`] };
       const otherUnsafe = unsafePath(root, otherRel);
       if (otherUnsafe) return { ok: false, errors: [`refusing to accept: ${otherUnsafe}`] };
-      const otherText = readDoc(join(root, otherRel));
+      const otherText = readDoc(join(root, otherRel), root);
       const r = validateDoc(other, otherText, depthFor(other, data), data.checkins);
       if (r.rules.includes('checkins')) return { ok: false, errors: [`${DOCS[other].file}: "checkins: none" asks nothing, so it must be quick: set depth: quick there first`] };
       inputs.push([otherRel, otherText]);

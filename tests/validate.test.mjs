@@ -3257,3 +3257,35 @@ test('an image whose description holds a link is read as rendered', () => {
   assert.ok(flagged('\nT[![O](u)](v)DO\n'));
   assert.ok(!flagged('\n[r]: /u\n\nT[[O](u)][r]DO\n'));
 });
+
+// --- Codex review on PR #2 (ccc6a0f): settings and body cannot trade places ---
+test('a setting moved into the body changes the acceptance fingerprint', async () => {
+  const { acceptedHash } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const body = '# Project\n\nText.\n';
+  assert.notEqual(acceptedHash({ type: 'web' }, body), acceptedHash({}, `type:web\n${body}`));
+  assert.notEqual(acceptedHash({ a: 'b\nc:d' }, body), acceptedHash({ a: 'b', c: 'd' }, body));
+  assert.equal(acceptedHash({ type: 'web', status: 'accepted' }, body), acceptedHash({ type: 'web' }, body.replace(/\n/g, '\r\n')));
+});
+
+// --- Codex review on PR #2 (ccc6a0f): nothing is read through a swapped folder ---
+test('a folder swapped for a link before a doc is opened has none of its bytes read', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  const ctx = join(dir, 'dybs/context');
+  const doc = join(ctx, 'ui.md');
+  const read = [];
+  mod.validateHooks.beforeRead = (p) => {
+    if (p !== doc) return;
+    renameSync(ctx, join(outside, 'context'));
+    symlinkSync(join(outside, 'context'), ctx);
+  };
+  mod.validateHooks.beforeBytes = (p) => { read.push(p); };
+  let r;
+  try { r = validateProject(dir, 'ui'); } finally { mod.validateHooks.beforeRead = null; mod.validateHooks.beforeBytes = null; }
+  assert.equal(r.ok, false);
+  assert.match(r.results.find((x) => x.name === 'ui').errors.join(' '), /keep the docs as real files/);
+  assert.ok(!read.includes(doc), 'the outside file is refused before its bytes are read');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
