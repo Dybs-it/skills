@@ -368,6 +368,9 @@ export function parseGate(text) {
     if (!COVERAGE.includes(coverage)) problems.push(`item ${r.item}: coverage must be one of ${COVERAGE.join('|')}`);
     const sec = SECURITY[(r.security || '').trim().toLowerCase()];
     if (sec === undefined) problems.push(`item ${r.item}: security must be yes or no`);
+    // quality.md ranks security behaviour P0: a lower priority on a security
+    // row would let an untested security item pass on the P1/overall bars.
+    if (sec === true && PRIORITIES.includes(priority) && priority !== 'P0') problems.push(`item ${r.item}: a security item is P0 (quality.md), not ${priority}`);
     if (coverage === 'FULL' && !hasLocation(evidence)) {
       coverage = 'PARTIAL';
       notes.push('FULL without a test location (path:line) counts as PARTIAL');
@@ -638,8 +641,12 @@ export function freshness(gatePath, text) {
     // The gate's inputs likewise: the task's files beside gate.md (task.md,
     // test-plan.md, review.md...) and the context docs. An ignored one is in
     // no commit, so the tables were checked against something unrecorded.
-    const inputs = [...gateInputs(top, gateRel.slice(0, gateRel.lastIndexOf('/'))), ...gateInputs(top, `${rootRel}dybs/context`)]
+    const linkedInputs = [];
+    const inputs = [...gateInputs(top, gateRel.slice(0, gateRel.lastIndexOf('/')), linkedInputs), ...gateInputs(top, `${rootRel}dybs/context`, linkedInputs)]
       .filter((f) => f !== gateRel && f !== prRel);
+    // gate.md and pr.md are the outputs; a gate.md that is a link has its own refusal.
+    const linked = linkedInputs.filter((f) => f !== gateRel && f !== prRel);
+    if (linked.length) return { status: 'stale', reason: `gate inputs that are links, so the commit holds only where they point: ${linked.slice(0, 5).join(', ')}${linked.length > 5 ? ', …' : ''}. Keep the task files and context docs as real files and run the gate again` };
     if (inputs.length) {
       let ignored = '';
       try {
@@ -751,7 +758,7 @@ export function freshness(gatePath, text) {
 // The regular files under `rel` (a folder in the repository at `top`), as
 // repository paths, found without following links. A folder that is not
 // there has none.
-function gateInputs(top, rel) {
+function gateInputs(top, rel, links = []) {
   const out = [];
   const walk = (r) => {
     let entries;
@@ -760,6 +767,9 @@ function gateInputs(top, rel) {
       const child = `${r}/${e.name}`;
       if (e.isDirectory()) walk(child);
       else if (e.isFile()) out.push(child);
+      // A link (to a file or a folder) is noted: the commit holds only
+      // where it points, and its target can change unseen.
+      else if (e.isSymbolicLink()) links.push(child);
     }
   };
   walk(rel);

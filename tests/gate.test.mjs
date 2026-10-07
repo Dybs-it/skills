@@ -1313,3 +1313,30 @@ test('the PR and gate skills list untracked files one by one', () => {
     assert.doesNotMatch(t, /`git status --porcelain`/, skill);
   }
 });
+
+// --- Codex review on PR #3 (a0bae56): security rows are P0; linked gate inputs get no decision ---
+test('a security item below P0 is a format problem, not a decision', () => {
+  for (const p of ['P1', 'P2', 'P3']) {
+    const parsed = parseGate(gate({ items: [gap('auth', p, 'NONE', 'yes'), full('b', 'P2'), full('c', 'P2'), full('d', 'P2'), full('e', 'P2')] }));
+    assert.match(parsed.problems.join(' '), new RegExp(`item auth: a security item is P0 \\(quality\\.md\\), not ${p}`), p);
+  }
+  assert.doesNotMatch(parseGate(gate({ items: [full('auth', 'P0', 'yes')] })).problems.join(' '), /security item is P0/);
+});
+
+test('a gate input that is a link gets no decision', () => {
+  for (const which of ['file', 'folder']) {
+    const { repo, g, gatePath } = gitRepo();
+    const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+    writeFileSync(join(outside, 'test-plan.md'), 'the reviewed plan');
+    if (which === 'file') symlinkSync(join(outside, 'test-plan.md'), join(repo, 'dybs/work/t/test-plan.md'));
+    else { mkdirSync(join(repo, 'dybs/context'), { recursive: true }); symlinkSync(outside, join(repo, 'dybs/context/linked')); }
+    writeFileSync(join(repo, 'code.js'), 'one');
+    g('add', '.'); g('commit', '-qm', 'code');
+    writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+    const r = runGate(gatePath);
+    assert.equal(r.code, 3, `${which}: ${r.out}`);
+    assert.match(r.out, /STALE: gate inputs that are links/, which);
+    rmSync(repo, { recursive: true });
+    rmSync(outside, { recursive: true });
+  }
+});
