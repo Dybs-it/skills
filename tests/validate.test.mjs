@@ -3359,3 +3359,46 @@ test('without hard links, an --accept folder swapped right before the move aside
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+// --- Codex review on PR #3 (e4804a1): an accepted doc keeps its owner ---
+test('--accept keeps the doc owner, with and without hard links', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { chownSync, statSync } = await import('node:fs');
+  for (const noLinks of [false, true]) {
+    const dir = copySample();
+    const doc = join(dir, 'dybs/context/ui.md');
+    chownSync(doc, 65534, 65534);
+    const real = { ...mod.fsOps };
+    if (noLinks) mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+    let r;
+    try { r = mod.acceptDoc(dir, 'ui', '2026-10-04'); } finally { Object.assign(mod.fsOps, real); }
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const st = statSync(doc);
+    assert.deepEqual([st.uid, st.gid], [65534, 65534], `noLinks=${noLinks}`);
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('--accept stops when the doc cannot be given its owner', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { statSync } = await import('node:fs');
+  const dir = copySample();
+  const doc = join(dir, 'dybs/context/ui.md');
+  const before = readFileSync(doc, 'utf8');
+  const real = { ...mod.fsOps };
+  const ownUid = statSync(doc).uid;
+  // The temporary file comes out owned by someone else, and the change refused.
+  mod.fsOps.fchown = () => { throw Object.assign(new Error('not permitted'), { code: 'EPERM' }); };
+  const { chownSync } = await import('node:fs');
+  let r;
+  try {
+    if (process.getuid?.() === 0) chownSync(doc, ownUid + 1, ownUid + 1);
+    else return;
+    try { r = mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch (e) { r = { ok: false, errors: [e.message] }; }
+  } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(r.ok, false);
+  assert.match(r.errors.join(' '), /could not be given its owner/);
+  assert.equal(readFileSync(doc, 'utf8'), before);
+  rmSync(dir, { recursive: true });
+});
