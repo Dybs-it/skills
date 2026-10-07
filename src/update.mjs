@@ -708,12 +708,19 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       if (a.op === 'remove') {
         // A lookup that fails (EIO, EACCES) leaves no record to guard the
         // file with, so the update stops; only a file provably gone has none.
+        // Read between two pins of the folders on the way, and tied to the
+        // file it was read from: a folder swapped for a link during the
+        // lookup would record another file's permissions, so the update
+        // stops, and the file moved aside later must be this very file.
+        const chain = chainOf(dir, a.rel);
         let mode;
-        try { mode = Number(fsOps.lstat(p, BIG).mode) & 0o7777; } catch (e) {
+        let modeId;
+        try { const st = fsOps.lstat(p, BIG); mode = Number(st.mode) & 0o7777; modeId = idOfStat(st); } catch (e) {
           if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw new Error(`the permissions of ${a.rel} could not be checked (${e.code || e.message}); nothing was changed, run update again`);
           mode = undefined;
         }
-        staged.push({ a, p, chain: chainOf(dir, a.rel), mode });
+        if (!chain || chainOf(dir, a.rel) !== chain) throw new Error(`a folder on the way to ${a.rel} changed during the update; nothing was changed, run update again`);
+        staged.push({ a, p, chain, mode, modeId });
         continue;
       }
       beforeMkdir?.();
@@ -815,6 +822,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // under both names, as seen now); a file that replaced it since is
           // never adopted or removed.
           const linkedId = idOf(s.p);
+          if (s.modeId !== undefined && linkedId !== s.modeId) throw new Error(`${s.a.rel} changed since its permissions were recorded; nothing was changed, run update again`);
           fsOps.link(s.p, old);
           const dropOld = (check) => {
             const now = idOf(old);
@@ -851,6 +859,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // someone else could use.
           const origId = idOf(s.p);
           if (!isRegular(s.p)) throw new Error(`${s.a.rel} changed since the update was planned (it is no longer a regular file); nothing was changed, run update again`);
+          if (s.modeId !== undefined && origId !== s.modeId) throw new Error(`${s.a.rel} changed since its permissions were recorded; nothing was changed, run update again`);
           // The copy's identity is recorded the moment it exists (from the
           // open descriptor), never read again later: a file that replaced
           // it meanwhile is not ours. A copy that fails halfway is removed.

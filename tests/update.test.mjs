@@ -3326,3 +3326,42 @@ test('a file to remove whose permissions cannot be read stops the update', async
   assert.equal(readFileSync(gone, 'utf8'), 'old gone', 'the file stays at its name');
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #3 (d370ce5): the recorded mode belongs to the planned file ---
+test('a folder swapped during the removed file mode lookup stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, renameSync, symlinkSync, readdirSync: rd } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const skill = dirname(prd(root));
+  mkdirSync(join(skill, 'sub'));
+  const gone = join(skill, 'sub/gone.md');
+  writeFileSync(gone, 'old gone');
+  chmodSync(gone, 0o644);
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'gone.md'), 'theirs');
+  chmodSync(join(outside, 'gone.md'), 0o600);
+  const known = { ...knownHashes(), 'dybs-prd/sub/gone.md': [sha('old gone')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  assert.equal(ops(plan)['sub/gone.md'], 'remove');
+  const real = { ...mod.fsOps };
+  let swapped = 0;
+  mod.fsOps.lstat = (p, o) => {
+    if (p === gone && !swapped) {
+      swapped++;
+      renameSync(join(skill, 'sub'), join(skill, 'sub.moved'));
+      symlinkSync(outside, join(skill, 'sub'));
+      try { return real.lstat(p, o); } finally { rmSync(join(skill, 'sub')); renameSync(join(skill, 'sub.moved'), join(skill, 'sub')); }
+    }
+    return real.lstat(p, o);
+  };
+  // The owner then tightens the real file to the mode recorded from outside.
+  const beforeCleanup = (s) => { if (s.a.rel === 'sub/gone.md') chmodSync(s.orig ?? s.old, 0o600); };
+  let err = null;
+  try { mod.applyPlan(plan, { beforeCleanup }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(swapped, 1, 'the folder was swapped during the mode lookup');
+  assert.ok(err, 'the update stops');
+  assert.match(err.message, /changed since its permissions were recorded|folder on the way/);
+  assert.ok(rd(join(skill, 'sub')).some((n) => { try { return readFileSync(join(skill, 'sub', n), 'utf8') === 'old gone'; } catch { return false; } }), 'the file is kept');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
