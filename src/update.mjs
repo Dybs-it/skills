@@ -351,10 +351,12 @@ function isRegular(p) {
 // stops the update (the caller's rollback removes the folder). `name` is
 // opened as given: mkdirNoFollow passes the bare name, from inside the
 // pinned parent, so no folder on the way is resolved again.
-function ownFolder(name, owner) {
+function ownFolder(name, owner, id) {
   const fd = openSync(name, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0));
   try {
     const st = fstatSync(fd, BIG);
+    // Only the very folder this run made: one that replaced it keeps its owner.
+    if (id !== undefined && idOfStat(st) !== id) throw new Error(`${basename(name)} was replaced right after the update made it; nothing was changed, run update again`);
     if (sameOwner(st, owner)) return;
     try { fsOps.fchown(fd, owner.uid, owner.gid); } catch (e) {
       throw new Error(`${basename(name)} could not be given its owner ${owner.uid}:${owner.gid} (${e.code || e.message}); run update as that user`);
@@ -656,9 +658,14 @@ function mkdirNoFollow(root, relDir, onMade) {
         throw new Error(`a folder on the way to ${posix(relative(root, p))} changed; nothing was changed, run update again`);
       }
       mkdirSync(part);
-      testHooks.afterMkdir?.(p);
-      onMade?.(p, part);
+      // Its identity at once: a folder that replaced it before the hand-over
+      // is never given an owner, adopted into the pins or written into.
       id = idOfStat(lstatSync(part, BIG));
+      testHooks.afterMkdir?.(p);
+      onMade?.(p, part, id);
+      if (idOfStat(lstatSync(part, BIG)) !== id) {
+        throw new Error(`${posix(relative(root, p))} was replaced right after the update made it; nothing was changed, run update again`);
+      }
     } finally { try { process.chdir(back); } catch { /* the caller's folder is gone; nothing of ours depends on it */ } }
     pins.push([p, id]);
     first = first || p;
@@ -862,10 +869,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // A new folder belongs to the skill folder's owner, as new files do:
         // run as another user, the owner could not rename or add files in it.
         const folderOwner = pinnedFolderStat(dir, plan.root);
-        mkdirNoFollow(dir, dirname(a.rel), (d, name) => {
+        mkdirNoFollow(dir, dirname(a.rel), (d, name, id) => {
           if (!made) { made = d; stopId = idOfStat(lstatSync('.', BIG)); }
           deepest = d;
-          ownFolder(name, folderOwner);
+          ownFolder(name, folderOwner, id);
         });
       } finally {
         if (made) createdDirs.push({ deepest, stop: dirname(made), stopId });
@@ -1175,6 +1182,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // Permissions too: a change made after placement (through an open file)
     // would otherwise be lost with the original at cleanup.
     for (const s of staged) { pinned(s); modeUnchanged(s); }
+    // Every placed file once more, by identity and content: one removed or
+    // edited after its own check would otherwise be committed as updated.
+    for (const s of staged) {
+      if (!s.placed) continue;
+      let x = null;
+      try { x = readById(s.p, s.placedId); } catch { x = null; }
+      if (!x || sha(x) !== sha(want[s.a.rel])) throw new Error(`${s.a.rel} changed after it was placed; nothing was kept, run update again`);
+    }
     // Files the plan found already current are part of the result too: one
     // edited, removed or swapped for a link since would leave the skill
     // mixed, so it stops the update like any other change.

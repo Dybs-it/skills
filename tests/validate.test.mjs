@@ -3669,3 +3669,9 @@ test('a heading that holds a private-use character is matched only as written', 
   assert.ok(r.rules.includes('sections'), JSON.stringify(r.errors));
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Goals', '## Go&#97;ls')).rules.includes('sections'), 'a reference that renders Goals is still Goals');
 });
+
+// --- Codex review on PR #2 (e966470): the kickoff acceptance runs --accept project ---
+test('dybs-start accepts project.md through the validator, never by hand', () => {
+  const t = readFileSync(join(ROOT, 'skills/dybs-start/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /When the human accepts it, run the validator with `--accept project` \(it sets the status, the date and `accepted-hash`\); never set those by hand/);
+});

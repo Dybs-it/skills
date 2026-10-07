@@ -155,7 +155,9 @@ report lists it.
 
 - With `checkins: each-doc`, if `project.md` is a draft, check in on it
   first (brief format from `dybs/README.md`). The human accepts it or edits
-  it. With `end`, project.md is reviewed with the rest in `dybs-check`; with
+  it. When the human accepts it, run the validator with `--accept project`
+  (it sets the status, the date and `accepted-hash`); never set those by
+  hand, or a later edit to the accepted settings goes unseen. With `end`, project.md is reviewed with the rest in `dybs-check`; with
   `none`, it stays a draft in the final report.
 - Then hand off to the matching skill: `dybs-prd`, `dybs-scope`,
   `dybs-domain`, `dybs-architecture`, `dybs-ux`, `dybs-ui`, `dybs-check`.
