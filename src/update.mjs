@@ -553,7 +553,7 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     // deleting an edit) and updates the rest.
     // Its permissions are recorded with its bytes: a mode changed after the
     // plan is someone's work, and the update stops rather than delete it.
-    if (isKnownFile(rel, cur)) actions.push({ op: 'remove', rel, hash: curHash, mode: read.mode });
+    if (isKnownFile(rel, cur)) actions.push({ op: 'remove', rel, hash: curHash, mode: read.mode, owner: read.owner });
     else actions.push(force
       ? { op: 'keep', rel, why: 'changed after install, no longer shipped; kept as you left it' }
       : { op: 'conflict', rel, why: 'changed after install, no longer shipped; --force keeps it and updates the rest' });
@@ -787,6 +787,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         }
         if (!chain || chainOf(dir, a.rel) !== chain) throw new Error(`a folder on the way to ${a.rel} changed during the update; nothing was changed, run update again`);
         if (mode !== undefined && a.mode !== undefined && mode !== a.mode) throw new Error(`${a.rel} had its permissions changed since the update was planned; nothing was changed, run update again`);
+        if (owner && a.owner && (owner.uid !== a.owner.uid || owner.gid !== a.owner.gid)) throw new Error(`${a.rel} had its owner changed since the update was planned; nothing was changed, run update again`);
         staged.push({ a, p, chain, mode, modeId, owner });
         continue;
       }
@@ -1059,6 +1060,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           throw new Error(`a folder on the way to ${s.a.rel} changed while it was being installed; nothing was kept, run update again`);
         }
         s.placedMode = Number(placedSt.mode) & 0o7777;
+        s.placedOwner = ownerOf(placedSt);
         if (s.a.op === 'add') done.push(s);
         pinned(s);
         // The staging name is removed only while it still leads, through
@@ -1144,7 +1146,8 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         let ours = false;
         try {
           const x = chainOf(dir, s.a.rel) === s.chain ? readById(s.p, s.placedId) : null;
-          ours = Boolean(x) && sha(x) === sha(want[s.a.rel]) && s.placedMode !== null && (Number(fsOps.lstat(s.p, BIG).mode) & 0o7777) === s.placedMode;
+          const now = fsOps.lstat(s.p, BIG);
+          ours = Boolean(x) && sha(x) === sha(want[s.a.rel]) && s.placedMode !== null && (Number(now.mode) & 0o7777) === s.placedMode && sameOwner(now, s.placedOwner);
         } catch { ours = false; }
         if (!ours) {
           // Without hard links the original itself is `s.orig` (an edit
@@ -1160,7 +1163,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // move: a swap after the check above is never acted through.
         undo(s.a.rel, () => rmIfOurs(s.p, s.placedId, () => {
           if (chainOf(dir, s.a.rel) !== s.chain) throw new Error('a folder on the way changed; the file the update wrote was kept');
-        }, { expect: sha(want[s.a.rel]), mode: s.placedMode }));
+        }, { expect: sha(want[s.a.rel]), mode: s.placedMode, owner: s.placedOwner ?? null }));
       }
       // Put the original back without overwriting anything that appeared,
       // and only while the name still leads, through the pinned folders, to
@@ -1244,8 +1247,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       undo(b.path, () => {
         let same = false;
         // Its permissions too: a backup whose mode changed is someone's now.
-        try { const x = readById(b.path, b.id); same = Boolean(x) && sha(x) === b.hash && (Number(fsOps.lstat(b.path, BIG).mode) & 0o7777) === b.mode; } catch { same = false; }
-        if (same) rmIfOurs(b.path, b.id, chainCheck(b.entry), { expect: b.hash, mode: b.mode });
+        // And its owner: a backup re-owned since is someone's too.
+        try { const x = readById(b.path, b.id); const st = fsOps.lstat(b.path, BIG); same = Boolean(x) && sha(x) === b.hash && (Number(st.mode) & 0o7777) === b.mode && (!b.owner || sameOwner(st, b.owner)); } catch { same = false; }
+        if (same) rmIfOurs(b.path, b.id, chainCheck(b.entry), { expect: b.hash, mode: b.mode, owner: b.owner ?? null });
         else if (idOf(b.path) !== null) throw new Error(`${b.path} changed during the update; kept`);
       });
     }
