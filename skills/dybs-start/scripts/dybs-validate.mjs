@@ -8,7 +8,7 @@
 
 import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, constants as fsConstants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
-import { join, resolve, basename, relative, sep } from 'node:path';
+import { join, resolve, basename, dirname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const DOCS = {
@@ -1464,7 +1464,25 @@ function stillAtName(p, st) {
 // text it must hold), it must also still hold it once under its private
 // name: an editor writing through an open file keeps the identity, so only
 // the content can tell, and an edited file is put back, not removed.
-export const testHooks = { afterLook: null, beforeMove: null, beforePutBack: null };
+export const testHooks = { afterLook: null, beforeMove: null, inFolder: null, beforePutBack: null };
+// Renames `from` to `to` (same folder) only as the very file `id`. Node has
+// no renameat(), so a check by path and a rename by path can resolve through
+// different folders (one swapped for a link in between). The process steps
+// into the folder instead: its working directory stays bound to that folder
+// whatever happens to the path, so the file checked by its bare name there
+// is the very file the bare-name rename moves. Through a folder swapped
+// before the step, the name holds another file, and nothing moves.
+function renameInFolder(from, to, id) {
+  const back = process.cwd();
+  process.chdir(dirname(from));
+  try {
+    if (pathId(basename(from)) !== id) return false;
+    testHooks.inFolder?.(from);
+    fsOps.rename(basename(from), basename(to));
+    return true;
+  } finally { try { process.chdir(back); } catch { /* the caller's folder is gone; nothing of ours depends on it */ } }
+}
+
 function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, mode = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
@@ -1480,8 +1498,11 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
   testHooks.beforeMove?.(p);
   const aside = `${p}.${randomUUID()}.rm`;
   // Only a name that is already gone counts as removed; any other failure
-  // (permissions, a lock) is the caller's to report or roll back.
-  try { fsOps.rename(p, aside); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
+  // (permissions, a lock) is the caller's to report or roll back. The move
+  // happens inside the very folder of the file checked (renameInFolder).
+  try {
+    if (!renameInFolder(p, aside, id)) throw Object.assign(new Error(`${p} is not the file this run wrote; it was left in place`), { keptAt: p, notOurs: true });
+  } catch (e) { if (e.code === 'ENOENT') return; throw e; }
   let st = null;
   try { st = fsOps.lstat(aside, BIG); } catch { st = null; }
   // `shared`: only a second name of a file that still has another one, so
