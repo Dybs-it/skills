@@ -595,10 +595,16 @@ export function freshness(gatePath, text) {
     if (item.coverage !== 'FULL') continue;
     for (const t of evidenceTokens(item.evidence)) {
       if (!LOCATION_TOKEN.test(t)) continue;
-      const file = t.slice(0, t.lastIndexOf(':')).replace(/\\/g, '/');
+      const file = t.slice(0, t.lastIndexOf(':'));
       const inRepo = posix.normalize(`${rootRel}${file}`);
-      if (/^[A-Za-z]:\//.test(file) || file.startsWith('/') || inRepo === '..' || inRepo.startsWith('../')) {
+      if (/^[A-Za-z]:[\\/]/.test(file) || file.startsWith('/') || inRepo === '..' || inRepo.startsWith('../')) {
         return { status: 'stale', reason: `cited evidence ${file} is outside the repository, so no commit holds it. Cite tests inside the repository and run the gate again` };
+      }
+      // A backslash is a separator on Windows but a name character to Git
+      // on POSIX: `tests\a.test.js` names one file or another depending on
+      // who reads it. Evidence is cited with `/`, as Git writes paths.
+      if (file.includes('\\')) {
+        return { status: 'stale', reason: `cited evidence ${file} holds a backslash, which names a different file on Windows than in Git. Cite it with / as Git writes paths and run the gate again` };
       }
       cited.push(inRepo);
       lines.set(inRepo, Math.max(lines.get(inRepo) ?? 0, Number(t.slice(t.lastIndexOf(':') + 1))));
@@ -662,8 +668,13 @@ export function freshness(gatePath, text) {
     // no commit, so the tables were checked against something unrecorded.
     const linkedInputs = [];
     const unreadable = [];
-    const inputs = [...gateInputs(top, gateRel.slice(0, gateRel.lastIndexOf('/')), linkedInputs, unreadable), ...gateInputs(top, `${rootRel}dybs/context`, linkedInputs, unreadable)]
+    const special = [];
+    const inputs = [...gateInputs(top, gateRel.slice(0, gateRel.lastIndexOf('/')), linkedInputs, unreadable, special), ...gateInputs(top, `${rootRel}dybs/context`, linkedInputs, unreadable, special)]
       .filter((f) => f !== gateRel && f !== prRel);
+    // A FIFO, socket or device among the inputs is in no commit (Git cannot
+    // hold one) and never shows in `git status`: it can feed anything.
+    const odd = special.filter((f) => f !== gateRel && f !== prRel);
+    if (odd.length) return { status: 'stale', reason: `gate inputs that are not regular files or folders (a FIFO, socket or device), so no commit holds them: ${odd.slice(0, 5).join(', ')}${odd.length > 5 ? ', …' : ''}. Keep the task files and context docs as regular files and run the gate again` };
     // A folder that cannot be searched may hide an ignored input, which
     // `git status` never lists: what was not looked at is not approved.
     if (unreadable.length) return { status: 'stale', reason: `gate input folders that cannot be read: ${unreadable.slice(0, 5).join(', ')}${unreadable.length > 5 ? ', …' : ''}. Fix their permissions and run the gate again` };
@@ -791,7 +802,7 @@ export function freshness(gatePath, text) {
 // The regular files under `rel` (a folder in the repository at `top`), as
 // repository paths, found without following links. A folder that is not
 // there has none; one that cannot be read is put in `unreadable`.
-function gateInputs(top, rel, links = [], unreadable = []) {
+function gateInputs(top, rel, links = [], unreadable = [], special = []) {
   const out = [];
   // The folder itself first: readdir() follows a link at its name, which
   // would list the outside folder as if it were this one.
@@ -801,6 +812,7 @@ function gateInputs(top, rel, links = [], unreadable = []) {
     return out;
   }
   if (st.isSymbolicLink()) { links.push(rel); return out; }
+  if (!st.isDirectory()) { special.push(rel); return out; }
   const walk = (r) => {
     let entries;
     try { entries = gateFs.readdir(join(top, r), { withFileTypes: true }); } catch (e) {
@@ -814,6 +826,8 @@ function gateInputs(top, rel, links = [], unreadable = []) {
       // A link (to a file or a folder) is noted: the commit holds only
       // where it points, and its target can change unseen.
       else if (e.isSymbolicLink()) links.push(child);
+      // Anything else (FIFO, socket, device, a type readdir cannot tell).
+      else special.push(child);
     }
   };
   walk(rel);

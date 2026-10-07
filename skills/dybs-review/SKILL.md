@@ -25,9 +25,13 @@ in single quotes, so the shell never expands it (a branch name may hold `$(`
 or `;`): `git rev-parse --verify --end-of-options '<point>^{commit}'`. A name
 that holds a single quote is not used: ask for the commit id instead. From
 then on use only that id (`<id>`), never the name. Review the change as it is
-now, committed or not: diff the working tree against the merge base,
-`git diff $(git merge-base <id> HEAD)`, which includes staged and unstaged
-edits, and list new untracked files with
+now, committed or not: find the merge base first, `git merge-base <id> HEAD`,
+as its own command. When it prints no commit (unrelated histories, such as an
+orphan branch), stop and ask the human which commit to compare against: never
+run the diff without one, since a bare `git diff` compares with the index and
+can be empty while every committed file differs. Then diff the working tree
+against that commit (`<base>`), `git diff <base>`, which includes staged and
+unstaged edits, and list new untracked files with
 `git status --short --untracked-files=all` and read them too. The change is
 empty only when both the diff and the untracked list are empty: a change made
 only of new files is still a change. `git log <id>..HEAD --oneline` lists the

@@ -1479,3 +1479,37 @@ test('a character reference in evidence makes no location of its pieces', async 
   assert.doesNotMatch(r.out, /PASS/);
   rmSync(repo, { recursive: true });
 });
+
+// --- Codex review on PR #3 (33798c2): backslashes in evidence, special-file inputs, merge base ---
+test('evidence with a backslash is refused, never read as a folder separator', () => {
+  const { repo, g, gatePath } = gitRepo();
+  g('add', '.'); g('commit', '-qm', 'code');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', 'tests\\a.test.js:1').replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  const r = runGate(gatePath);
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: cited evidence tests\\a\.test\.js holds a backslash/);
+  // A Windows drive is still outside the repository.
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', 'C:\\repo\\a.test.js:1').replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  assert.match(runGate(gatePath).out, /is outside the repository/);
+  rmSync(repo, { recursive: true });
+});
+
+test('a gate input that is a FIFO gets no decision', (t) => {
+  if (process.platform === 'win32') return t.skip('no FIFOs');
+  const { repo, g, gatePath } = gitRepo();
+  mkdirSync(join(repo, 'dybs/context'), { recursive: true });
+  writeFileSync(join(repo, 'dybs/context/prd.md'), 'x');
+  g('add', '.'); g('commit', '-qm', 'code');
+  execFileSync('mkfifo', [join(repo, 'dybs/context/domain.md')]);
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  const r = runGate(gatePath);
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: gate inputs that are not regular files or folders \(a FIFO, socket or device\), so no commit holds them: dybs\/context\/domain\.md/);
+  rmSync(repo, { recursive: true });
+});
+
+test('dybs-review checks the merge base before it diffs', () => {
+  const t = readFileSync(join(ROOT, 'skills/dybs-review/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.ok(!t.includes('$(git merge-base'), 'no merge base by command substitution');
+  assert.match(t, /When it prints no commit \(unrelated histories, such as an orphan branch\), stop and ask the human/);
+});
