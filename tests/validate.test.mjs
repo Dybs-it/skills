@@ -1233,3 +1233,17 @@ test('a required section heading with nested images and links reads as rendered'
   // A link never holds a link: `[[Problem](u)](v)` shows `[Problem](v)`.
   assert.ok(!has('## [[Problem](u)](v)'));
 });
+
+// --- Codex review on PR #1 (e718cd5): the method README is read as the docs are ---
+test('a method README that is a link is refused, never read through', async () => {
+  const { symlinkSync, renameSync } = await import('node:fs');
+  const dir = copySample();
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  renameSync(join(dir, 'dybs/README.md'), join(outside, 'README.md'));
+  symlinkSync(join(outside, 'README.md'), join(dir, 'dybs/README.md'));
+  const r = validateProject(dir);
+  assert.equal(r.ok, false);
+  assert.ok(r.results.some((x) => x.name === 'readme' && x.errors.length), JSON.stringify(r.results.find((x) => x.name === 'readme')));
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

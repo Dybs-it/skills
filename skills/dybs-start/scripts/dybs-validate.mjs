@@ -1116,10 +1116,17 @@ export function validateProject(root, only) {
     results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
       errors: ['dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'], warnings: [] });
   } else {
-    // A file the skills cannot read is as good as missing.
-    try { readFileSync(readme); } catch (e) {
+    // A file the skills cannot read is as good as missing. Read as the docs
+    // are (readRegular): a FIFO or link put at the name since the look above
+    // is refused, never waited on or read through.
+    let text = null;
+    try { text = readRegular(readme); } catch (e) {
       results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
         errors: [`dybs/README.md cannot be read (${e.code || e.message}), so the method rules are unavailable. Fix its permissions.`], warnings: [] });
+    }
+    if (text === null && !results.some((r) => r.name === 'readme')) {
+      results.push({ name: 'readme', file: 'README.md', status: null, words: 0,
+        errors: ['dybs/README.md is not a file, so the method rules cannot be read. Move it aside and run dybs-start to restore it.'], warnings: [] });
     }
   }
 

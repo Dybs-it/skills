@@ -3784,3 +3784,49 @@ test('a folder the update creates belongs to the owner of the skill folder', asy
   assert.deepEqual([st.uid, st.gid], [65534, 65534]);
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #1 (e718cd5): evidence inside the project, new folders owned in place ---
+test('an install outside the project is no evidence for a folder linked back into it', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dybs-update-'));
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  cpSync(join(SKILLS_SRC, 'dybs-start'), join(outside, 'dybs-start'), { recursive: true });
+  const target = join(root, 'elsewhere/dybs-prd');
+  mkdirSync(target, { recursive: true });
+  symlinkSync(target, join(outside, 'dybs-prd'));
+  for (const agent of ['.claude', '.agents']) {
+    mkdirSync(join(root, agent), { recursive: true });
+    symlinkSync(outside, join(root, agent, 'skills'));
+    update([root]);
+    assert.deepEqual(readdirSync(target), [], agent);
+    rmSync(join(root, agent), { recursive: true });
+  }
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('a folder on the way swapped for a link after a new folder is made gives no outside folder an owner', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../src/update.mjs');
+  const { chownSync, renameSync } = await import('node:fs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  const nested = Object.keys(shippedFiles('dybs-start')).find((r) => r.includes('/'));
+  const sub = nested.slice(0, nested.indexOf('/'));
+  rmSync(join(dir, sub), { recursive: true });
+  chownSync(dir, 65534, 65534);
+  // Outside, a folder of the same name the update has no business with.
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  mkdirSync(join(outside, sub));
+  chownSync(join(outside, sub), 12345, 12345);
+  const aside = mkdtempSync(join(tmpdir(), 'dybs-aside-'));
+  mod.testHooks.afterMkdir = (p) => {
+    if (p !== join(dir, sub)) return;
+    mod.testHooks.afterMkdir = null;
+    renameSync(dir, join(aside, 'dybs-start'));
+    symlinkSync(outside, dir);
+  };
+  try { update([root]); } catch { /* the update may stop; what matters is the outside folder */ } finally { mod.testHooks.afterMkdir = null; }
+  const st = statSync(join(outside, sub));
+  assert.deepEqual([st.uid, st.gid], [12345, 12345]);
+  for (const d of [root, outside, aside]) rmSync(d, { recursive: true });
+});
