@@ -22,8 +22,15 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 // list several, separated by spaces, commas or semicolons, in backticks or not.
 // A Windows path may start with a drive (`C:\` or `C:/`).
 const LOCATION_TOKEN = /^(?:[A-Za-z]:[\\/])?[^\s:`]+:[1-9]\d*$/;
-export const hasLocation = (evidence) => (evidence || '').split(/[\s,;]+/)
-  .map((t) => t.replace(/^`|`$/g, '')).some((t) => LOCATION_TOKEN.test(t));
+// A code span is one token, as the reader sees it: `tests/a b.test.js:1`
+// is that path (which, with its space, is no location), never `b.test.js:1`.
+export const evidenceTokens = (evidence) => {
+  const out = [];
+  const rest = (evidence || '').replace(/(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (m, run, inner) => { out.push(inner.trim()); return ' '; });
+  for (const t of rest.split(/[\s,;]+/)) if (t) out.push(t.replace(/^`+|`+$/g, ''));
+  return out;
+};
+export const hasLocation = (evidence) => evidenceTokens(evidence).some((t) => LOCATION_TOKEN.test(t));
 // The risk categories quality.md defines.
 export const CATEGORIES = ['security', 'data', 'business', 'performance', 'technical', 'operations'];
 
@@ -574,7 +581,7 @@ export function freshness(gatePath, text) {
   const lines = new Map();
   for (const item of parseGate(text).items) {
     if (item.coverage !== 'FULL') continue;
-    for (const t of item.evidence.split(/[\s,;]+/).map((x) => x.replace(/^`|`$/g, ''))) {
+    for (const t of evidenceTokens(item.evidence)) {
       if (!LOCATION_TOKEN.test(t)) continue;
       const file = t.slice(0, t.lastIndexOf(':')).replace(/\\/g, '/');
       const inRepo = posix.normalize(`${rootRel}${file}`);
@@ -642,8 +649,12 @@ export function freshness(gatePath, text) {
     // test-plan.md, review.md...) and the context docs. An ignored one is in
     // no commit, so the tables were checked against something unrecorded.
     const linkedInputs = [];
-    const inputs = [...gateInputs(top, gateRel.slice(0, gateRel.lastIndexOf('/')), linkedInputs), ...gateInputs(top, `${rootRel}dybs/context`, linkedInputs)]
+    const unreadable = [];
+    const inputs = [...gateInputs(top, gateRel.slice(0, gateRel.lastIndexOf('/')), linkedInputs, unreadable), ...gateInputs(top, `${rootRel}dybs/context`, linkedInputs, unreadable)]
       .filter((f) => f !== gateRel && f !== prRel);
+    // A folder that cannot be searched may hide an ignored input, which
+    // `git status` never lists: what was not looked at is not approved.
+    if (unreadable.length) return { status: 'stale', reason: `gate input folders that cannot be read: ${unreadable.slice(0, 5).join(', ')}${unreadable.length > 5 ? ', …' : ''}. Fix their permissions and run the gate again` };
     // gate.md and pr.md are the outputs; a gate.md that is a link has its own refusal.
     const linked = linkedInputs.filter((f) => f !== gateRel && f !== prRel);
     if (linked.length) return { status: 'stale', reason: `gate inputs that are links, so the commit holds only where they point: ${linked.slice(0, 5).join(', ')}${linked.length > 5 ? ', …' : ''}. Keep the task files and context docs as real files and run the gate again` };
@@ -733,7 +744,8 @@ export function freshness(gatePath, text) {
   // Checked once more: a file saved or a commit made while git ran above
   // would otherwise go unseen. The history query cannot see the tree, so
   // the tree is checked after it, last of all. What is left is the instant
-  // between that and the decision, which then describes the tree as it was.
+  // between that and the decision, which then describes the tree as it was
+  // (the tree is looked at once more after the diff below, for that reason).
   const after = dirty();
   if (after) return after;
   let again = null;
@@ -752,17 +764,24 @@ export function freshness(gatePath, text) {
     return { status: 'stale', reason: `git could not compare the tree with the evidence commit (${said || e.message}). Fix the repository and run the gate again` };
   }
   if (since.split('\0').some(Boolean)) return { status: 'stale', head: short, reason: 'the evidence changed while the gate was checking it. Run the gate again' };
+  // The diff sees tracked files only: an ignored input added while it ran
+  // is caught by one more look at the tree, the last thing before the decision.
+  const final = dirty();
+  if (final) return final;
   return { status: 'fresh', head: short };
 }
 
 // The regular files under `rel` (a folder in the repository at `top`), as
 // repository paths, found without following links. A folder that is not
-// there has none.
-function gateInputs(top, rel, links = []) {
+// there has none; one that cannot be read is put in `unreadable`.
+function gateInputs(top, rel, links = [], unreadable = []) {
   const out = [];
   const walk = (r) => {
     let entries;
-    try { entries = readdirSync(join(top, r), { withFileTypes: true }); } catch { return; }
+    try { entries = gateFs.readdir(join(top, r), { withFileTypes: true }); } catch (e) {
+      if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') unreadable.push(`${r} (${e.code || e.message})`);
+      return;
+    }
     for (const e of entries) {
       const child = `${r}/${e.name}`;
       if (e.isDirectory()) walk(child);
@@ -803,7 +822,7 @@ function readGate(p, id) {
 // A folder removed and recreated can get the very same inode back, so each
 // identity carries its birth time too (nanoseconds, where the filesystem
 // records one).
-export const gateFs = { lstat: lstatSync, open: openSync, realpath: realpathSync };
+export const gateFs = { lstat: lstatSync, open: openSync, realpath: realpathSync, readdir: readdirSync };
 function pinPath(p) {
   const real = gateFs.realpath(p);
   const ids = [];

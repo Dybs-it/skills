@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync, mkdirSync, realpathSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync, mkdirSync, realpathSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -1010,16 +1010,16 @@ test('a gate reached through a task folder link retargeted mid-check gets no dec
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   writeFileSync(join(outside, 'gate.md'), body);
   const gatePath = join(repo, 'dybs/work/link/gate.md');
-  // Right after the last tree check (the comparison with the evidence
-  // commit), the link moves to an outside folder holding the very same
+  // Right after the last tree check (the fourth `git status`, after the
+  // comparison with the evidence commit), the link moves to an outside folder holding the very same
   // bytes: only the folder pin can see that.
   const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
   const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
-  writeFileSync(join(bin, 'git'), `#!/bin/sh\n"${realGit}" "$@"\ncode=$?\ncase " $* " in *" diff "*) echo x >> "${bin}/n"; if [ "$(wc -l < "${bin}/n")" -eq 1 ]; then ln -sfn "${outside}" "${join(repo, 'dybs/work/link')}"; fi;; esac\nexit $code\n`, { mode: 0o755 });
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\n"${realGit}" "$@"\ncode=$?\ncase " $* " in *" status "*) echo x >> "${bin}/n"; if [ "$(wc -l < "${bin}/n")" -eq 4 ]; then ln -sfn "${outside}" "${join(repo, 'dybs/work/link')}"; fi;; esac\nexit $code\n`, { mode: 0o755 });
   const run = (env) => { try { return { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
   assert.equal(run(process.env).code, 0, 'fresh as found');
   const r = run({ ...process.env, PATH: `${bin}:${process.env.PATH}` });
-  assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim().split('\n').length, 1, 'moved after the last tree check');
+  assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim().split('\n').length, 4, 'moved after the last tree check');
   assert.equal(r.code, 2, r.out);
   for (const d of [repo, outside, bin]) rmSync(d, { recursive: true });
 });
@@ -1339,4 +1339,66 @@ test('a gate input that is a link gets no decision', () => {
     rmSync(repo, { recursive: true });
     rmSync(outside, { recursive: true });
   }
+});
+
+// --- Codex review on PR #3 (5c2a6e6): late ignored inputs, unreadable folders, code-spanned paths ---
+test('an ignored gate input added while the final diff runs gets no decision', () => {
+  const { repo, g, gatePath } = gitRepo();
+  mkdirSync(join(repo, 'dybs/context'), { recursive: true });
+  writeFileSync(join(repo, '.gitignore'), 'late.md\n');
+  g('add', '.'); g('commit', '-qm', 'code');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  assert.equal(runGate(gatePath).code, 0, 'fresh before');
+  const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh
+case " $* " in *" diff "*) printf x > "${repo}/dybs/context/late.md";; esac
+exec "${realGit}" "$@"
+`, { mode: 0o755 });
+  const r = runGate(gatePath, { ...process.env, PATH: `${bin}:${process.env.PATH}` });
+  assert.ok(existsSync(join(repo, 'dybs/context/late.md')), 'created during the diff');
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: gate inputs that git ignores, so no commit holds them: dybs\/context\/late\.md/);
+  rmSync(repo, { recursive: true });
+  rmSync(bin, { recursive: true });
+});
+
+test('a gate input folder that cannot be read gets no decision', async () => {
+  const mod = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  const { repo, g, gatePath } = gitRepo();
+  mkdirSync(join(repo, 'dybs/context/locked'), { recursive: true });
+  writeFileSync(join(repo, 'dybs/context/locked/kept.md'), 'x');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const text = gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`);
+  writeFileSync(gatePath, text);
+  assert.equal(mod.freshness(gatePath, text).status, 'fresh');
+  const real = mod.gateFs.readdir;
+  mod.gateFs.readdir = (p, o) => {
+    if (p.endsWith('/dybs/context/locked')) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    return real(p, o);
+  };
+  let r;
+  try { r = mod.freshness(gatePath, text); } finally { mod.gateFs.readdir = real; }
+  assert.equal(r.status, 'stale');
+  assert.match(r.reason, /gate input folders that cannot be read: dybs\/context\/locked \(EACCES\)/);
+  rmSync(repo, { recursive: true });
+});
+
+test('a code span in evidence is one path, never its last word', async () => {
+  const { evidenceTokens, hasLocation } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  assert.deepEqual(evidenceTokens('`tests/a b.test.js:1`'), ['tests/a b.test.js:1']);
+  assert.ok(!hasLocation('`tests/a b.test.js:1`'));
+  assert.deepEqual(evidenceTokens('`tests/a.test.js:3`, tests/b.test.js:4; ``c.test.js:5``'), ['tests/a.test.js:3', 'c.test.js:5', 'tests/b.test.js:4']);
+  assert.ok(hasLocation('see `tests/a.test.js:3`'));
+  // As a gate: the row has no location, so FULL is refused, and the
+  // unrelated root-level b.test.js is never taken as the evidence.
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, 'b.test.js'), 'test');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const body = gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', '`tests/a b.test.js:1`').replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`);
+  writeFileSync(gatePath, body);
+  const r = runGate(gatePath);
+  assert.notEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /PASS/);
+  rmSync(repo, { recursive: true });
 });
