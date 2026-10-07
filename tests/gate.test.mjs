@@ -1387,7 +1387,8 @@ test('a gate input folder that cannot be read gets no decision', async () => {
 test('a code span in evidence is one path, never its last word', async () => {
   const { evidenceTokens, hasLocation } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
   assert.deepEqual(evidenceTokens('`tests/a b.test.js:1`'), ['tests/a b.test.js:1']);
-  assert.ok(!hasLocation('`tests/a b.test.js:1`'));
+  // As a code span, a path with a space is that path (checked whole).
+  assert.ok(hasLocation('`tests/a b.test.js:1`'));
   assert.deepEqual(evidenceTokens('`tests/a.test.js:3`, tests/b.test.js:4; ``c.test.js:5``'), ['tests/a.test.js:3', 'c.test.js:5', 'tests/b.test.js:4']);
   assert.ok(hasLocation('see `tests/a.test.js:3`'));
   // As a gate: the row has no location, so FULL is refused, and the
@@ -1559,4 +1560,24 @@ test('dybs-gate says what the script does not prove', () => {
   const t = readFileSync(join(ROOT, 'skills/dybs-gate/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(t, /it does not prove the tests pass from a clean checkout, and files Git ignores \(dependencies, build output, local config\) are not looked at/);
   assert.match(t, /in a code span when the path holds a space, a comma or any Markdown character/);
+});
+
+// --- Codex review on PR #3 (cc9b8e8): a code-spanned path may hold spaces ---
+test('a code-spanned test path with a space is FULL evidence, checked as written', () => {
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, 'tests/api cases.test.js'), 'test\nmore\n');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const body = gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', '`tests/api cases.test.js:2`').replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`);
+  assert.equal(parseGate(body).items[0].coverage, 'FULL');
+  assert.deepEqual(parseGate(body).problems, []);
+  writeFileSync(gatePath, body);
+  const r = runGate(gatePath);
+  assert.equal(r.code, 0, r.out);
+  // Outside a code span a space separates locations: `cases.test.js:2` is
+  // then checked on its own, is not in the commit, and nothing passes.
+  writeFileSync(gatePath, body.replace('`tests/api cases.test.js:2`', 'tests/api cases.test.js:2'));
+  const plain = runGate(gatePath);
+  assert.notEqual(plain.code, 0, plain.out);
+  assert.match(plain.out, /cited evidence not in commit [0-9a-f]+: cases\.test\.js/);
+  rmSync(repo, { recursive: true });
 });

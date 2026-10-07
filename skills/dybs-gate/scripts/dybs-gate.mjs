@@ -22,15 +22,21 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 // list several, separated by spaces, commas or semicolons, in backticks or not.
 // A Windows path may start with a drive (`C:\` or `C:/`).
 const LOCATION_TOKEN = /^(?:[A-Za-z]:[\\/])?[^\s:`]+:[1-9]\d*$/;
+// In a code span a path may hold spaces (the skill says to put such a path
+// in one): the reader sees exactly that path, so it is exactly what is checked.
+const SPANNED_LOCATION = /^(?:[A-Za-z]:[\\/])?[^:`]*[^\s:`]:[1-9]\d*$/;
 // A code span is one token, as the reader sees it: `tests/a b.test.js:1`
-// is that path (which, with its space, is no location), never `b.test.js:1`.
+// is that path, never `b.test.js:1`.
 // Outside code spans a character reference renders as another character
 // (`a&#46;test.js` is `a.test.js`), and its `;` would split the path: a
 // word holding one is no location at all, never read in pieces.
 const CHAR_REF = /&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/;
 export const evidenceTokens = (evidence) => {
   const out = [];
-  const rest = (evidence || '').replace(/(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (m, run, inner) => { out.push(inner.trim()); return ' '; });
+  // Which tokens came from a code span (by position in the result).
+  const spanned = new Set();
+  Object.defineProperty(out, 'spanned', { value: spanned });
+  const rest = (evidence || '').replace(/(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (m, run, inner) => { spanned.add(out.length); out.push(inner.trim()); return ' '; });
   for (const word of rest.split(/\s+/)) {
     if (!word || CHAR_REF.test(word)) continue;
     // A comma or semicolon separates two locations only right after a
@@ -47,7 +53,12 @@ export const evidenceTokens = (evidence) => {
   }
   return out;
 };
-export const hasLocation = (evidence) => evidenceTokens(evidence).some((t) => LOCATION_TOKEN.test(t));
+// The locations among the evidence, each as written.
+export const locations = (evidence) => {
+  const tokens = evidenceTokens(evidence);
+  return tokens.filter((t, i) => (tokens.spanned.has(i) ? SPANNED_LOCATION : LOCATION_TOKEN).test(t));
+};
+export const hasLocation = (evidence) => locations(evidence).length > 0;
 // The risk categories quality.md defines.
 export const CATEGORIES = ['security', 'data', 'business', 'performance', 'technical', 'operations'];
 
@@ -607,8 +618,7 @@ export function freshness(gatePath, text) {
   const lines = new Map();
   for (const item of parseGate(text).items) {
     if (item.coverage !== 'FULL') continue;
-    for (const t of evidenceTokens(item.evidence)) {
-      if (!LOCATION_TOKEN.test(t)) continue;
+    for (const t of locations(item.evidence)) {
       const file = t.slice(0, t.lastIndexOf(':'));
       const inRepo = posix.normalize(`${rootRel}${file}`);
       if (/^[A-Za-z]:[\\/]/.test(file) || file.startsWith('/') || inRepo === '..' || inRepo.startsWith('../')) {
