@@ -122,7 +122,9 @@ export function discover(roots) {
         if (!st.isSymbolicLink()) return false;
         let real;
         try { real = realpathSync(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR' || e.code === 'ELOOP') return false; throw e; }
-        return realRoots.some((r) => within(real, r));
+        // And as its own skill: a link named dybs-start that resolves to a
+        // folder named foo is no install, so it is no evidence either.
+        return basename(real) === basename(p) && realRoots.some((r) => within(real, r));
       };
       const installed = basename(dirname(folder)) === '.agents' || skillNames().some((n) => realDir(join(folder, n)) && realFile(join(folder, n, 'SKILL.md')));
       for (const skill of skillNames()) {
@@ -264,6 +266,8 @@ function sameRoot(dir, root) {
 // reused at once (ext4 hands it to the very next file), so device and inode
 // alone can make a file created later look like one we created and removed.
 // Where the filesystem keeps no birth time this is device and inode only.
+const ownerOf = (st) => ({ uid: Number(st.uid), gid: Number(st.gid) });
+const sameOwner = (st, owner) => Number(st.uid) === owner.uid && Number(st.gid) === owner.gid;
 const idOfStat = (st) => `${st.dev}:${st.ino}:${st.birthtimeNs ?? ''}`;
 const BIG = { bigint: true };
 // Reads a file without following a link at its own name (O_NOFOLLOW), and
@@ -285,7 +289,7 @@ function readNoFollowStat(p, id) {
   try {
     const st = fstatSync(fd, BIG);
     if (!st.isFile() || (id != null && idOfStat(st) !== id) || !stillAtName(p, st)) return null;
-    return { data: readFileSync(fd), mode: Number(st.mode) & 0o7777 };
+    return { data: readFileSync(fd), mode: Number(st.mode) & 0o7777, owner: ownerOf(st) };
   } finally { closeSync(fd); }
 }
 // Where open() has no O_NOFOLLOW (Windows), a link at the name is followed.
@@ -372,7 +376,7 @@ function renameInFolder(from, to, id) {
   } finally { try { process.chdir(back); } catch { /* the caller's folder is gone; nothing of ours depends on it */ } }
 }
 
-function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, mode = null } = {}) {
+function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, mode = null, owner = null } = {}) {
   // Gone is gone; a lookup that fails for another reason (a folder that
   // became unsearchable, I/O) is an error, never "already removed".
   try { fsOps.lstat(p); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw e; }
@@ -403,6 +407,8 @@ function rmIfOurs(p, id, check, { sole = false, shared = false, expect = null, m
   // The permissions too, under the private name: a mode changed through an
   // open file up to this instant is someone's work, and the file is kept.
   if (disposable && mode !== null) disposable = (Number(st.mode) & 0o7777) === mode;
+  // And its owner: a chown made through the update is kept the same way.
+  if (disposable && owner) disposable = sameOwner(st, owner);
   if (disposable) {
     // A failed unlink leaves the file under its private name: say where.
     try { fsOps.rm(aside); } catch (e) { e.message += `; ${p} is kept at ${aside}`; e.keptAt = aside; throw e; }
@@ -734,12 +740,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     if (st && idOfStat(st) !== srcId) throw new Error(`the original of ${s.a.rel} was replaced during the update; nothing was changed, run update again`);
     if (st) now = Number(st.mode) & 0o7777;
     if (now !== null && now !== s.mode) throw new Error(`${s.a.rel} had its permissions changed during the update; nothing was changed, run update again`);
+    // Its owner likewise: a chown made meanwhile is someone's work too.
+    if (now !== null && s.owner && !sameOwner(st, s.owner)) throw new Error(`${s.a.rel} had its owner changed during the update; nothing was changed, run update again`);
   };
   // At cleanup too: an original whose permissions changed after the commit
   // point (through an open file) is someone's work, kept like an edit.
   const sameMode = (s, p, id) => {
     if (s.mode === undefined) return true;
-    try { const st = fsOps.lstat(p, BIG); return idOfStat(st) === id && (Number(st.mode) & 0o7777) === s.mode; } catch { return false; }
+    try { const st = fsOps.lstat(p, BIG); return idOfStat(st) === id && (Number(st.mode) & 0o7777) === s.mode && (!s.owner || sameOwner(st, s.owner)); } catch { return false; }
   };
   const pinned = (s) => {
     beforePin?.(s);
@@ -772,13 +780,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         const chain = chainOf(dir, a.rel);
         let mode;
         let modeId;
-        try { const st = fsOps.lstat(p, BIG); mode = Number(st.mode) & 0o7777; modeId = idOfStat(st); } catch (e) {
+        let owner;
+        try { const st = fsOps.lstat(p, BIG); mode = Number(st.mode) & 0o7777; modeId = idOfStat(st); owner = ownerOf(st); } catch (e) {
           if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw new Error(`the permissions of ${a.rel} could not be checked (${e.code || e.message}); nothing was changed, run update again`);
           mode = undefined;
         }
         if (!chain || chainOf(dir, a.rel) !== chain) throw new Error(`a folder on the way to ${a.rel} changed during the update; nothing was changed, run update again`);
         if (mode !== undefined && a.mode !== undefined && mode !== a.mode) throw new Error(`${a.rel} had its permissions changed since the update was planned; nothing was changed, run update again`);
-        staged.push({ a, p, chain, mode, modeId });
+        staged.push({ a, p, chain, mode, modeId, owner });
         continue;
       }
       beforeMkdir?.();
@@ -809,7 +818,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       const owner = { uid: from.uid, gid: from.gid };
       // Registered as soon as it exists, before any write that can fail
       // (disk full, quota), so the rollback always knows to remove it.
-      const entry = { a, p, tmp, chain, mode };
+      const entry = { a, p, tmp, chain, mode, owner: was ? owner : undefined };
       writeOwnFile(tmp, want[a.rel], mode, (id) => { entry.tmpId = id; staged.push(entry); }, owner);
       beforeStageCheck?.(entry);
       if (!chain || chainOf(dir, a.rel) !== chain || idOf(tmp) !== entry.tmpId) {
@@ -845,10 +854,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         // the user's version is later deleted.
         if (sha(orig.data) !== a.hash) throw new Error(`${a.rel} changed since the update was planned; nothing was changed, run update again`);
         const bytes = orig.data;
-        const backup = { path: b, hash: sha(bytes), mode: orig.mode, entry };
+        const backup = { path: b, hash: sha(bytes), mode: orig.mode, owner: orig.owner, entry };
         if (chainOf(dir, a.rel) !== chain) throw swapped();
         beforeBackup?.('write', entry);
-        writeOwnFile(b, bytes, orig.mode, (id) => { backup.id = id; backups.push(backup); });
+        // The backup belongs to the edited file's owner: run as another user
+        // (sudo), a 0600 backup would otherwise be unreadable to its user.
+        writeOwnFile(b, bytes, orig.mode, (id) => { backup.id = id; backups.push(backup); }, orig.owner);
         if (chainOf(dir, a.rel) !== chain || idOf(b) !== backup.id) {
           // A swap in the last instant put the backup where `b` now leads.
           // It was created by this run (its identity comes from the open
@@ -1218,7 +1229,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           // Put back as a copy, the name holds a snapshot: an editor still
           // holding the original writes to it, so it is kept and named.
           if (ours && restoredHow === 'copy') throw new Error(`the original was put back as a copy; the file itself is kept at ${s.orig}`);
-          if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null });
+          if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null, owner: s.owner ?? null });
           else if (!provablyGone(s.orig)) throw new Error(`the original changed during the update (an edit through an open file), or could not be read; that version is kept at ${s.orig}`);
         });
       }
@@ -1284,7 +1295,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           if (ours) {
             // Deleted by identity under yet another private name: a file
             // that replaced `trash` since the check is kept, never deleted.
-            try { rmIfOurs(trash, s.oldId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null }); } catch (e) { s.a.kept = e.keptAt ?? trash; }
+            try { rmIfOurs(trash, s.oldId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null, owner: s.owner ?? null }); } catch (e) { s.a.kept = e.keptAt ?? trash; }
           } else {
             // Not ours after all (edited, or replaced before the move): put
             // it back without overwriting anything, else report where it is.
@@ -1332,7 +1343,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         ours = Boolean(x) && sha(x) === s.a.hash && sameMode(s, s.orig, s.origId);
       } catch { ours = false; }
       if (ours) {
-        try { rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null }); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
+        try { rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null, owner: s.owner ?? null }); } catch (e) { s.a.kept = e.keptAt ?? s.orig; }
       } else if (!provablyGone(s.orig)) s.a.kept = s.a.kept ? `${s.a.kept} (and ${s.orig})` : s.orig;
     }
     if (s.a.op === 'remove' && chainOf(dir, s.a.rel) === s.chain) {

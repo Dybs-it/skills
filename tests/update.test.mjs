@@ -3792,3 +3792,57 @@ test('a folder swapped right before the committed cleanup moves no outside file'
   rmSync(root, { recursive: true });
   rmSync(r.outside, { recursive: true });
 });
+
+// --- Codex review on PR #1 (fa47cac) and #3 (a4ba4f5): owners are kept like modes ---
+test('an owner change on the original during the update stops it', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../src/update.mjs');
+  const { chownSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const plan = mod.planInstall(findInstalls([root])[0], { known: { 'dybs-prd/SKILL.md': [sha('old shipped version')] } });
+  const dir = dirname(prd(root));
+  // The moved-aside original (the same file as its .old name) changes owner.
+  const beforeCommit = () => chownSync(join(dir, readdirSync(dir).find((n) => n.endsWith('.old'))), 65534, 65534);
+  assert.throws(() => mod.applyPlan(plan, { beforeCommit }), /owner changed during the update/);
+  assert.equal(readFileSync(prd(root), 'utf8'), 'old shipped version');
+  rmSync(root, { recursive: true });
+});
+
+test('a file to remove whose owner changes before cleanup is kept', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const mod = await import('../src/update.mjs');
+  const { chownSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(join(dir, 'gone.md'), 'old gone');
+  const plan = mod.planInstall(findInstalls([root])[0], { known: { ...knownHashes(), 'dybs-prd/gone.md': [sha('old gone')] } });
+  const beforeCleanup = (s) => { if (s.a.rel === 'gone.md') chownSync(s.orig ?? s.old, 65534, 65534); };
+  mod.applyPlan(plan, { beforeCleanup });
+  assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8') === 'old gone' && statSync(join(dir, n)).uid === 65534; } catch { return false; } }), 'the re-owned file is kept');
+  rmSync(root, { recursive: true });
+});
+
+test('a --force backup belongs to the edited file\'s owner', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const { chownSync, chmodSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'my own version');
+  chownSync(prd(root), 65534, 65534);
+  chmodSync(prd(root), 0o600);
+  update([root], { force: true });
+  const st = statSync(`${prd(root)}.bak`);
+  assert.deepEqual([st.uid, st.gid, st.mode & 0o777], [65534, 65534, 0o600]);
+  rmSync(root, { recursive: true });
+});
+
+test('a skill folder linked to a folder of another name is no evidence of an install', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dybs-update-'));
+  cpSync(join(SKILLS_SRC, 'dybs-start'), join(root, 'foo'), { recursive: true });
+  mkdirSync(join(root, '.cache/skills/dybs-prd'), { recursive: true });
+  symlinkSync('../../foo', join(root, '.cache/skills/dybs-start'));
+  const { notInstalled } = update([root]);
+  assert.ok(notInstalled.includes('dybs-prd'));
+  assert.deepEqual(readdirSync(join(root, '.cache/skills/dybs-prd')), [], 'the empty folder is not written into');
+  rmSync(root, { recursive: true });
+});
