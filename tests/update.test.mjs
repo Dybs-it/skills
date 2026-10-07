@@ -3952,3 +3952,66 @@ test('a folder on the way swapped for a link after a new folder is made gives no
   assert.deepEqual([st.uid, st.gid], [12345, 12345]);
   for (const d of [root, outside, aside]) rmSync(d, { recursive: true });
 });
+
+// --- Codex review on PR #1/#2 (12a94c1, a44a495): put-backs keep a last name, folders go back in place ---
+test('a file put back whose restored name is removed keeps its private name', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync, unlinkSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  let replaced = null;
+  let removed = false;
+  // A user's file takes the staging name after the in-folder check...
+  mod.testHooks.inFolder = (p) => {
+    if (replaced || !String(p).endsWith('.new')) return;
+    replaced = String(p);
+    writeFileSync(`${p}.x`, 'theirs');
+    renameSync(`${p}.x`, p);
+  };
+  // ...it is put back, and the name it is back at goes away right before
+  // its private name is removed.
+  mod.testHooks.beforeMove = (p) => {
+    if (!replaced || removed || !String(p).startsWith(`${replaced}.`) || !String(p).endsWith('.rm')) return;
+    removed = true;
+    unlinkSync(replaced);
+  };
+  try { try { mod.applyPlan(plan); } catch { /* reported */ } } finally { mod.testHooks.inFolder = null; mod.testHooks.beforeMove = null; }
+  assert.ok(removed, 'the restored name was removed');
+  const dir = dirname(prd(root));
+  assert.ok(readdirSync(dir).some((n) => { try { return readFileSync(join(dir, n), 'utf8') === 'theirs'; } catch { return false; } }), 'their file still has a name');
+  rmSync(root, { recursive: true });
+});
+
+test('a folder that took the staging name goes back inside the pinned folder, never through a swapped one', async () => {
+  const mod = await import('../src/update.mjs');
+  const { renameSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = join(root, '.agents/skills/dybs-prd');
+  writeFileSync(prd(root), 'old shipped version');
+  const known = { 'dybs-prd/SKILL.md': [sha('old shipped version')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let replaced = null;
+  let swapped = null;
+  mod.testHooks.inFolder = (p) => {
+    if (replaced || !String(p).endsWith('.new')) return;
+    replaced = String(p);
+    rmSync(replaced);
+    mkdirSync(replaced);
+  };
+  // Right before the folder is moved back, the skill folder is swapped for
+  // a link to an outside folder holding an entry of the same private name.
+  mod.testHooks.beforeDirBack = (aside) => {
+    swapped = basename(aside);
+    mkdirSync(join(outside, swapped));
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  try { try { mod.applyPlan(plan); } catch { /* reported */ } } finally { mod.testHooks.inFolder = null; mod.testHooks.beforeDirBack = null; }
+  assert.ok(swapped, 'the folder reached the move back');
+  assert.deepEqual(readdirSync(outside).sort(), [swapped], 'nothing outside was renamed');
+  rmSync(root, { recursive: true });
+  rmSync(outside, { recursive: true });
+});

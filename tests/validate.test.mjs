@@ -3532,3 +3532,37 @@ test('a method README that is a link is refused, never read through', async () =
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+// --- Codex review on PR #1 (12a94c1): cap text, brackets in link text, code blocks ---
+test('the hand-check cap rule names everything the word count leaves out', async () => {
+  const { MANUAL_RULES, wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const cap = MANUAL_RULES.find((r) => r.id === 'cap').text;
+  for (const part of ['HTML comments', 'code blocks', 'link destinations and titles', 'reference definitions']) assert.ok(cap.includes(part), part);
+  // What the rule names is what the count leaves out.
+  assert.equal(wordCount('[one](/a-long/path "a long title")\n\n[r]: /u "more words here"\n'), 1);
+});
+
+test('link text may hold balanced brackets, and its target is still metadata', async () => {
+  const { wordCount } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const doc = VALID_PRD.replace('## Goals', '## Goals\n\nSee [shown [note]](/u "<div>") here.\n');
+  assert.ok(!validateDoc('prd', doc).rules.includes('html'));
+  assert.equal(wordCount('[shown [note]](/u "a b c d e f")\n'), 2);
+  // A link inside link text keeps the outer brackets as text: its target shows.
+  assert.equal(wordCount('[a [b](u) c](v w)\n'), wordCount('a b c](v w)\n') + 0);
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  assert.ok(!validateDoc('prd', `${accepted}\nSee [shown [x]](/TODO).\n`).rules.includes('placeholder'));
+  assert.ok(validateDoc('prd', `${accepted}\nT[O [x]](/u)DO\n`).rules.includes('placeholder') === false);
+});
+
+test('a code block shows its text literally to the placeholder check', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  assert.ok(!flagged('\n```\nT[O](x)DO\n```\n'));
+  // After a paragraph that ends the fixture's last list (indented under
+  // the list it would continue the item, and render as a paragraph).
+  assert.ok(!flagged('\nText.\n\n    T[O](x)DO\n'));
+  assert.ok(!flagged('\n```\nT*O*DO\n```\n'));
+  // Literal text in a block is still read: a TODO written there shows.
+  assert.ok(flagged('\n```\nTODO\n```\n'));
+  assert.ok(flagged('\nText.\n\n    TBD\n'));
+});
