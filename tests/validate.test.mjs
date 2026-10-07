@@ -3240,3 +3240,17 @@ test('without hard links, a mode change on the original moved aside stops --acce
   assert.equal(readFileSync(path, 'utf8'), before);
   rmSync(dir, { recursive: true });
 });
+
+// --- Codex review on PR #1 (74f1095): an image around a link ---
+test('an image whose description holds a link is read as rendered', () => {
+  const accepted = VALID_PRD.replace(/status: \w+/, 'status: accepted');
+  const flagged = (extra) => validateDoc('prd', accepted + extra).rules.includes('placeholder');
+  // CommonMark: <img alt="O"> between T and DO.
+  assert.ok(flagged('\nT![[O](u)](v)DO\n'));
+  assert.ok(flagged('\nT![![O](u)](v)DO\n'));
+  assert.ok(flagged('\n[r]: /u\n\nT![[O](u)][r]DO\n'));
+  // A link may not hold another: `T[[O](u)](v)DO` shows `T[O](v)DO`.
+  assert.ok(!flagged('\nT[[O](u)](v)DO\n'));
+  // An escaped `!` is no image.
+  assert.ok(!flagged('\nT\\![[O](u)](v)DO\n'));
+});
