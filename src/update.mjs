@@ -210,7 +210,9 @@ function backupPath(p) {
 // `stopId` is the identity `stopAt` must have: checked on every pass, so a
 // skill folder swapped for a link (to a tree with the same empty folders)
 // is never pruned through.
-function removeEmptyDirs(dir, stopAt, stopId) {
+// With `made` (folder -> identity at creation), only folders this run made
+// are removed, and only while they are still those very folders.
+function removeEmptyDirs(dir, stopAt, stopId, made) {
   testHooks.beforePrune?.(dir);
   let d = dir;
   const stopOk = () => {
@@ -246,6 +248,7 @@ function removeEmptyDirs(dir, stopAt, stopId) {
     if (!before || readdirSync(d).length !== 0) return;
     testHooks.beforeRmdir?.(d);
     if (!real(d) || ids(d) !== before) return;
+    if (made && (!made.has(d) || before.split('/').at(-1) !== made.get(d))) return;
     rmdirSync(d);
     d = dirname(d);
   }
@@ -854,6 +857,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       let made = null;
       let deepest = null;
       let stopId = null;
+      // Each folder this run made, by the identity it had when it was made:
+      // a rollback removes only those, never one that replaced them.
+      const madeIds = new Map();
       try {
         // A new folder belongs to the skill folder's owner, as new files do:
         // run as another user, the owner could not rename or add files in it.
@@ -861,10 +867,11 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         mkdirNoFollow(dir, dirname(a.rel), (d, name, id) => {
           if (!made) { made = d; stopId = idOfStat(lstatSync('.', BIG)); }
           deepest = d;
+          madeIds.set(d, id);
           ownFolder(name, folderOwner, id);
         });
       } finally {
-        if (made) createdDirs.push({ deepest, stop: dirname(made), stopId });
+        if (made) createdDirs.push({ deepest, stop: dirname(made), stopId, madeIds });
       }
       recheck(a);
       beforeStage?.(a);
@@ -1335,7 +1342,16 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     // Remove only what is provably ours: the file at that name must be the
     // one we wrote, or a same-named file reached through a swapped link
     // would be deleted instead.
-    for (const s of staged) if (s.tmp) undo(s.a.rel, () => rmIfOurs(s.tmp, s.tmpId, chainCheck(s)));
+    // A staging file written in full is removed only while it still holds
+    // exactly what was written, with its mode and owner: one edited since is
+    // someone's work, kept and named. One whose write failed halfway (no
+    // `made`) has no such content to guard, and goes by identity.
+    for (const s of staged) {
+      if (!s.tmp) continue;
+      undo(s.a.rel, () => rmIfOurs(s.tmp, s.tmpId, chainCheck(s), s.made
+        ? { expect: sha(want[s.a.rel]), mode: s.made.mode, owner: { uid: s.made.uid, gid: s.made.gid } }
+        : {}));
+    }
     // A backup edited in place keeps its identity, so its bytes are checked
     // too: a changed one is someone's work now and is kept.
     for (const b of backups) {
@@ -1351,7 +1367,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
     for (const a of actions) delete a.backup;
     // Newest first: a later file's folders may sit inside an earlier one's
     // (nest/b inside the nest/ that nest/a/ made), which only empties after.
-    for (const d of [...createdDirs].reverse()) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop, d.stopId));
+    for (const d of [...createdDirs].reverse()) undo(d.deepest, () => removeEmptyDirs(d.deepest, d.stop, d.stopId, d.madeIds));
     if (stuck.length) err.message += `; could not undo everything, check by hand: ${stuck.join('; ')}`;
     throw err;
   }
