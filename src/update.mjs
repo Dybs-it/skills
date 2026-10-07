@@ -15,7 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync,
   rmSync, rmdirSync, copyFileSync, realpathSync, lstatSync, renameSync, linkSync,
-  openSync, closeSync, fstatSync, fchmodSync,
+  openSync, closeSync, fstatSync, fchmodSync, fchownSync,
   constants as fsConstants,
 } from 'node:fs';
 import { basename, dirname, join, relative, sep } from 'node:path';
@@ -318,11 +318,22 @@ function isRegular(p) {
 // soon as the file exists, before any write that can fail, so the caller
 // can register it for rollback; the identity comes from the open file
 // itself, not from a second lookup of the path.
-function writeOwnFile(p, data, mode, onCreate) {
+// With `owner`, the new file gets that owner too: run as another user (sudo),
+// a replacement would otherwise belong to the updater, and the user it was
+// for could no longer edit it. One that cannot be given that owner stops the
+// update rather than install a file its user cannot change.
+function writeOwnFile(p, data, mode, onCreate, owner) {
   const fd = openSync(p, 'wx', mode ?? 0o666);
   try {
-    onCreate(idOfStat(fstatSync(fd, BIG)));
+    const st = fstatSync(fd, BIG);
+    onCreate(idOfStat(st));
     fsOps.write(fd, data);
+    if (owner && (Number(st.uid) !== owner.uid || Number(st.gid) !== owner.gid)) {
+      try { fsOps.fchown(fd, owner.uid, owner.gid); } catch (e) {
+        throw new Error(`${basename(p)} could not be given its owner ${owner.uid}:${owner.gid} (${e.code || e.message}); run update as that user`);
+      }
+    }
+    // After the owner: a change of owner can clear permission bits.
     if (mode !== undefined) fchmodSync(fd, mode);
   } finally { closeSync(fd); }
 }
@@ -567,7 +578,7 @@ function mkdirNoFollow(root, relDir, onMade) {
 // `link` to act like a filesystem without hard links.
 // `open` is the one way a file is opened for reading: never through a link
 // at its own name.
-export const fsOps = { lstat: lstatSync, link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0)) };
+export const fsOps = { lstat: lstatSync, link: linkSync, copyFile: copyFileSync, rm: rmSync, write: writeFileSync, fchown: fchownSync, open: (p) => openSync(p, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0)) };
 
 // Puts a copy of `from` at `to` without overwriting anything there, and
 // leaves `from` for the caller to remove once it has recorded the placement:
@@ -615,15 +626,17 @@ function copyExclusive(from, to, check, fromId) {
   }
   let data;
   let mode;
+  let owner;
   try {
     const st = fstatSync(fd, BIG);
     if (!st.isFile() || (fromId && idOfStat(st) !== fromId) || !stillAtName(from, st)) throw new Error(`${from} changed before it was copied; nothing was copied`);
     mode = Number(st.mode) & 0o7777;
+    owner = { uid: Number(st.uid), gid: Number(st.gid) };
     data = readFileSync(fd);
   } finally { closeSync(fd); }
   let id = null;
   try {
-    writeOwnFile(to, data, mode, (made) => { id = made; });
+    writeOwnFile(to, data, mode, (made) => { id = made; }, owner);
   } catch (e) {
     if (id) {
       try { rmIfOurs(to, id, check); } catch (e2) { e.message += `; the partial copy is kept: ${e2.message}`; }
@@ -765,11 +778,14 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       if (!chain) throw new Error(`a folder on the way to ${a.rel} is not a real folder; nothing was kept, run update again`);
       const tmp = `${p}.${tag}.new`;
       // A replaced file keeps its permissions: a 0600 file stays 0600.
-      const mode = a.op === 'add' ? undefined : lstatSync(p).mode & 0o7777;
+      const was = a.op === 'add' ? null : fsOps.lstat(p);
+      const mode = was ? was.mode & 0o7777 : undefined;
+      // And its owner: run as another user, the replacement is still theirs.
+      const owner = was ? { uid: was.uid, gid: was.gid } : undefined;
       // Registered as soon as it exists, before any write that can fail
       // (disk full, quota), so the rollback always knows to remove it.
       const entry = { a, p, tmp, chain, mode };
-      writeOwnFile(tmp, want[a.rel], mode, (id) => { entry.tmpId = id; staged.push(entry); });
+      writeOwnFile(tmp, want[a.rel], mode, (id) => { entry.tmpId = id; staged.push(entry); }, owner);
       beforeStageCheck?.(entry);
       if (!chain || chainOf(dir, a.rel) !== chain || idOf(tmp) !== entry.tmpId) {
         // Written through a folder swapped in before the open, the staging
@@ -1114,6 +1130,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // Whether a copy of the original is back at its name: until then the
       // original itself (`s.orig`) is the only one, and is never removed.
       let restored = false;
+      let restoredHow = null;
       if (s.old) {
         undo(s.a.rel, () => {
           if (chainOf(dir, s.a.rel) !== s.chain || idOf(s.old) !== s.oldId) {
@@ -1146,12 +1163,16 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
               : `the moved-aside original was replaced before it was put back (${note}); it is not at ${s.old} any more`);
           }
           restored = true;
+          restoredHow = how;
           // A link put the very file back, so the private name goes, but
           // only while the file still has another name (`shared`): one whose
           // restored name was removed meanwhile is kept, never unlinked last.
           // (A removal in the instant after that check is the remover's own
           // deletion of the original, as it would be without an update.)
           if (how === 'link') rmIfOurs(s.old, s.oldId, chainCheck(s), { shared: true });
+          // Without hard links `s.old` is only this run's snapshot, and the
+          // original itself is `s.orig`, kept below: the snapshot goes.
+          else if (s.orig) rmIfOurs(s.old, s.oldId, chainCheck(s), { expect: s.a.hash });
           else throw new Error(`the original was put back as a copy; the file itself is kept at ${s.old}`);
         });
       }
@@ -1166,6 +1187,9 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
             ours = Boolean(x) && sha(x) === s.a.hash;
           } catch { ours = false; }
           if (ours && !restored) throw new Error(`the original could not be put back at its name; it is kept at ${s.orig}`);
+          // Put back as a copy, the name holds a snapshot: an editor still
+          // holding the original writes to it, so it is kept and named.
+          if (ours && restoredHow === 'copy') throw new Error(`the original was put back as a copy; the file itself is kept at ${s.orig}`);
           if (ours) rmIfOurs(s.orig, s.origId, chainCheck(s), { expect: s.a.hash, mode: s.mode ?? null });
           else if (!provablyGone(s.orig)) throw new Error(`the original changed during the update (an edit through an open file), or could not be read; that version is kept at ${s.orig}`);
         });
