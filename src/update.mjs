@@ -711,8 +711,13 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // A file to remove keeps its permissions on record too: one changed
       // while it is moved aside is someone's work, kept at cleanup.
       if (a.op === 'remove') {
+        // A lookup that fails (EIO, EACCES) leaves no record to guard the
+        // file with, so the update stops; only a file provably gone has none.
         let mode;
-        try { mode = Number(fsOps.lstat(p, BIG).mode) & 0o7777; } catch { mode = undefined; }
+        try { mode = Number(fsOps.lstat(p, BIG).mode) & 0o7777; } catch (e) {
+          if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') throw new Error(`the permissions of ${a.rel} could not be checked (${e.code || e.message}); nothing was changed, run update again`);
+          mode = undefined;
+        }
         staged.push({ a, p, chain: chainOf(dir, a.rel), mode });
         continue;
       }

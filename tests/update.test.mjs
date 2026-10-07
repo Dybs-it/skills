@@ -3508,3 +3508,33 @@ test('a folder not treated as an install leaves its skill in the missing list', 
   assert.ok(notInstalled.includes('dybs-prd'));
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #3 (7e28efa): a removed file's mode must be on record ---
+test('a file to remove whose permissions cannot be read stops the update', async () => {
+  const mod = await import('../src/update.mjs');
+  const { chmodSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  const gone = join(dir, 'gone.md');
+  writeFileSync(gone, 'old gone');
+  chmodSync(gone, 0o644);
+  const known = { ...knownHashes(), 'dybs-prd/gone.md': [sha('old gone')] };
+  const plan = mod.planInstall(findInstalls([root])[0], { known });
+  assert.equal(ops(plan)['gone.md'], 'remove');
+  const real = { ...mod.fsOps };
+  let failed = 0;
+  const calls = [];
+  mod.fsOps.lstat = (p, o) => {
+    calls.push(p);
+    if (p === gone && !failed && calls.filter((c) => c === gone).length === 1) { failed++; throw Object.assign(new Error('i/o error'), { code: 'EIO' }); }
+    return real.lstat(p, o);
+  };
+  const beforeCommit = () => { try { chmodSync(gone, 0o600); } catch { /* moved */ } };
+  let err = null;
+  try { mod.applyPlan(plan, { beforeCommit }); } catch (e) { err = e; } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(failed, 1, 'the mode lookup failed once');
+  assert.ok(err, 'the update stops');
+  assert.match(err.message, /permissions of gone\.md could not be checked \(EIO\)/);
+  assert.equal(readFileSync(gone, 'utf8'), 'old gone', 'the file stays at its name');
+  rmSync(root, { recursive: true });
+});
