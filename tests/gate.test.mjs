@@ -1288,3 +1288,28 @@ test('a cited line past the end of the committed test gets no decision', () => {
   assert.equal(runGate(gatePath).code, 3);
   rmSync(repo, { recursive: true });
 });
+
+// --- Codex review on PR #3 (a4ba4f5): ignored gate inputs, and untracked files listed one by one ---
+test('a gate input that git ignores gets no decision', () => {
+  for (const input of ['dybs/work/t/test-plan.md', 'dybs/context/prd.md']) {
+    const { repo, g, gatePath } = gitRepo();
+    writeFileSync(join(repo, '.gitignore'), `${input}\n`);
+    writeFileSync(join(repo, 'code.js'), 'one');
+    g('add', '.'); g('commit', '-qm', 'code');
+    mkdirSync(dirname(join(repo, input)), { recursive: true });
+    writeFileSync(join(repo, input), 'the plan the tables were checked against');
+    writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+    const r = runGate(gatePath);
+    assert.equal(r.code, 3, `${input}: ${r.out}`);
+    assert.match(r.out, new RegExp(`STALE: gate inputs that git ignores, so no commit holds them: ${input.replace(/[./]/g, '\\$&')}`));
+    rmSync(repo, { recursive: true });
+  }
+});
+
+test('the PR and gate skills list untracked files one by one', () => {
+  for (const skill of ['dybs-gate', 'dybs-pr']) {
+    const t = readFileSync(join(ROOT, 'skills', skill, 'SKILL.md'), 'utf8');
+    assert.match(t, /`git status --porcelain --untracked-files=all`/, skill);
+    assert.doesNotMatch(t, /`git status --porcelain`/, skill);
+  }
+});

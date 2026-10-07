@@ -10,7 +10,7 @@
 // The rules live here, as code, so the decision is arithmetic rather than an
 // agent's judgement. quality.md describes the same rules in words.
 
-import { readFileSync, realpathSync, lstatSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, lstatSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
 import { resolve, dirname, relative, sep, join, basename, posix } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -635,6 +635,24 @@ export function freshness(gatePath, text) {
       const which = ignored.split('\0').filter(Boolean);
       if (which.length) return { status: 'stale', reason: `cited evidence that git ignores, so no commit holds it: ${which.slice(0, 5).join(', ')}${which.length > 5 ? ', …' : ''}. Commit the tests (or stop ignoring them) and run the gate again` };
     }
+    // The gate's inputs likewise: the task's files beside gate.md (task.md,
+    // test-plan.md, review.md...) and the context docs. An ignored one is in
+    // no commit, so the tables were checked against something unrecorded.
+    const inputs = [...gateInputs(top, gateRel.slice(0, gateRel.lastIndexOf('/'))), ...gateInputs(top, `${rootRel}dybs/context`)]
+      .filter((f) => f !== gateRel && f !== prRel);
+    if (inputs.length) {
+      let ignored = '';
+      try {
+        ignored = execFileSync('git', ['-C', top, 'check-ignore', '-z', '--stdin'], { encoding: 'utf8', input: inputs.join('\0'), stdio: ['pipe', 'pipe', 'pipe'] });
+      } catch (e) {
+        if (e.status !== 1) {
+          const said = String(e.stderr || '').trim().split('\n')[0];
+          return { status: 'stale', reason: `git could not check the gate's inputs (${said || e.message}). Fix the repository and run the gate again` };
+        }
+      }
+      const which = ignored.split('\0').filter(Boolean);
+      if (which.length) return { status: 'stale', reason: `gate inputs that git ignores, so no commit holds them: ${which.slice(0, 5).join(', ')}${which.length > 5 ? ', …' : ''}. Commit them (or stop ignoring them) and run the gate again` };
+    }
     return null;
   };
   const before = dirty();
@@ -728,6 +746,24 @@ export function freshness(gatePath, text) {
   }
   if (since.split('\0').some(Boolean)) return { status: 'stale', head: short, reason: 'the evidence changed while the gate was checking it. Run the gate again' };
   return { status: 'fresh', head: short };
+}
+
+// The regular files under `rel` (a folder in the repository at `top`), as
+// repository paths, found without following links. A folder that is not
+// there has none.
+function gateInputs(top, rel) {
+  const out = [];
+  const walk = (r) => {
+    let entries;
+    try { entries = readdirSync(join(top, r), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const child = `${r}/${e.name}`;
+      if (e.isDirectory()) walk(child);
+      else if (e.isFile()) out.push(child);
+    }
+  };
+  walk(rel);
+  return out;
 }
 
 // Reads gate.md without blocking on a FIFO or a device: opened non-blocking

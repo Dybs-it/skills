@@ -51,7 +51,7 @@ Before and after, as concrete as the environment allows:
   `HEAD` but changes no evidence, so it never makes the gate stale. If that
   commit differs from `commit:` (code or tests changed since), if `commit:`
   says `uncommitted`, or if
-  `git status --porcelain` shows any uncommitted change other than this
+  `git status --porcelain --untracked-files=all` shows any uncommitted change other than this
   task's `gate.md` and `pr.md`, the result is **stale**: say so and suggest
   running `dybs-gate` again rather than quoting the old decision. Only those
   two outputs are expected to be uncommitted. A changed `review.md`,

@@ -62,7 +62,7 @@ node <skills>/dybs-gate/scripts/dybs-gate.mjs dybs/work/<task>/gate.md
 ```
 
 (`<skills>` is the folder that holds this skill.) The evidence must be
-committed first: if `git status --porcelain` shows any change other than
+committed first: if `git status --porcelain --untracked-files=all` shows any change other than
 this task's `gate.md` and `pr.md` (code, tests, and the gate's inputs such as
 `review.md`, `test-plan.md`, `task.md` and the context docs all count),
 ask the human to commit them (or do it on their word). If they would rather
@@ -76,7 +76,8 @@ decide (`STALE`, exit 3) while other changes are uncommitted, while a
 tracked file is flagged assume-unchanged or skip-worktree (git status cannot
 see its edits), while a test cited as FULL evidence is not a regular file in
 the evidence commit (missing, ignored by Git, a link, or outside the
-repository) or is cited at a line past its end, while `commit:` names another commit, or for any file that is not `dybs/work/<task>/gate.md`; never write a decision it did not give. Copy
+repository) or is cited at a line past its end, while a gate input (the
+task's files or a context doc) is ignored by Git, while `commit:` names another commit, or for any file that is not `dybs/work/<task>/gate.md`; never write a decision it did not give. Copy
 the decision and its reasons into the Decision section. (Committing
 `gate.md` and `pr.md` afterwards changes no evidence, so it never makes the
 gate stale.) Without Node
