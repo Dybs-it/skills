@@ -579,7 +579,7 @@ test('the gate fixes item priority by rule, and the test plan gives every criter
   assert.match(gateText, /\*\*P0\*\* when neither gives one/);
   assert.match(readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'template.md'), 'utf8'), /\*\*AC1\*\* \(\{\{P0\}\}/);
   const review = readFileSync(join(SKILLS_SRC, 'dybs-review', SKILL), 'utf8');
-  assert.match(review, /git diff \$\(git merge-base <id> HEAD\)/);
+  assert.match(review, /`git merge-base <id> HEAD`,\s+as its own command[\s\S]*?`git diff <base>`/);
   // The fixed point is resolved once, quoted, and only its commit id reaches
   // a command after that: a ref name may hold shell syntax.
   assert.match(review, /`git rev-parse --verify --end-of-options '<point>\^\{commit\}'`/);
