@@ -9,7 +9,9 @@ Lead persona: **Jun** (visual designer). Run the interview in `interview.md` (in
 `dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists `ui`
 under `skip:`, say so and stop.
 
-**Reads:** `project.md`, `context/ux.md`, `context/domain.md`, `log.md`.
+**Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
+`context/domain.md`, `context/architecture.md`, `context/ux.md`, `log.md`
+(every earlier doc that is not skipped).
 **Writes:** `dybs/context/ui.md` from `template.md` (cap: 700 words quick,
 1400 thorough), and appends each round's answers and any **Needs you** items
 to `dybs/log.md`.

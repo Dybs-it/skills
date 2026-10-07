@@ -3566,3 +3566,65 @@ test('a code block shows its text literally to the placeholder check', () => {
   assert.ok(flagged('\n```\nTODO\n```\n'));
   assert.ok(flagged('\nText.\n\n    TBD\n'));
 });
+
+// --- Codex review on PR #2 (a44a495): acceptance put-backs keep a last name, folders go back in place ---
+test('acceptance: a file put back whose restored name is removed keeps its private name', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { readdirSync, unlinkSync } = await import('node:fs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  let replaced = null;
+  let removed = false;
+  mod.testHooks.inFolder = (p) => {
+    if (replaced || !p.endsWith('.tmp')) return;
+    replaced = p;
+    writeFileSync(`${p}.x`, 'someone else');
+    renameSync(`${p}.x`, p);
+  };
+  mod.testHooks.beforeMove = (p) => {
+    if (!replaced || removed || !String(p).startsWith(`${replaced}.`) || !String(p).endsWith('.rm')) return;
+    removed = true;
+    unlinkSync(replaced);
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* reported */ } finally { mod.testHooks.inFolder = null; mod.testHooks.beforeMove = null; }
+  assert.ok(removed, 'the restored name was removed');
+  assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8') === 'someone else'; } catch { return false; } }), 'their file still has a name');
+  rmSync(dir, { recursive: true });
+});
+
+test('acceptance: a folder that took the staging name goes back inside the pinned folder', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { mkdirSync, readdirSync } = await import('node:fs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let replaced = null;
+  let swapped = null;
+  mod.testHooks.inFolder = (p) => {
+    if (replaced || !p.endsWith('.tmp')) return;
+    replaced = p;
+    rmSync(p);
+    mkdirSync(p);
+  };
+  mod.testHooks.beforeDirBack = (aside) => {
+    swapped = aside.split('/').at(-1);
+    mkdirSync(join(outside, swapped));
+    renameSync(ctx, `${ctx}.moved`);
+    symlinkSync(outside, ctx);
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* reported */ } finally { mod.testHooks.inFolder = null; mod.testHooks.beforeDirBack = null; }
+  assert.ok(swapped, 'the folder reached the move back');
+  assert.deepEqual(readdirSync(outside).sort(), [swapped], 'nothing outside was renamed');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+test('every doc skill reads every doc earlier in the order', async () => {
+  const { ORDER } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const docs = ORDER.filter((d) => d !== 'project');
+  for (const [i, doc] of docs.entries()) {
+    const t = readFileSync(join(ROOT, `skills/dybs-${doc}/SKILL.md`), 'utf8');
+    const reads = t.split('**Reads:**')[1].split('**Writes:**')[0];
+    for (const earlier of docs.slice(0, i)) assert.ok(reads.includes(`context/${earlier}.md`), `${doc} reads ${earlier}`);
+  }
+});

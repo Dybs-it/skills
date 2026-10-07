@@ -10,7 +10,8 @@ Lead persona: **Mila** (experience designer). Run the interview in `interview.md
 `ux` under `skip:`, say so and stop.
 
 **Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
-`context/domain.md`, `log.md`. **Writes:** `dybs/context/ux.md` from
+`context/domain.md`, `context/architecture.md`, `log.md` (every earlier doc
+that is not skipped). **Writes:** `dybs/context/ux.md` from
 `template.md` (cap: 700 words quick, 1400 thorough), and appends each round's
 answers and any **Needs you** items to `dybs/log.md`.
 
