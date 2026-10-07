@@ -979,6 +979,8 @@ export function validateDoc(name, text) {
   // Only brackets of a link that resolves go (marked here, dropped below):
   // `T[O]DO` with no destination and no defined label shows its brackets.
   const LINK = (t) => `\ue0f0${t}\ue0f1`;
+  // Whether resolved text holds a link (an opening marker not after `!`).
+  const holdsLink = (t) => /(?:^|[^!])\ue0f0/.test(t);
   // Code spans first: their content is literal (no links, escapes or
   // emphasis inside), so it is set aside whole and put back last. A span
   // turns its line endings into spaces, then loses one space on each side
@@ -991,16 +993,23 @@ export function validateDoc(name, text) {
       return String.fromCharCode(0xe100 + codes.length - 1);
     })
     .replace(new RegExp(INLINE_LINK, 'g'), (m, t) => LINK(t))
-    .replace(/(?<!\\)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, t, l) => (labels.has(label(l || t.slice(1, -1))) ? LINK(t.slice(1, -1)) : m))
-    .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (labels.has(label(x)) ? LINK(x) : m));
-  // An image may hold a link in its description (`T![[O](u)](v)DO` reads
-  // TODO), a link may not hold another: so only an image around links just
-  // resolved is resolved again, until nothing changes.
+    .replace(/(?<!\\)(!?)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)*)\]/g, (m, bang, t, l) => ((bang || !holdsLink(t)) && labels.has(label(l || t.slice(1, -1))) ? `${bang}${LINK(t.slice(1, -1))}` : m))
+    .replace(/(?<!\\)\[((?:[^\[\]\\\n]|\\.)+)\](?!\[(?:[^\[\]\\\n]|\\.)*\])/g, (m, x) => (!holdsLink(x) && labels.has(label(x)) ? LINK(x) : m));
+  // Resolved again, around what was just resolved, until nothing changes:
+  // an image may hold links and images (`T![[O](u)](v)DO` reads TODO), a
+  // link may hold images (`T[![O](u)](v)DO` too) but never another link
+  // (`T[[O](u)][r]DO` shows its brackets).
   for (let prev = null; prev !== linked;) {
     prev = linked;
     linked = linked
-      .replace(new RegExp(String.raw`(?<=(?<!\\)!)${INLINE_LINK}`, 'g'), (m, t) => LINK(t))
-      .replace(/(?<=(?<!\\)!)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)+)\]/g, (m, t, l) => (labels.has(label(l)) ? LINK(t.slice(1, -1)) : m));
+      .replace(new RegExp(INLINE_LINK, 'g'), (m, t, ...rest) => {
+        if (typeof rest[rest.length - 1] === 'object') rest.pop();
+        const whole = rest.pop();
+        const at = rest.pop();
+        const image = at > 0 && whole[at - 1] === '!' && (at < 2 || whole[at - 2] !== '\\');
+        return (image || !holdsLink(t)) && /\ue0f0/.test(t) ? LINK(t) : m;
+      })
+      .replace(/(?<!\\)(!?)(\[(?:[^\[\]\\\n]|\\.)*\])\[((?:[^\[\]\\\n]|\\.)+)\]/g, (m, bang, t, l) => ((bang || !holdsLink(t)) && /\ue0f0/.test(t) && labels.has(label(l)) ? `${bang}${LINK(t.slice(1, -1))}` : m));
   }
   const flatMarked = linked
     // An image shows its description as text (`T![O](x)DO` reads TODO): the

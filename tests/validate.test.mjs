@@ -1196,4 +1196,7 @@ test('an image whose description holds a link is read as rendered', () => {
   assert.ok(!flagged('\nT[[O](u)](v)DO\n'));
   // An escaped `!` is no image.
   assert.ok(!flagged('\nT\\![[O](u)](v)DO\n'));
+  // A link may hold an image (its alt text reads), never another link.
+  assert.ok(flagged('\nT[![O](u)](v)DO\n'));
+  assert.ok(!flagged('\n[r]: /u\n\nT[[O](u)][r]DO\n'));
 });
