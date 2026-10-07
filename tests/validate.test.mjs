@@ -1221,3 +1221,15 @@ test('a heading holding private-use characters is not read as the required one',
   // The image heading still reads as its alt text.
   assert.ok(!validateDoc('prd', VALID_PRD.replace('## Problem', '## ![Problem](x)')).rules.includes('sections'));
 });
+
+// --- Codex review on PR #1 (a74b7c6): nested images and links in a heading ---
+test('a required section heading with nested images and links reads as rendered', () => {
+  const has = (h) => !validateDoc('prd', VALID_PRD.replace('## Problem', h)).rules.includes('sections');
+  // Checked against commonmark.js: an image may hold a link or an image, a link an image.
+  assert.ok(has('## ![[Problem](u)](v)'));
+  assert.ok(has('## [![Problem](u)](v)'));
+  assert.ok(has('## ![![Problem](u)](v)'));
+  assert.ok(has('[r]: /x\n\n## ![[Problem](u)][r]'));
+  // A link never holds a link: `[[Problem](u)](v)` shows `[Problem](v)`.
+  assert.ok(!has('## [[Problem](u)](v)'));
+});

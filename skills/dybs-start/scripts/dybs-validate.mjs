@@ -950,7 +950,22 @@ export function validateDoc(name, text) {
     t = t.replace(/\\([!-/:-@[-`{-~])/g, (m, c) => String.fromCharCode(ESC + c.charCodeAt(0)))
       .replace(new RegExp(INLINE_LINK, 'g'), `${O}$1${C}`)
       .replace(/\[([^\[\]\n]*)\]\[([^\[\]\n]*)\]/g, (m, x, l) => (labels.has(label(raw(l || x))) ? `${O}${x}${C}` : m))
-      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? `${O}${x}${C}` : m))
+      .replace(/\[([^\[\]\n]+)\](?!\[)/g, (m, x) => (labels.has(label(raw(x))) ? `${O}${x}${C}` : m));
+    // Again around what was just resolved, until nothing changes, as the
+    // placeholder check does: an image may hold links and images
+    // (`## ![[Why](u)](v)` reads Why), a link may hold images, never a link.
+    const holdsLink = (x) => new RegExp(`(?:^|[^!])${O}`).test(x);
+    for (let prev = null; prev !== t;) {
+      prev = t;
+      t = t.replace(new RegExp(INLINE_LINK, 'g'), (m, x, ...rest) => {
+        if (typeof rest[rest.length - 1] === 'object') rest.pop();
+        const whole = rest.pop();
+        const at = rest.pop();
+        const image = at > 0 && whole[at - 1] === '!';
+        return (image || !holdsLink(x)) && x.includes(O) ? `${O}${x}${C}` : m;
+      }).replace(/(!?)\[([^\[\]\n]*)\]\[([^\[\]\n]+)\]/g, (m, bang, x, l) => ((bang || !holdsLink(x)) && x.includes(O) && labels.has(label(raw(l))) ? `${bang}${O}${x}${C}` : m));
+    }
+    t = t
       .replace(new RegExp(`!(?=${O})`, 'g'), '')
       .split(O).join('').split(C).join('')
       .replace(/(\*+)(?![\s*])([^*]+?)(?<![\s*])\1/g, '$2')

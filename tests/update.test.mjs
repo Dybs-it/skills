@@ -3767,3 +3767,20 @@ test('rollback keeps a --force backup whose owner changed', async (t) => {
   assert.equal(statSync(`${prd(root)}.bak`).uid, 65534, 'the re-owned backup is kept');
   rmSync(root, { recursive: true });
 });
+
+// --- Codex review on PR #1 (a74b7c6): a folder the update creates gets the skill folder's owner ---
+test('a folder the update creates belongs to the owner of the skill folder', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to change owners');
+  const { chownSync, statSync } = await import('node:fs');
+  const root = project(['dybs-start']);
+  const dir = join(root, '.agents/skills/dybs-start');
+  const nested = Object.keys(shippedFiles('dybs-start')).find((r) => r.includes('/'));
+  assert.ok(nested, 'dybs-start ships a file in a subfolder');
+  const sub = nested.slice(0, nested.indexOf('/'));
+  rmSync(join(dir, sub), { recursive: true });
+  chownSync(dir, 65534, 65534);
+  update([root]);
+  const st = statSync(join(dir, sub));
+  assert.deepEqual([st.uid, st.gid], [65534, 65534]);
+  rmSync(root, { recursive: true });
+});
