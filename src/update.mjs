@@ -384,17 +384,10 @@ export const testHooks = { afterPlace: null, beforePlacedMode: null, inFolder: n
 // whatever happens to the path, so the file checked by its bare name there
 // is the very file the bare-name rename moves. Through a folder swapped
 // before the step, the name holds another file, and nothing moves.
-// The folder itself is pinned too: looked at (never a link) before the step
-// and asked again from inside, so a folder swapped for a link at any point
-// up to the step leaves the process somewhere it then refuses to act.
 function renameInFolder(from, to, id) {
-  let folder;
-  try { folder = lstatSync(dirname(from), { bigint: true }); } catch { return false; }
-  if (folder.isSymbolicLink() || !folder.isDirectory()) return false;
   const back = process.cwd();
   process.chdir(dirname(from));
   try {
-    if (idOfStat(lstatSync('.', { bigint: true })) !== idOfStat(folder)) return false;
     if (idOfStat(lstatSync(basename(from), { bigint: true })) !== id) return false;
     testHooks.inFolder?.(from);
     renameSync(basename(from), basename(to));
