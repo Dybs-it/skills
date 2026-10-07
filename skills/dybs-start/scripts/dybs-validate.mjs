@@ -1209,10 +1209,10 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   // only a `{{...}}` in it still counts, since no real address holds one.
   const URL_TEXT = /<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>|[A-Za-z][A-Za-z0-9+.-]{1,31}:\/\/[^\s<>]*/g;
   const scan = (t) => PLACEHOLDER.test(t.replace(URL_TEXT, (u) => (/\{\{[^}]*\}\}/.test(u) ? u : ' ')));
-  // A value that is a URL is a destination, like a link's: never shown as
-  // text, so TODO in its path is fine. Anything else is still scanned.
+  // A frontmatter value that is a URL is a destination, like a link's: the
+  // same rule holds (TODO in its path is fine, a `{{...}}` is not).
   const frontmatterValues = Object.values(data || {})
-    .filter((v) => !/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*$/.test(v)).join('\n');
+    .map((v) => (/^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*$/.test(v) && !/\{\{[^}]*\}\}/.test(v) ? '' : v)).join('\n');
   if (scan(flat) || scan(loose) || PLACEHOLDER.test(decodeReferences(frontmatterValues))) {
     const msg = 'unfilled placeholder ({{...}}, TODO or TBD)';
     if (data?.status === 'accepted') fail('placeholder', msg);

@@ -23,14 +23,19 @@ them as a next step.
 ## 2. Read across
 
 Read the docs as one body and check these, citing file and section for
-every finding:
+every finding. A check that compares docs runs only between docs that are
+not under `skip:`; a skipped doc is the route the human chose, never a
+finding:
 
 1. **Traceability.** Every PRD requirement is placed exactly once in scope
-   (In, Out or Later). Every goal has a success measure.
-2. **Language.** Terms used in prd, scope, architecture, ux and ui match the
-   glossary. Flag synonyms the glossary forbids or never defines.
+   (In, Out or Later), when scope is not skipped. Every goal has a success
+   measure.
+2. **Language.** Terms used in prd, scope, architecture, ux and ui (those
+   not skipped) match the glossary, when domain is not skipped. Flag
+   synonyms the glossary forbids or never defines.
 3. **Contradictions.** Scope constraints versus architecture choices; UX
-   rules versus UI components; domain rules versus requirements.
+   rules versus UI components; domain rules versus requirements: each pair
+   only when neither of its docs is skipped.
 4. **Unsupported claims.** Statements presented as fact that nobody said and
    no code shows. These should be *(assumption)* or open questions.
 5. **Buildability.** Could an agent pick up a single requirement and know

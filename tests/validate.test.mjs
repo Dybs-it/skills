@@ -3510,6 +3510,7 @@ test('a frontmatter value that is a URL may hold TODO, other values may not', ()
   assert.ok(withValue('TODO'));
   assert.ok(withValue('see TODO later'));
   assert.ok(withValue('{{source_url}}'));
+  assert.ok(withValue('https://example.test/{{id}}'));
 });
 
 test('a doc replaced while its bytes are read is reported, never passed', async () => {
@@ -3649,4 +3650,13 @@ test('the hand-check HTML rule names the link metadata the scan leaves out', asy
   // What the rule allows, the validator allows.
   for (const ok of ['\nSee [docs](<details>).\n', '\n[docs]: <details>\n']) assert.ok(!validateDoc('prd', VALID_PRD + ok).rules.includes('html'), ok);
   assert.ok(validateDoc('prd', `${VALID_PRD}\nSee <details>.\n`).rules.includes('html'));
+});
+
+// --- Codex review on PR #2 (e2ff4c7): dybs-check compares only docs that are not skipped ---
+test('dybs-check runs a cross-check only between docs that are not skipped', () => {
+  const t = readFileSync(join(ROOT, 'skills/dybs-check/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /A check that compares docs runs only between docs that are not under `skip:`; a skipped doc is the route the human chose, never a finding/);
+  assert.match(t, /placed exactly once in scope \(In, Out or Later\), when scope is not skipped/);
+  assert.match(t, /match the glossary, when domain is not skipped/);
+  assert.match(t, /each pair only when neither of its docs is skipped/);
 });
