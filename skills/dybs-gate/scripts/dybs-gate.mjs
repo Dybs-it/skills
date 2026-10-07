@@ -18,13 +18,17 @@ import { fileURLToPath } from 'node:url';
 export const COVERAGE = ['FULL', 'PARTIAL', 'NONE'];
 export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+// Git's listings grow with the repository (16,000 tracked files is about
+// 1.2 MB of `ls-files -v -z`); Node's default 1 MiB buffer would turn every
+// gate in a large repository stale.
+const GIT_MAX = 1024 * 1024 * 1024;
 // A test location: a whole token `path:line`, line from 1 up. Evidence may
 // list several, separated by spaces, commas or semicolons, in backticks or not.
 // A Windows path may start with a drive (`C:\` or `C:/`).
 const LOCATION_TOKEN = /^(?:[A-Za-z]:[\\/])?[^\s:`]+:[1-9]\d*$/;
 // In a code span a path may hold spaces (the skill says to put such a path
 // in one): the reader sees exactly that path, so it is exactly what is checked.
-const SPANNED_LOCATION = /^(?:[A-Za-z]:[\\/])?[^:`]*[^\s:`]:[1-9]\d*$/;
+const SPANNED_LOCATION = /^(?:[A-Za-z]:[\\/])?(?=\S)[^:`]*[^\s:`]:[1-9]\d*$/;
 // A code span is one token, as the reader sees it: `tests/a b.test.js:1`
 // is that path, never `b.test.js:1`.
 // Outside code spans a character reference renders as another character
@@ -36,7 +40,15 @@ export const evidenceTokens = (evidence) => {
   // Which tokens came from a code span (by position in the result).
   const spanned = new Set();
   Object.defineProperty(out, 'spanned', { value: spanned });
-  const rest = (evidence || '').replace(/(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (m, run, inner) => { spanned.add(out.length); out.push(inner.trim()); return ' '; });
+  // A span shows its content with line endings as spaces, less one space on
+  // each side when both are there and it is not all spaces (CommonMark).
+  // Any padding left is shown, so `  a.test.js:1  ` is no location.
+  const rest = (evidence || '').replace(/(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (m, run, inner) => {
+    const c = inner.replace(/\r?\n/g, ' ');
+    spanned.add(out.length);
+    out.push(/^ [\s\S]* $/.test(c) && /[^ ]/.test(c) ? c.slice(1, -1) : c);
+    return ' ';
+  });
   for (const word of rest.split(/\s+/)) {
     if (!word || CHAR_REF.test(word)) continue;
     // A comma or semicolon separates two locations only right after a
@@ -558,7 +570,7 @@ export function decide({ items, risks, waivers }, today = localDate()) {
 // repository the gate decides only when nothing but this task's gate.md and
 // pr.md is uncommitted, and when its `commit:` names the last commit that
 // changed anything else: committing those two outputs moves HEAD but no
-// evidence. Outside git nothing can be checked, and the result says so.
+// evidence. Outside git nothing is committed, so nothing is decided (stale).
 // Whether a `.git` entry (folder or file) sits in `dir` or above it.
 function insideGitFolder(dir) {
   for (let d = resolve(dir); ; d = dirname(d)) {
@@ -569,18 +581,20 @@ function insideGitFolder(dir) {
 
 export function freshness(gatePath, text) {
   const abs = resolve(gatePath);
-  const git = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const git = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   let top;
-  // Only Git's own "not a git repository" answer means there is nothing to
-  // check. Git missing, or refusing the repository (safe.directory, a broken
+  // Only Git's own "not a git repository" answer means there is no
+  // repository (and so no decision). Git missing, or refusing the repository (safe.directory, a broken
   // .git), is never taken for that: inside a repository it is refused.
   try {
-    top = execFileSync('git', ['-C', dirname(abs), 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    top = execFileSync('git', ['-C', dirname(abs), 'rev-parse', '--show-toplevel'], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   } catch (e) {
     const said = String(e.stderr || '').trim().split('\n')[0];
     // "Not a repository" with a .git above the gate is a damaged repository.
-    if (e.code !== 'ENOENT' && /not a git repository/i.test(said) && !insideGitFolder(dirname(abs))) return { status: 'unchecked', reason: 'not inside a git repository' };
-    if (e.code === 'ENOENT' && !insideGitFolder(dirname(abs))) return { status: 'unchecked', reason: 'git is not installed and no .git folder is above the gate' };
+    // Outside a repository nothing is committed, so nothing can be decided:
+    // a gate proves a commit, and there is none (the skill says the same).
+    if (e.code !== 'ENOENT' && /not a git repository/i.test(said) && !insideGitFolder(dirname(abs))) return { status: 'stale', reason: 'the gate is not inside a git repository, so no commit holds the evidence. Commit the work in a repository and run the gate again' };
+    if (e.code === 'ENOENT' && !insideGitFolder(dirname(abs))) return { status: 'stale', reason: 'git is not installed and no repository is above the gate, so no commit holds the evidence. Install git, commit the work and run the gate again' };
     return { status: 'stale', reason: e.code === 'ENOENT'
       ? 'git is not available, so the committed evidence cannot be checked. Install git and run the gate again'
       : `git refused the repository (${said || e.message}). Fix that and run the gate again` };
@@ -641,7 +655,7 @@ export function freshness(gatePath, text) {
   const dirty = () => {
     let raw;
     try {
-      raw = execFileSync('git', ['-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      raw = execFileSync('git', ['-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       const said = String(e.stderr || '').trim().split('\n')[0];
       return { status: 'stale', reason: `git could not read the working tree (${said || e.message}). Fix the repository and run the gate again` };
@@ -662,7 +676,7 @@ export function freshness(gatePath, text) {
     // `ls-files -v` is assume-unchanged, `S` is skip-worktree).
     let listed;
     try {
-      listed = execFileSync('git', ['-C', top, 'ls-files', '-v', '-z'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      listed = execFileSync('git', ['-C', top, 'ls-files', '-v', '-z'], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       const said = String(e.stderr || '').trim().split('\n')[0];
       return { status: 'stale', reason: `git could not list the tracked files (${said || e.message}). Fix the repository and run the gate again` };
@@ -675,7 +689,7 @@ export function freshness(gatePath, text) {
     if (cited.length) {
       let ignored = '';
       try {
-        ignored = execFileSync('git', ['-C', top, 'check-ignore', '-z', '--stdin'], { encoding: 'utf8', input: cited.join('\0'), stdio: ['pipe', 'pipe', 'pipe'] });
+        ignored = execFileSync('git', ['-C', top, 'check-ignore', '-z', '--stdin'], { encoding: 'utf8', maxBuffer: GIT_MAX, input: cited.join('\0'), stdio: ['pipe', 'pipe', 'pipe'] });
       } catch (e) {
         if (e.status !== 1) {
           const said = String(e.stderr || '').trim().split('\n')[0];
@@ -708,7 +722,7 @@ export function freshness(gatePath, text) {
     if (inputs.length) {
       let ignored = '';
       try {
-        ignored = execFileSync('git', ['-C', top, 'check-ignore', '-z', '--stdin'], { encoding: 'utf8', input: inputs.join('\0'), stdio: ['pipe', 'pipe', 'pipe'] });
+        ignored = execFileSync('git', ['-C', top, 'check-ignore', '-z', '--stdin'], { encoding: 'utf8', maxBuffer: GIT_MAX, input: inputs.join('\0'), stdio: ['pipe', 'pipe', 'pipe'] });
       } catch (e) {
         if (e.status !== 1) {
           const said = String(e.stderr || '').trim().split('\n')[0];
@@ -755,7 +769,7 @@ export function freshness(gatePath, text) {
   if (cited.length) {
     let listed;
     try {
-      listed = execFileSync('git', ['--literal-pathspecs', '-C', top, 'ls-tree', '-z', '--full-tree', head, '--', ...new Set(cited)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      listed = execFileSync('git', ['--literal-pathspecs', '-C', top, 'ls-tree', '-z', '--full-tree', head, '--', ...new Set(cited)], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       const said = String(e.stderr || '').trim().split('\n')[0];
       return { status: 'stale', head: short, reason: `git could not list the cited evidence in ${short} (${said || e.message}). Fix the repository and run the gate again` };
@@ -805,7 +819,7 @@ export function freshness(gatePath, text) {
   // evidence commit itself: an edit or a commit since shows either way.
   let since;
   try {
-    since = execFileSync('git', ['-C', top, 'diff', '--name-only', '-z', '--no-ext-diff', '--ignore-submodules=none', head, '--', '.', `:(exclude,literal)${gateRel}`, `:(exclude,literal)${prRel}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    since = execFileSync('git', ['-C', top, 'diff', '--name-only', '-z', '--no-ext-diff', '--ignore-submodules=none', head, '--', '.', `:(exclude,literal)${gateRel}`, `:(exclude,literal)${prRel}`], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     const said = String(e.stderr || '').trim().split('\n')[0];
     return { status: 'stale', reason: `git could not compare the tree with the evidence commit (${said || e.message}). Fix the repository and run the gate again` };
@@ -980,8 +994,7 @@ export function main(argv) {
     for (const c of r.concerns) console.log(`  concern:  ${c}`);
     for (const w of r.waiverProblems) console.log(`  waiver:   ${w}`);
     for (const i of parsed.items) for (const n of i.notes) console.log(`  note:     ${i.id}: ${n}`);
-    if (fresh.status === 'unchecked') console.log(`  note:     freshness not checked (${fresh.reason})`);
-    else console.log(`  evidence: commit ${fresh.head}`);
+    console.log(`  evidence: commit ${fresh.head}`);
   }
   return r.decision === 'FAIL' ? 1 : 0;
 }

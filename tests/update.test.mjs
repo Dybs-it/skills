@@ -352,14 +352,15 @@ test('quality.md carries the attribution for adapted text', () => {
   assert.match(t, /Copyright \(c\) 2026 Matt Pocock/);
 });
 
-test('the gate template parses and computes', () => {
-  // Computed on a copy outside any git repository: this checks the format,
-  // not the freshness of this checkout.
-  const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
-  writeFileSync(join(dir, 'gate.md'), readFileSync(join(PKG_ROOT, 'tests/fixtures/gate-pass.md')));
-  const r = execFileSync('node', [join(PKG_ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), join(dir, 'gate.md'), '--json'], { encoding: 'utf8' });
+test('the gate template parses and computes', async () => {
+  // Computed in a fresh repository holding the tests it cites: this checks
+  // the format, not the freshness of this checkout.
+  const { committedGate } = await import('./gate-repo.mjs');
+  const tests = { 'tests/invite.test.ts': 'test\n'.repeat(60), 'tests/rotation.test.ts': 'test\n'.repeat(20) };
+  const { repo, gatePath } = committedGate(readFileSync(join(PKG_ROOT, 'tests/fixtures/gate-pass.md'), 'utf8'), tests, 'invites');
+  const r = execFileSync('node', [join(PKG_ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath, '--json'], { encoding: 'utf8' });
   assert.equal(JSON.parse(r).decision, 'PASS');
-  rmSync(dir, { recursive: true });
+  rmSync(repo, { recursive: true });
 });
 
 test('docs/sources.md describes every skill', () => {

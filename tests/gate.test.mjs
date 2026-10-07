@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync, mkdirSyn
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { committedGate } from './gate-repo.mjs';
 import { parseGate, decide, tableUnder, headingCount, visible, waiverIssue } from '../skills/dybs-gate/scripts/dybs-gate.mjs';
 const headingCountFor = (text) => headingCount(text, 'Waivers');
 
@@ -122,16 +123,17 @@ test('tableUnder stops at the next heading and skips the separator', () => {
 });
 
 test('CLI: exit 1 on FAIL, 0 on PASS, 2 on a malformed file', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
-  const write = (name, spec) => { mkdirSync(join(dir, name)); const p = join(dir, name, 'gate.md'); writeFileSync(p, typeof spec === 'string' ? spec : gate(spec)); return p; };
   const gateCli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
   const code = (file, bin = gateCli) => { try { execFileSync('node', [bin, ...(bin === gateCli ? [] : ['gate']), file], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
-  assert.equal(code(write('pass.md', { items: [full('a', 'P0')] })), 0);
-  assert.equal(code(write('fail.md', { items: [gap('a', 'P0')] })), 1);
-  assert.equal(code(write('bad.md', '# no tables')), 2);
+  const repos = [];
+  const write = (spec) => { const { repo, gatePath } = committedGate(typeof spec === 'string' ? spec : gate(spec)); repos.push(repo); return gatePath; };
+  assert.equal(code(write({ items: [full('a', 'P0')] })), 0);
+  const failing = write({ items: [gap('a', 'P0')] });
+  assert.equal(code(failing), 1);
+  assert.equal(code(write('# no tables')), 2);
   // the gate lives in the skill, not in the dybs-skills binary
-  assert.equal(code(join(dir, 'fail.md', 'gate.md'), join(ROOT, 'bin/dybs-skills.mjs')), 2);
-  rmSync(dir, { recursive: true });
+  assert.equal(code(failing, join(ROOT, 'bin/dybs-skills.mjs')), 2);
+  for (const r of repos) rmSync(r, { recursive: true });
 });
 
 // --- Codex review findings on PR #3 ---
@@ -236,15 +238,13 @@ test('tables inside HTML comments or code fences are ignored', () => {
 });
 
 test('the CLI has no way to pick another date: --today is refused', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
-  const file = join(dir, 'gate.md');
-  writeFileSync(file, gate({ items: [full('a', 'P0')] }));
+  const { repo, gatePath: file } = committedGate(gate({ items: [full('a', 'P0')] }));
   const cli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
   const code = (args) => { try { execFileSync('node', [cli, file, ...args], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
   assert.equal(code(['--today', '2020-01-01']), 2);
   assert.equal(code(['--json']), 0);
   assert.equal(code([]), 0);
-  rmSync(dir, { recursive: true });
+  rmSync(repo, { recursive: true });
 });
 
 // --- Codex review round 3 on PR #3 ---
@@ -342,11 +342,11 @@ test('a test location must be a whole path:line token', () => {
 test('the gate script runs when called through a linked skill folder', () => {
   const dir = mkdtempSync(join(tmpdir(), 'dybs-link-'));
   symlinkSync(join(ROOT, 'skills/dybs-gate'), join(dir, 'dybs-gate'));
-  // A copy outside any git repository: this test is about the link, not freshness.
-  writeFileSync(join(dir, 'gate.md'), readFileSync(join(ROOT, 'tests/fixtures/gate-pass.md')));
-  const out = execFileSync('node', [join(dir, 'dybs-gate/scripts/dybs-gate.mjs'), join(dir, 'gate.md')], { encoding: 'utf8' });
+  const { repo, gatePath } = committedGate(gate({ items: [full('a', 'P0')] }));
+  const out = execFileSync('node', [join(dir, 'dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8' });
   assert.match(out, /Decision: PASS/);
   rmSync(dir, { recursive: true });
+  rmSync(repo, { recursive: true });
 });
 
 // --- Codex review round 7 on PR #3 ---
@@ -367,15 +367,15 @@ test('an escaped pipe stays inside its cell', () => {
 });
 
 test('the CLI takes exactly one gate file', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'dybs-gate-'));
-  mkdirSync(join(dir, 'a')); mkdirSync(join(dir, 'b'));
-  const a = join(dir, 'a', 'gate.md'); writeFileSync(a, gate({ items: [full('a', 'P0')] }));
-  const b = join(dir, 'b', 'gate.md'); writeFileSync(b, gate({ items: [gap('a', 'P0')] }));
+  const { repo, gatePath: a } = committedGate(gate({ items: [full('a', 'P0')] }));
+  const other = committedGate(gate({ items: [gap('a', 'P0')] }));
+  const b = other.gatePath;
   const cli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
   const code = (args) => { try { execFileSync('node', [cli, ...args], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
   assert.equal(code([a, b]), 2);
   assert.equal(code([a]), 0);
-  rmSync(dir, { recursive: true });
+  rmSync(repo, { recursive: true });
+  rmSync(other.repo, { recursive: true });
 });
 
 // --- Codex review round 8 on PR #3 ---
@@ -1579,5 +1579,41 @@ test('a code-spanned test path with a space is FULL evidence, checked as written
   const plain = runGate(gatePath);
   assert.notEqual(plain.code, 0, plain.out);
   assert.match(plain.out, /cited evidence not in commit [0-9a-f]+: cases\.test\.js/);
+  rmSync(repo, { recursive: true });
+});
+
+// --- Codex review on PR #3 (704d28c): span padding, no repository, large listings ---
+test('a code span shows its padding: a padded location is no location', async () => {
+  const { hasLocation, evidenceTokens } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  assert.ok(hasLocation('` tests/a.test.js:1 `'), 'one space each side is not shown');
+  assert.ok(!hasLocation('`  tests/a.test.js:1  `'));
+  assert.ok(!hasLocation('`  tests/a.test.js:1`'));
+  assert.deepEqual([...evidenceTokens('`  a.test.js:1  `')], [' a.test.js:1 ']);
+  const { repo, gatePath } = committedGate(gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', '`  tests/a.test.js:1  `'));
+  const r = runGate(gatePath);
+  assert.notEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /PASS/);
+  rmSync(repo, { recursive: true });
+});
+
+test('outside a git repository the gate gives no decision', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dybs-nogit-'));
+  mkdirSync(join(dir, 'dybs/work/t'), { recursive: true });
+  const p = join(dir, 'dybs/work/t/gate.md');
+  writeFileSync(p, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, '---\ncommit: uncommitted\n'));
+  const r = runGate(p);
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: the gate is not inside a git repository, so no commit holds the evidence/);
+  rmSync(dir, { recursive: true });
+});
+
+test('a tracked-file listing larger than 1 MiB still gets a decision', () => {
+  const files = { 'tests/a.test.js': 'test\n' };
+  // About 1.3 MB of `ls-files -v -z` output.
+  for (let i = 0; i < 9000; i++) files[`many/${'d'.repeat(120)}-${i}.txt`] = '';
+  const { repo, gatePath } = committedGate(gate({ items: [full('a', 'P0')] }), files);
+  assert.ok(execFileSync('git', ['-C', repo, 'ls-files', '-v', '-z'], { maxBuffer: 1 << 30 }).length > 1024 * 1024);
+  const r = runGate(gatePath);
+  assert.equal(r.code, 0, r.out);
   rmSync(repo, { recursive: true });
 });
