@@ -1374,10 +1374,12 @@ export function nextStep(results, checkins = 'each-doc') {
 // Sets frontmatter keys in place (null removes a key), leaving every other
 // line as it was.
 export function setFrontmatter(text, updates) {
-  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  // The opener the parser accepts (trailing blanks allowed): it is kept as
+  // written, so only the keys change.
+  const m = text.match(/^(---[ \t]*)(\r?\n)([\s\S]*?)\r?\n---/);
   // The same block parseFrontmatter reads, or none at all.
   if (!m || !parseFrontmatter(text).data) throw new Error('no frontmatter');
-  const lines = m[1].split(/\r?\n/);
+  const lines = m[3].split(/\r?\n/);
   for (const [key, value] of Object.entries(updates)) {
     const i = lines.findIndex((l) => l.startsWith(`${key}:`));
     if (value === null) { if (i >= 0) lines.splice(i, 1); continue; }
@@ -1385,8 +1387,8 @@ export function setFrontmatter(text, updates) {
     else lines.push(`${key}: ${value}`);
   }
   // The file's own line ending: a CRLF doc stays CRLF throughout.
-  const eol = m[0].startsWith('---\r\n') ? '\r\n' : '\n';
-  return `---${eol}${lines.join(eol)}${eol}---` + text.slice(m[0].length);
+  const eol = m[2];
+  return `${m[1]}${eol}${lines.join(eol)}${eol}---` + text.slice(m[0].length);
 }
 
 // Why `root/rel` is not a regular file reached through real folders, or null.
@@ -1907,7 +1909,10 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
       // stops while it is still at its own name.
       if (pathId(path) !== origId || !isRegularFile(path)) throw new Error(`${rel} changed while it was being moved aside; nothing was changed, run --accept again`);
       const aside = `${path}.${randomUUID()}.rm`;
-      renameSync(path, aside);
+      // Inside the very folder checked (renameInFolder), and only as the
+      // original itself: through a folder swapped for a link it moves nothing.
+      testHooks.beforeMove?.(path);
+      if (!renameInFolder(path, aside, origId)) throw new Error(`${rel} changed while it was being moved aside; nothing was changed, run --accept again`);
       let same = false;
       try { const a = readById(aside, origId); const o = readById(old, oldId); same = a !== null && o !== null && a === o; } catch { same = false; }
       if (!same) {
