@@ -1017,6 +1017,12 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
           }
           s.old = old;
           s.oldId = copyId;
+          // Its mode and owner as made, so a chmod or chown of the snapshot
+          // since is kept like an edit by the rollback below.
+          try {
+            const snap = fsOps.lstat(old, BIG);
+            if (idOfStat(snap) === copyId) s.oldMeta = { mode: Number(snap.mode) & 0o7777, owner: ownerOf(snap) };
+          } catch { /* no metadata: the rollback then keeps the snapshot */ }
           // Only a snapshot so far: the original is still at its own name,
           // so a rollback from here removes the snapshot and nothing else.
           s.snapshotOnly = true;
@@ -1126,12 +1132,18 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         }
         s.placed = true;
         s.placedId = placedNow;
+        // What it was written with (a link places that very file, a copy
+        // carries it over): the rollback can judge it even if the lookup
+        // below fails. And an added file is part of the rollback at once,
+        // before any check that can stop the update.
+        s.placedMode = s.made ? s.made.mode : null;
+        s.placedOwner = s.made ? { uid: s.made.uid, gid: s.made.gid } : null;
+        if (s.a.op === 'add' && !done.includes(s)) done.push(s);
         // Its permissions as placed: a rollback removes it only while they
         // still hold, so a mode changed on the new file is kept like an edit.
         // Read between pins of the folders on the way and only from the very
         // file placed: through a folder swapped for a link during the lookup
         // it would be another file's mode, so the update stops instead.
-        s.placedMode = null;
         let placedSt = null;
         testHooks.beforePlacedMode?.(s);
         try { placedSt = fsOps.lstat(s.p, BIG); } catch { placedSt = null; }
@@ -1140,7 +1152,6 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         }
         s.placedMode = Number(placedSt.mode) & 0o7777;
         s.placedOwner = ownerOf(placedSt);
-        if (s.a.op === 'add') done.push(s);
         pinned(s);
         // The staging name is removed only while it still leads, through
         // the pinned folders, to the file we staged: a same-named file
@@ -1151,7 +1162,19 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
         }
         // Removed by identity under a private name, the folders re-checked
         // right before: a file that replaced the staging name is kept.
-        rmIfOurs(s.tmp, s.tmpId, () => pinned(s));
+        // And only while it holds what was written, with its mode and owner:
+        // a staging file edited since (separate from the target when it was
+        // copied into place) is someone's work, kept and named.
+        // The installed file is unaffected (checked below), so the update goes
+        // on and reports where the edited staging file is.
+        try {
+          rmIfOurs(s.tmp, s.tmpId, () => pinned(s), s.made
+            ? { expect: sha(want[s.a.rel]), mode: s.made.mode, owner: { uid: s.made.uid, gid: s.made.gid } }
+            : {});
+        } catch (e) {
+          if (!String(e.message).startsWith(`${s.tmp} is not the file the update wrote`)) throw e;
+          s.a.keptStaging = e.keptAt ?? s.tmp;
+        }
         // Until that unlink, a link placement left two names for one file, and
         // a write through the staging name would land in the target. So the
         // target is read once more now that it is the only name.
@@ -1267,7 +1290,10 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       // Stopped before the original moved (no hard links): it is still at
       // its name, and the snapshot is all there is to remove.
       if (s.snapshotOnly) {
-        undo(s.a.rel, () => rmIfOurs(s.old, s.oldId, chainCheck(s), { expect: s.a.hash }));
+        undo(s.a.rel, () => {
+          if (!s.oldMeta) throw new Error(`the snapshot of the original could not be checked; it is kept at ${s.old}`);
+          rmIfOurs(s.old, s.oldId, chainCheck(s), { expect: s.a.hash, mode: s.oldMeta.mode, owner: s.oldMeta.owner });
+        });
         continue;
       }
       if (s.old) {
