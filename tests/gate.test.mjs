@@ -986,16 +986,16 @@ test('a gate reached through a task folder link retargeted mid-check gets no dec
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   writeFileSync(join(outside, 'gate.md'), body);
   const gatePath = join(repo, 'dybs/work/link/gate.md');
-  // Right after the last status check (the third), the link moves to an
-  // outside folder holding the very same bytes: only the folder pin can
-  // see that.
+  // Right after the last tree check (the comparison with the evidence
+  // commit), the link moves to an outside folder holding the very same
+  // bytes: only the folder pin can see that.
   const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
   const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
-  writeFileSync(join(bin, 'git'), `#!/bin/sh\n"${realGit}" "$@"\ncode=$?\ncase " $* " in *" status "*) echo x >> "${bin}/n"; if [ "$(wc -l < "${bin}/n")" -eq 3 ]; then ln -sfn "${outside}" "${join(repo, 'dybs/work/link')}"; fi;; esac\nexit $code\n`, { mode: 0o755 });
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\n"${realGit}" "$@"\ncode=$?\ncase " $* " in *" diff "*) echo x >> "${bin}/n"; if [ "$(wc -l < "${bin}/n")" -eq 1 ]; then ln -sfn "${outside}" "${join(repo, 'dybs/work/link')}"; fi;; esac\nexit $code\n`, { mode: 0o755 });
   const run = (env) => { try { return { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
   assert.equal(run(process.env).code, 0, 'fresh as found');
   const r = run({ ...process.env, PATH: `${bin}:${process.env.PATH}` });
-  assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim().split('\n').length, 3, 'moved after the last status check');
+  assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim().split('\n').length, 1, 'moved after the last tree check');
   assert.equal(r.code, 2, r.out);
   for (const d of [repo, outside, bin]) rmSync(d, { recursive: true });
 });
@@ -1107,6 +1107,60 @@ exit $code
   assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim(), '2', 'the edit landed during the second history query');
   assert.equal(r.code, 3, r.out);
   assert.match(r.out, /STALE: uncommitted changes/);
+  rmSync(repo, { recursive: true });
+  rmSync(bin, { recursive: true });
+});
+
+// --- Codex review on PR #3 (d370ce5): ignored evidence and a commit during the last status ---
+const gitRepo = () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dybs-gate-git-'));
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' }).trim();
+  g('init', '-q'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T');
+  mkdirSync(join(repo, 'dybs/work/t'), { recursive: true });
+  return { repo, g, gatePath: join(repo, 'dybs/work/t/gate.md') };
+};
+const runGate = (gatePath, env = process.env) => { try { return { code: 0, out: execFileSync(process.execPath, [join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs'), gatePath], { encoding: 'utf8', stdio: 'pipe', env }) }; } catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; } };
+
+test('a test cited as FULL evidence that git ignores gets no decision', () => {
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, '.gitignore'), 'ignored.test.js\n');
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  writeFileSync(join(repo, 'ignored.test.js'), 'test');
+  const head = g('rev-parse', '--short=7', 'HEAD');
+  const body = gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', 'ignored.test.js:1').replace(/^---\n/, `---\ncommit: ${head}\n`);
+  assert.match(body, /ignored\.test\.js:1/);
+  writeFileSync(gatePath, body);
+  const r = runGate(gatePath);
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: cited evidence that git ignores, so no commit holds it: ignored\.test\.js/);
+  // Tracked, the same test is evidence again.
+  g('add', '-f', 'ignored.test.js'); g('commit', '-qm', 'test');
+  writeFileSync(gatePath, body.replace(head, g('rev-parse', '--short=7', 'HEAD')));
+  assert.equal(runGate(gatePath).code, 0);
+  rmSync(repo, { recursive: true });
+});
+
+test('a commit made during the last status check gets no decision', () => {
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, 'app.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  writeFileSync(gatePath, gate({ items: [full('a', 'P0')] }).replace(/^---\n/, `---\ncommit: ${g('rev-parse', '--short=7', 'HEAD')}\n`));
+  // On the third `git status`, app.js changes and is committed first, so
+  // that status sees a clean tree at the new HEAD.
+  const bin = mkdtempSync(join(tmpdir(), 'dybs-bin-'));
+  const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(bin, 'git'), `#!/bin/sh
+case " $* " in *" status "*)
+  echo x >> "${bin}/n"
+  if [ "$(wc -l < "${bin}/n")" -eq 3 ]; then printf two > "${repo}/app.js"; "${realGit}" -C "${repo}" commit -qam more >/dev/null; fi;;
+esac
+exec "${realGit}" "$@"
+`, { mode: 0o755 });
+  const r = runGate(gatePath, { ...process.env, PATH: `${bin}:${process.env.PATH}` });
+  assert.equal(readFileSync(join(bin, 'n'), 'utf8').trim().split('\n').length, 3, 'committed during the third status');
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: the evidence changed while the gate was checking it/);
   rmSync(repo, { recursive: true });
   rmSync(bin, { recursive: true });
 });

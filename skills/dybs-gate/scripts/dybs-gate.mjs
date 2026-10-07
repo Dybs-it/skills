@@ -11,7 +11,7 @@
 // agent's judgement. quality.md describes the same rules in words.
 
 import { readFileSync, realpathSync, lstatSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
-import { resolve, dirname, relative, sep, join, basename } from 'node:path';
+import { resolve, dirname, relative, sep, join, basename, posix } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -563,6 +563,22 @@ export function freshness(gatePath, text) {
     return { status: 'stale', reason: `${gateRel} is not a task gate. The gate is dybs/work/<task>/gate.md` };
   }
   const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
+  // The tests cited as FULL evidence, as repository paths: the project
+  // root is the folder holding dybs/, and evidence is relative to it.
+  const rootRel = gateRel.slice(0, gateRel.lastIndexOf('dybs/work/'));
+  const cited = [];
+  for (const item of parseGate(text).items) {
+    if (item.coverage !== 'FULL') continue;
+    for (const t of item.evidence.split(/[\s,;]+/).map((x) => x.replace(/^`|`$/g, ''))) {
+      if (!LOCATION_TOKEN.test(t)) continue;
+      const file = t.slice(0, t.lastIndexOf(':')).replace(/\\/g, '/');
+      const inRepo = posix.normalize(`${rootRel}${file}`);
+      if (/^[A-Za-z]:\//.test(file) || file.startsWith('/') || inRepo === '..' || inRepo.startsWith('../')) {
+        return { status: 'stale', reason: `cited evidence ${file} is outside the repository, so no commit holds it. Cite tests inside the repository and run the gate again` };
+      }
+      cited.push(inRepo);
+    }
+  }
   // NUL-separated porcelain: paths come unquoted (no C escapes for
   // non-ASCII names), and a rename lists both of its paths. Submodules are
   // always looked into: `ignore = all` in .gitmodules or config must not
@@ -598,6 +614,22 @@ export function freshness(gatePath, text) {
     }
     const hidden = listed.split('\0').filter((e) => e && (/^[a-z]/.test(e) || e[0] === 'S')).map((e) => e.slice(2)).filter((f) => f !== gateRel && f !== prRel);
     if (hidden.length) return { status: 'stale', reason: `tracked files git status cannot see changes in (assume-unchanged or skip-worktree): ${hidden.slice(0, 5).join(', ')}${hidden.length > 5 ? ', …' : ''}. Clear those flags (git update-index --no-assume-unchanged --no-skip-worktree) and run the gate again` };
+    // An ignored file never shows in `git status` and, untracked, not in
+    // `ls-files` either: a test cited as FULL evidence that Git ignores is
+    // not in any commit, so it is refused (check-ignore skips tracked files).
+    if (cited.length) {
+      let ignored = '';
+      try {
+        ignored = execFileSync('git', ['-C', top, 'check-ignore', '-z', '--stdin'], { encoding: 'utf8', input: cited.join('\0'), stdio: ['pipe', 'pipe', 'pipe'] });
+      } catch (e) {
+        if (e.status !== 1) {
+          const said = String(e.stderr || '').trim().split('\n')[0];
+          return { status: 'stale', reason: `git could not check the cited evidence (${said || e.message}). Fix the repository and run the gate again` };
+        }
+      }
+      const which = ignored.split('\0').filter(Boolean);
+      if (which.length) return { status: 'stale', reason: `cited evidence that git ignores, so no commit holds it: ${which.slice(0, 5).join(', ')}${which.length > 5 ? ', …' : ''}. Commit the tests (or stop ignoring them) and run the gate again` };
+    }
     return null;
   };
   const before = dirty();
@@ -639,6 +671,17 @@ export function freshness(gatePath, text) {
   if (again !== head) return { status: 'stale', head: short, reason: 'the evidence changed while the gate was checking it. Run the gate again' };
   const last = dirty();
   if (last) return last;
+  // `git status` compares with HEAD, so a commit made while it ran leaves
+  // it clean. Last of all, the tracked tree is compared with the fixed
+  // evidence commit itself: an edit or a commit since shows either way.
+  let since;
+  try {
+    since = execFileSync('git', ['-C', top, 'diff', '--name-only', '-z', '--no-ext-diff', '--ignore-submodules=none', head, '--', '.', `:(exclude,literal)${gateRel}`, `:(exclude,literal)${prRel}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    const said = String(e.stderr || '').trim().split('\n')[0];
+    return { status: 'stale', reason: `git could not compare the tree with the evidence commit (${said || e.message}). Fix the repository and run the gate again` };
+  }
+  if (since.split('\0').some(Boolean)) return { status: 'stale', head: short, reason: 'the evidence changed while the gate was checking it. Run the gate again' };
   return { status: 'fresh', head: short };
 }
 
