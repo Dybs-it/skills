@@ -1268,3 +1268,23 @@ test('a gate read through a task folder swapped for a link during the read gets 
   rmSync(repo, { recursive: true });
   rmSync(outside, { recursive: true });
 });
+
+// --- Codex review on PR #3 (89faf4d): the cited line exists in the committed file ---
+test('a cited line past the end of the committed test gets no decision', () => {
+  const { repo, g, gatePath } = gitRepo();
+  writeFileSync(join(repo, 'tests/a.test.js'), 'one\ntwo\nthree');
+  writeFileSync(join(repo, 'code.js'), 'one');
+  g('add', '.'); g('commit', '-qm', 'code');
+  const head = g('rev-parse', '--short=7', 'HEAD');
+  const at = (line) => gate({ items: [full('a', 'P0')] }).replace('tests/a.test.js:1', `tests/a.test.js:${line}`).replace(/^---\n/, `---\ncommit: ${head}\n`);
+  writeFileSync(gatePath, at(999999));
+  let r = runGate(gatePath);
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /STALE: cited evidence past the end of the file in commit [0-9a-f]{7}: tests\/a\.test\.js:999999 \(it has 3 lines\)/);
+  // The last line (no newline after it) is still a line.
+  writeFileSync(gatePath, at(3));
+  assert.equal(runGate(gatePath).code, 0);
+  writeFileSync(gatePath, at(4));
+  assert.equal(runGate(gatePath).code, 3);
+  rmSync(repo, { recursive: true });
+});

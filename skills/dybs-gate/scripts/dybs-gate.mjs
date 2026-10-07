@@ -567,6 +567,8 @@ export function freshness(gatePath, text) {
   // root is the folder holding dybs/, and evidence is relative to it.
   const rootRel = gateRel.slice(0, gateRel.lastIndexOf('dybs/work/'));
   const cited = [];
+  // The highest line each cited file is cited at.
+  const lines = new Map();
   for (const item of parseGate(text).items) {
     if (item.coverage !== 'FULL') continue;
     for (const t of item.evidence.split(/[\s,;]+/).map((x) => x.replace(/^`|`$/g, ''))) {
@@ -577,6 +579,7 @@ export function freshness(gatePath, text) {
         return { status: 'stale', reason: `cited evidence ${file} is outside the repository, so no commit holds it. Cite tests inside the repository and run the gate again` };
       }
       cited.push(inRepo);
+      lines.set(inRepo, Math.max(lines.get(inRepo) ?? 0, Number(t.slice(t.lastIndexOf(':') + 1))));
     }
   }
   // NUL-separated porcelain: paths come unquoted (no C escapes for
@@ -675,14 +678,32 @@ export function freshness(gatePath, text) {
       return { status: 'stale', head: short, reason: `git could not list the cited evidence in ${short} (${said || e.message}). Fix the repository and run the gate again` };
     }
     const files = new Map();
+    const oids = new Map();
     for (const entry of listed.split('\0')) {
       const tab = entry.indexOf('\t');
-      if (tab > 0) files.set(entry.slice(tab + 1), entry.slice(0, entry.indexOf(' ')));
+      if (tab > 0) { const [fileMode, , oid] = entry.slice(0, tab).split(' '); files.set(entry.slice(tab + 1), fileMode); oids.set(entry.slice(tab + 1), oid); }
     }
     const missing = [...new Set(cited)].filter((f) => !files.has(f));
     if (missing.length) return { status: 'stale', head: short, reason: `cited evidence not in commit ${short}: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''}. Commit the tests, or cite the tests that prove the item, and run the gate again` };
     const notFiles = [...new Set(cited)].filter((f) => !['100644', '100755'].includes(files.get(f)));
     if (notFiles.length) return { status: 'stale', head: short, reason: `cited evidence that is not a regular file in commit ${short} (a link or a folder): ${notFiles.slice(0, 5).join(', ')}${notFiles.length > 5 ? ', …' : ''}. Cite the test file itself and run the gate again` };
+    // The cited line must be in the file as committed: `a.test.js:999999`
+    // in a ten-line file points at no test.
+    const beyond = [];
+    for (const [f, line] of lines) {
+      let blob;
+      try {
+        blob = execFileSync('git', ['-C', top, 'cat-file', 'blob', oids.get(f)], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 });
+      } catch (e) {
+        const said = String(e.stderr || '').trim().split('\n')[0];
+        return { status: 'stale', head: short, reason: `git could not read the cited evidence ${f} in ${short} (${said || e.message}). Fix the repository and run the gate again` };
+      }
+      let count = 0;
+      for (const b of blob) if (b === 10) count++;
+      if (blob.length && blob[blob.length - 1] !== 10) count++;
+      if (line > count) beyond.push(`${f}:${line} (it has ${count} line${count === 1 ? '' : 's'})`);
+    }
+    if (beyond.length) return { status: 'stale', head: short, reason: `cited evidence past the end of the file in commit ${short}: ${beyond.slice(0, 5).join(', ')}${beyond.length > 5 ? ', …' : ''}. Cite the line of the test that proves the item and run the gate again` };
   }
   // Checked once more: a file saved or a commit made while git ran above
   // would otherwise go unseen. The history query cannot see the tree, so
