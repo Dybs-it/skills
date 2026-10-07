@@ -537,6 +537,11 @@ export function inspectPath(dir, rel) {
 // in that skill is applied, so a skill never ends up half one release and
 // half another. `--force` resolves edited regular files (with a backup); it
 // never resolves an unsafe path.
+// Whether an installed file is this very release: its bytes, or its bytes
+// with CRLF line endings (core.autocrlf), which rewriting to LF would only
+// change in a checkout for nothing.
+const isCurrent = (cur, buf) => sha(cur) === sha(buf) || cur.toString('utf8').replace(/\r\n/g, '\n') === buf.toString('utf8');
+
 export function planInstall(install, { force = false, known = knownHashes() } = {}) {
   const { skill, dir } = install;
   const want = shippedFiles(skill);
@@ -559,7 +564,7 @@ export function planInstall(install, { force = false, known = knownHashes() } = 
     const cur = readNoFollow(join(dir, rel));
     if (!cur) { actions.push({ op: 'unsafe', rel, why: 'it changed into something other than a regular file while it was read' }); continue; }
     const curHash = sha(cur);
-    if (curHash === sha(buf)) { actions.push({ op: 'same', rel }); continue; }
+    if (isCurrent(cur, buf)) { actions.push({ op: 'same', rel }); continue; }
     if (isKnownFile(rel, cur)) { actions.push({ op: 'update', rel, hash: curHash }); continue; }
     actions.push(force ? { op: 'replace', rel, hash: curHash, why: 'changed after install' } : { op: 'conflict', rel, why: 'changed after install' });
   }
@@ -1171,7 +1176,7 @@ export function applyPlan(plan, { failAt, beforeFail, beforeMkdir, beforePin, be
       try {
         if (pin.chain && chainOf(dir, a.rel) === pin.chain) {
           const x = readById(join(dir, a.rel), pin.id);
-          current = Boolean(x) && sha(x) === sha(want[a.rel]) && chainOf(dir, a.rel) === pin.chain;
+          current = Boolean(x) && isCurrent(x, want[a.rel]) && chainOf(dir, a.rel) === pin.chain;
         }
       } catch { current = false; }
       if (!current) throw new Error(`${a.rel} changed since the update was planned; nothing was kept, run update again`);
