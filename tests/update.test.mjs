@@ -961,6 +961,11 @@ test('frontmatter needs a closing line that is exactly ---', async () => {
   assert.equal(parseFrontmatter('---\ndoc: prd\n---\n# T\n').data.doc, 'prd');
   assert.equal(parseFrontmatter('---\ndoc: prd\n---  \n# T\n').data.doc, 'prd');
   assert.equal(parseFrontmatter('---\ndoc: prd\n---').data.doc, 'prd');
+  // One rule for both delimiters: invisible trailing blanks are allowed on
+  // the opener too, anything visible is not.
+  assert.equal(parseFrontmatter('---  \ndoc: prd\n---\t\n# T\n').data.doc, 'prd');
+  assert.equal(parseFrontmatter('--- x\ndoc: prd\n---\n# T\n').data, null);
+  assert.equal(parseFrontmatter('---\ndoc: prd\n--- x\n# T\n').data, null);
 });
 
 test('staging refuses a folder that became a link before it was pinned', async () => {
@@ -3597,4 +3602,71 @@ test('a folder swapped for a link right before a removal moves no outside file',
   assert.deepEqual(readdirSync(outside), [SKILL], 'nothing was moved or left in the outside folder');
   rmSync(root, { recursive: true });
   rmSync(outside, { recursive: true });
+});
+
+// --- Codex review on PR #2 (4a3c211): a new file belongs to the skill folder's owner ---
+test('a file the update adds belongs to the owner of the skill folder', async (t) => {
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return t.skip('needs root to give files another owner');
+  const { chownSync, statSync } = await import('node:fs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  const name = Object.keys(shippedFiles('dybs-prd')).find((r) => r !== SKILL && !r.includes('/'));
+  assert.ok(name, 'dybs-prd ships a second top-level file');
+  rmSync(join(dir, name));
+  chownSync(dir, 65534, 65534);
+  const { results } = update([root]);
+  assert.equal(ops(results[0])[name], 'add');
+  const st = statSync(join(dir, name));
+  assert.deepEqual([st.uid, st.gid], [65534, 65534]);
+  rmSync(root, { recursive: true });
+});
+
+// --- Codex review on PR #2 (4a3c211): the other moves happen inside the checked folder too ---
+const swapBeforeMove = async (mod, dir, match, run) => {
+  const { renameSync } = await import('node:fs');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = null;
+  mod.testHooks.beforeMove = (p) => {
+    if (swapped || !match(p)) return;
+    swapped = basename(p);
+    writeFileSync(join(outside, swapped), 'an unrelated outside file');
+    renameSync(dir, `${dir}.moved`);
+    symlinkSync(outside, dir);
+  };
+  try { run(); } catch { /* refused is fine */ } finally {
+    mod.testHooks.beforeMove = null;
+    if (swapped) { rmSync(dir); renameSync(`${dir}.moved`, dir); }
+  }
+  return { swapped, outside };
+};
+
+test('without hard links, a folder swapped right before the move aside moves no outside file', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const plan = mod.planInstall(findInstalls([root])[0], { known: { 'dybs-prd/SKILL.md': [sha('old shipped version')] } });
+  const real = { ...mod.fsOps };
+  mod.fsOps.link = () => { throw Object.assign(new Error('no hard links'), { code: 'EPERM' }); };
+  let r;
+  try { r = await swapBeforeMove(mod, dir, (p) => p === prd(root), () => mod.applyPlan(plan)); } finally { Object.assign(mod.fsOps, real); }
+  assert.equal(r.swapped, SKILL);
+  assert.equal(readFileSync(join(r.outside, SKILL), 'utf8'), 'an unrelated outside file');
+  assert.deepEqual(readdirSync(r.outside), [SKILL]);
+  rmSync(root, { recursive: true });
+  rmSync(r.outside, { recursive: true });
+});
+
+test('a folder swapped right before the committed cleanup moves no outside file', async () => {
+  const mod = await import('../src/update.mjs');
+  const root = project(['dybs-prd']);
+  const dir = dirname(prd(root));
+  writeFileSync(prd(root), 'old shipped version');
+  const plan = mod.planInstall(findInstalls([root])[0], { known: { 'dybs-prd/SKILL.md': [sha('old shipped version')] } });
+  const r = await swapBeforeMove(mod, dir, (p) => p.endsWith('.old'), () => mod.applyPlan(plan));
+  assert.ok(r.swapped && r.swapped.endsWith('.old'), String(r.swapped));
+  assert.equal(readFileSync(join(r.outside, r.swapped), 'utf8'), 'an unrelated outside file');
+  assert.deepEqual(readdirSync(r.outside), [r.swapped]);
+  rmSync(root, { recursive: true });
+  rmSync(r.outside, { recursive: true });
 });

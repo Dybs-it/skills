@@ -160,11 +160,13 @@ export function decodeReferences(text) {
 const PLACEHOLDER = /\{\{[^}]*\}\}|(?<![\p{L}\p{N}])(?:TODO|TBD)(?![\p{L}\p{N}])/u;
 
 export function parseFrontmatter(text) {
-  // The block ends at the first line that starts with `---`, and that line
-  // must be exactly `---`: `---oops` is not a closer, and the block is then
+  // Both delimiters are `---` lines: `---` alone, and only trailing spaces or
+  // tabs (which nobody sees) allowed after it, on the opener and the closer
+  // alike. The block ends at the first line that starts with `---`, and that
+  // line must be such a line: `---oops` is not a closer, and the block is then
   // not frontmatter at all (never extended to a later `---`).
-  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n(---[^\r\n]*)(?:\r?\n|$)/);
-  if (!m || m[2].trim() !== '---') return { data: null, body: text };
+  const m = text.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n(---[^\r\n]*)(?:\r?\n|$)/);
+  if (!m || !/^---[ \t]*$/.test(m[2])) return { data: null, body: text };
   const data = {};
   for (const line of m[1].split(/\r?\n/)) {
     const kv = line.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
