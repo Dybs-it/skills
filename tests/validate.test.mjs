@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import { unprivileged, UNPRIVILEGED_SKIP } from './unprivileged.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, cpSync, writeFileSync, rmSync, existsSync, symlinkSync, mkdirSync, chmodSync, statSync, renameSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -2185,7 +2185,9 @@ test('--accept never puts a replacement back outside the project through a swapp
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   let replaced = null;
   let swapped = false;
-  mod.testHooks.afterLook = (p) => {
+  // Replaced after the in-folder identity check, right before the rename:
+  // earlier, acceptance refuses before moving anything.
+  mod.testHooks.inFolder = (p) => {
     if (replaced || !p.endsWith('.tmp')) return;
     replaced = p;
     writeFileSync(`${p}.x`, 'someone else');
@@ -2200,7 +2202,7 @@ test('--accept never puts a replacement back outside the project through a swapp
     }
     return real.link(from, to);
   };
-  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* either outcome */ } finally { mod.testHooks.afterLook = null; Object.assign(mod.fsOps, real); }
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* either outcome */ } finally { mod.testHooks.inFolder = null; Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
   assert.deepEqual(readdirSync(outside).filter((f) => f.endsWith('.tmp')), [], 'nothing put back outside the project');
   rmSync(dir, { recursive: true });
@@ -2513,7 +2515,9 @@ test('--accept removes the private name of a file put back only while it is that
   const ctx = join(dir, 'dybs/context');
   let oldAt = null;
   let replaced = false;
-  mod.testHooks.beforeMove = (p) => {
+  // Replaced after the in-folder identity check, right before the rename:
+  // earlier, acceptance refuses before moving anything.
+  mod.testHooks.inFolder = (p) => {
     if (oldAt || !/\.old$/.test(p)) return;
     oldAt = p;
     writeFileSync(`${p}.x`, 'first user file');
@@ -2528,7 +2532,7 @@ test('--accept removes the private name of a file put back only while it is that
     }
     return r;
   };
-  try { acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  try { acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.inFolder = null; Object.assign(mod.fsOps, real); }
   assert.ok(replaced);
   const texts = readdirSync(ctx).map((n) => { try { return readFileSync(join(ctx, n), 'utf8'); } catch { return ''; } });
   assert.ok(texts.includes('first user file'));
@@ -2577,7 +2581,9 @@ test('--accept keeps the private name when a put-back landed outside through a f
   const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
   let oldAt = null;
   let swapped = false;
-  mod.testHooks.beforeMove = (p) => {
+  // Replaced after the in-folder identity check, right before the rename:
+  // earlier, acceptance refuses before moving anything.
+  mod.testHooks.inFolder = (p) => {
     if (oldAt || !/\.old$/.test(p)) return;
     oldAt = p;
     writeFileSync(`${p}.x`, 'a user file');
@@ -2591,7 +2597,7 @@ test('--accept keeps the private name when a put-back landed outside through a f
     symlinkSync(outside, ctx);
     try { return real.link(from, to); } finally { rmSync(ctx); renameSync(`${ctx}.moved`, ctx); }
   };
-  try { acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.beforeMove = null; Object.assign(mod.fsOps, real); }
+  try { acceptDoc(dir, 'ui', '2026-10-04'); } finally { mod.testHooks.inFolder = null; Object.assign(mod.fsOps, real); }
   assert.ok(swapped);
   assert.ok(readdirSync(ctx).some((n) => { try { return readFileSync(join(ctx, n), 'utf8') === 'a user file'; } catch { return false; } }), 'the user file is still in dybs/context');
   rmSync(dir, { recursive: true });
@@ -3286,6 +3292,33 @@ test('a folder swapped for a link before a doc is opened has none of its bytes r
   assert.equal(r.ok, false);
   assert.match(r.results.find((x) => x.name === 'ui').errors.join(' '), /keep the docs as real files/);
   assert.ok(!read.includes(doc), 'the outside file is refused before its bytes are read');
+  rmSync(dir, { recursive: true });
+  rmSync(outside, { recursive: true });
+});
+
+// --- Codex review on PR #2 (63a6284): acceptance cleanup renames inside the checked folder ---
+test('--accept cleanup through a folder swapped for a link moves no outside file', async () => {
+  const mod = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const dir = copySample();
+  const ctx = join(dir, 'dybs/context');
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  let swapped = null;
+  // Right before a cleanup move, after every check, dybs/context becomes a
+  // link to an outside folder holding a file of the same name.
+  mod.testHooks.beforeMove = (p) => {
+    if (swapped || dirname(p) !== ctx) return;
+    swapped = basename(p);
+    writeFileSync(join(outside, swapped), 'an unrelated outside file');
+    renameSync(ctx, `${ctx}.moved`);
+    symlinkSync(outside, ctx);
+  };
+  try { mod.acceptDoc(dir, 'ui', '2026-10-04'); } catch { /* refused is fine */ } finally {
+    mod.testHooks.beforeMove = null;
+    if (swapped) { rmSync(ctx); renameSync(`${ctx}.moved`, ctx); }
+  }
+  assert.ok(swapped, 'a cleanup move was reached');
+  assert.equal(readFileSync(join(outside, swapped), 'utf8'), 'an unrelated outside file', 'the outside file keeps its name');
+  assert.deepEqual(readdirSync(outside), [swapped], 'nothing was moved or left in the outside folder');
   rmSync(dir, { recursive: true });
   rmSync(outside, { recursive: true });
 });
