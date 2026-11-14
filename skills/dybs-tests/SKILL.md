@@ -68,6 +68,11 @@ failures included. Brief: scenarios now green or proven, scenarios stuck and
 why, and anything you found that the plan missed (add it to the plan as a
 new scenario rather than fixing it silently).
 
+Last, log the run (see "Model, effort and the run log" in `quality.md`):
+`done`, or `stuck` when any scenario is stuck. After `stuck`, the script names
+the stronger model to run the stuck scenarios on; say so instead of trying
+again yourself.
+
 ## If something is not installed
 
 These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),

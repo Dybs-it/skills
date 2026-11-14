@@ -421,10 +421,10 @@ test('review counts untracked files before calling a change empty; pr ignores it
   const review = readFileSync(join(ROOT, 'skills/dybs-review/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(review, /empty only when both the diff and the untracked list are empty/);
   const pr = readFileSync(join(ROOT, 'skills/dybs-pr/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
-  assert.match(pr, /any uncommitted change other than this task's `gate\.md` and `pr\.md`/);
+  assert.match(pr, /any uncommitted change other than this task's `gate\.md`, `pr\.md` and `log\.md`/);
   assert.match(pr, /A changed `review\.md`, `test-plan\.md`, `task\.md` or context doc is a gate input/);
   const gateSkill = readFileSync(join(ROOT, 'skills/dybs-gate/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
-  assert.match(gateSkill, /any change other than this task's `gate\.md` and `pr\.md`/);
+  assert.match(gateSkill, /any change other than this task's `gate\.md`, `pr\.md` and `log\.md`/);
 });
 
 test('a <!-- inside a code fence is text: it never hides the rows after the fence', () => {
@@ -1640,4 +1640,21 @@ test('dybs-pr compares the gate commit as a full id', () => {
   const t = readFileSync(join(ROOT, 'skills/dybs-pr/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(t, /git log -1 --format=%H/);
   assert.match(t, /Compare full commit ids, never as written: resolve `commit:` with `git rev-parse --verify --end-of-options '<commit>\^\{commit\}'` first/);
+});
+
+// --- Run log (dybs-route.mjs) ---
+
+test("the task's run log is an output like pr.md: uncommitted or committed, it never makes the gate stale", () => {
+  const { repo, gatePath: file } = committedGate(gate({ items: [full('a', 'P0')] }));
+  const cli = join(ROOT, 'skills/dybs-gate/scripts/dybs-gate.mjs');
+  const code = () => { try { execFileSync('node', [cli, file], { stdio: 'pipe' }); return 0; } catch (e) { return e.status; } };
+  const g = (...a) => execFileSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
+  writeFileSync(join(repo, 'dybs/work/t/log.md'), '# Run log: t\n\n- 2026-11-14T10:00Z | gate | done\n');
+  assert.equal(code(), 0, 'an uncommitted log.md');
+  g('add', '.'); g('commit', '-qm', 'gate and log');
+  assert.equal(code(), 0, 'a committed log.md');
+  // Any other file in the task folder is still evidence.
+  writeFileSync(join(repo, 'dybs/work/t/notes.md'), 'x');
+  assert.equal(code(), 3);
+  rmSync(repo, { recursive: true });
 });

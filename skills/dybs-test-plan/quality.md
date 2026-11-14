@@ -22,6 +22,7 @@ dybs/work/<task>/
   review.md       dybs-review
   gate.md         dybs-gate
   pr.md           dybs-pr
+  log.md          one line per run of a quality skill (see the run log below)
 ```
 
 `<task>` is the work loop's task id when there is one, otherwise a short
@@ -129,6 +130,32 @@ on purpose for a moment: the test must fail, then pass again once the code
 is restored. A test that stays green with the code broken proves nothing.
 
 Never skip, delete or weaken a test to get green.
+
+## Model, effort and the run log
+
+How strong a model a step needs depends on the task's **complexity**: S, M,
+L or XL. `dybs-test-plan/scripts/dybs-route.mjs` computes it from the test
+plan and the code it names (files and lines in scope, folders touched,
+scenarios, test levels; what the plan only judges, such as risk scores, adds
+one point at most), so the same plan always gives the same answer. The human
+overrules it with `complexity: L` in the plan's frontmatter. The script also
+holds the table of model and effort per step and complexity.
+
+- **Whoever starts a step picks the model**, because a skill cannot change
+  the model it runs on:
+  `claude $(node '<skills>/dybs-test-plan/scripts/dybs-route.mjs' route 'dybs/work/<task>' tests --flags) "/dybs-tests <task>"`
+- **Every step logs once, at its end:**
+  `node '<skills>/dybs-test-plan/scripts/dybs-route.mjs' log 'dybs/work/<task>' <step> done --ran-on '<the model you are>'`
+  with `stuck` instead of `done` when the step gave up, and
+  `--note '<one line>'` for why. `<step>` is `test-plan`, `tests`, `review`,
+  `gate` or `pr`. Add it to the last shell command you run anyway, so it
+  costs no extra turn. It appends one line to `dybs/work/<task>/log.md`;
+  never edit that file by hand.
+- **Say it when the model does not fit.** The script prints the route. When
+  you ran on a weaker model than it names, or it prints an `Escalate:` line
+  after `stuck`, put that in your check-in. A step that is `stuck` is never
+  tried again on the same model.
+- Without the script or Node, skip the log and say so.
 
 ## Gate decision
 

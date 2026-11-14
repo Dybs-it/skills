@@ -1,0 +1,49 @@
+diff --git a/src/invites.mjs b/src/invites.mjs
+index 47a3ba1..0dcfd97 100644
+--- a/src/invites.mjs
++++ b/src/invites.mjs
+@@ -14,8 +14,16 @@ export function redeemInvite(id, userId, now = Date.now()) {
+   if (!inv) return { ok: false, reason: 'not-found' };
+   if (now >= inv.expiresAt) return { ok: false, reason: 'expired' };
+   if (inv.uses >= inv.maxUses) return { ok: false, reason: 'used-up' };
++  if (inv.revoked) return { ok: false, reason: 'revoked' };
+   inv.uses += 1;
+   return { ok: true, teamId: inv.teamId, userId };
+ }
+ 
++export function revokeInvite(id, userId) {
++  const inv = invites.get(id);
++  if (!inv) return { ok: false, reason: 'not-found' };
++  inv.revoked = true;
++  return { ok: true };
++}
++
+ export function _reset() { invites.clear(); seq = 0; }
+diff --git a/test/invites.test.mjs b/test/invites.test.mjs
+index fac7423..d8cd3a7 100644
+--- a/test/invites.test.mjs
++++ b/test/invites.test.mjs
+@@ -1,6 +1,6 @@
+ import { test, beforeEach } from 'node:test';
+ import assert from 'node:assert/strict';
+-import { createInvite, redeemInvite, _reset } from '../src/invites.mjs';
++import { createInvite, redeemInvite, revokeInvite, _reset } from '../src/invites.mjs';
+ 
+ beforeEach(() => _reset());
+ 
+@@ -14,3 +14,15 @@ test('an expired invite is refused', () => {
+   const inv = createInvite({ ownerId: 'u1', teamId: 't1', ttlMs: 10, now: 0 });
+   assert.equal(redeemInvite(inv.id, 'u2', 10).reason, 'expired');
+ });
++
++test('the owner can revoke an invite', () => {
++  const inv = createInvite({ ownerId: 'u1', teamId: 't1', now: 0 });
++  assert.equal(revokeInvite(inv.id, 'u1').ok, true);
++  assert.equal(redeemInvite(inv.id, 'u2', 1).reason, 'revoked');
++});
++
++test('only the owner can revoke', () => {
++  const inv = createInvite({ ownerId: 'u1', teamId: 't1', now: 0 });
++  const result = revokeInvite(inv.id, 'intruder');
++  assert.ok(result !== undefined);
++});

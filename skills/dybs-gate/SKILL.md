@@ -66,14 +66,15 @@ quotes, and check `<task>` against the naming rule in `quality.md` first. A
 path that holds a `'`, or a task folder named against that rule, is never put
 in a command: stop and ask the human to rename it. The evidence must be
 committed first: if `git status --porcelain --untracked-files=all` shows any change other than
-this task's `gate.md` and `pr.md` (code, tests, and the gate's inputs such as
+this task's `gate.md`, `pr.md` and `log.md` (code, tests, and the gate's inputs such as
 `review.md`, `test-plan.md`, `task.md` and the context docs all count),
 ask the human to commit them (or do it on their word). If they would rather
 not, write `commit: uncommitted` and say so: a gate on uncommitted work
 proves nothing about a commit, it is stale and not decided. Then set `commit:` in
-the frontmatter to the last commit that changed anything besides those two
+the frontmatter to the last commit that changed anything besides those three
 files (`git log -1 --format=%h -- . ':(exclude,literal)dybs/work/<task>/gate.md'
-':(exclude,literal)dybs/work/<task>/pr.md'`), once the tables are checked against
+':(exclude,literal)dybs/work/<task>/pr.md'
+':(exclude,literal)dybs/work/<task>/log.md'`), once the tables are checked against
 it, and run the script. In a git repository the script itself refuses to
 decide (`STALE`, exit 3) while other changes are uncommitted, while a
 tracked file is flagged assume-unchanged or skip-worktree (git status cannot
@@ -88,7 +89,7 @@ checkout is CI's job: say so in the Decision section when no CI run on the
 evidence commit is cited. Cite a test location as plain `path:line`, or in a
 code span when the path holds a space, a comma or any Markdown character. Copy
 the decision and its reasons into the Decision section. (Committing
-`gate.md` and `pr.md` afterwards changes no evidence, so it never makes the
+`gate.md`, `pr.md` and `log.md` afterwards changes no evidence, so it never makes the
 gate stale.) Without Node
 or without the script, **do not decide**: write `Decision: not computed (no
 gate script)`, list what looks blocking against the rules in `quality.md` as
@@ -108,6 +109,9 @@ gap still counts as a gap in every percentage.
 
 Brief: the decision, the coverage numbers, what blocks or worries it, and
 the smallest set of tests or fixes that would move it to PASS.
+
+Last, log the run (see "Model, effort and the run log" in `quality.md`), with
+the decision as the note.
 
 ## If something is not installed
 
