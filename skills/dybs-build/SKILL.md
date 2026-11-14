@@ -38,6 +38,10 @@ the plan's Test and Status columns, and the checkboxes in `review.md`.
   order: P0, P1, P2. P3 only if asked.
 - **Fast lane:** one test per acceptance criterion in `task.md`, at the
   public boundary the code already has.
+- **Stuck from an earlier run:** scenarios with Status `stuck`. You were
+  started because that run gave up, usually on a stronger model: read what
+  it tried, set the scenario back to `planned` and take it up again, with
+  the same limit of three attempts.
 - **After a review:** every finding in `review.md` that is still `- [ ]` and
   not marked `(needs human`. Do these first.
 

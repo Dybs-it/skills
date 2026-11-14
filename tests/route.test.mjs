@@ -523,3 +523,47 @@ test('a test path in a code span is one location, spaces and commas included, an
   const { locations } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
   assert.deepEqual(locations('`tests/api cases.test.js:2`'), ['tests/api cases.test.js:2']);
 });
+
+// --- Codex review of PR 9, round 2 ---
+
+test('files without an extension count: a Dockerfile, a dotfile, a folder path, a lone list item', () => {
+  assert.equal(taskInfo(task({ files: ['Dockerfile', 'Makefile', 'src/a.js'] })).lane, 'full');
+  assert.equal(taskInfo(task({ files: ['.gitignore', 'bin/run', 'src/a.js'] })).lane, 'full');
+  assert.equal(taskInfo(task({ files: ['Dockerfile', 'src/a.js'] })).lane, 'fast');
+});
+
+test('a function name in a code span is not a file', () => {
+  const t = task({ files: ['src/a.js'] }).replace('## Touches\n', '## Touches\n\nChange `revokeInvite(id, userId)` and `redeemInvite`, keep `_reset` as it is.\n');
+  assert.equal(taskInfo(t).lane, 'fast');
+  const p = plan({ files: ['src/a.js'] }).replace('In scope:', 'In scope: `createInvite`, `redeemInvite`, `revokeInvite`, `_reset` in');
+  assert.ok(!score(p).reasons.some((r) => /files in scope/.test(r)), score(p).reasons.join('; '));
+});
+
+test('an extensionless file that exists in the project counts, with its lines', () => {
+  const { dir, root } = project({ files: ['src/a.js'] });
+  mkdirSync(join(root, 'scripts'), { recursive: true });
+  writeFileSync(join(root, 'deploy'), 'x\n'.repeat(700));
+  execFileSync('rm', [join(dir, 'test-plan.md')]);
+  writeFileSync(join(dir, 'task.md'), task({ files: ['src/a.js'] }).replace('## Touches\n', '## Touches\n\nAlso the `deploy` script.\n'));
+  assert.equal(JSON.parse(run('next', dir, '--json').stdout).step, 'test-plan');
+});
+
+test('the gate may run again after the evidence changed, however often it ran before', () => {
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: donePlan, review: review({ round: 3 }), gate: gateMd('PASS'), gateDecision: null };
+  const earlier = [['gate', 'done'], ['gate', 'done'], ['build', 'done'], ['review', 'done']];
+  assert.equal(step({ ...f, log: logMd(...earlier) }), 'gate');
+  assert.equal(step({ ...f, log: logMd(...earlier, ['gate', 'done']) }), 'gate');
+  assert.equal(step({ ...f, log: logMd(...earlier, ['gate', 'done'], ['gate', 'done']) }), 'stop:no-progress');
+});
+
+test('an escalated build is told to take up the stuck scenarios', () => {
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-build', 'SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /Stuck from an earlier run:\*\* scenarios with Status `stuck`/);
+  assert.match(t, /set the scenario back to `planned` and take it up again/);
+});
+
+test('the quality harness still ships the task its spec axis reads', () => {
+  const t = readFileSync(join(SKILLS_SRC, '..', 'tests/harness/invites/dybs/work/revoke-invite/task.md'), 'utf8');
+  assert.match(t, /## Acceptance/);
+  assert.match(readFileSync(join(SKILLS_SRC, '..', 'tests/harness/loop.sh'), 'utf8'), /rm -rf "\$W\/dybs\/work\/\$task"/);
+});

@@ -65,6 +65,8 @@ export const BOUNDS = { M: 2, L: 5, XL: 8 };
 // A file larger than this is sized from its bytes instead of being read.
 const MAX_READ = 2 * 1024 * 1024;
 
+// File names that carry no extension.
+const BARE_FILES = /^(Dockerfile|Containerfile|Makefile|Rakefile|Gemfile|Procfile|Jenkinsfile|Vagrantfile|Brewfile|Justfile|Caddyfile|LICENSE|NOTICE|README|CODEOWNERS)$/;
 const TASK_NAME = /^[\p{L}\p{N}][\p{L}\p{N}._-]*$/u;
 const lf = (t) => String(t ?? '').replace(/\r\n?/g, '\n');
 
@@ -124,7 +126,20 @@ export function score(planText, { root = null } = {}) {
   // it under Touches.
   const scope = section(planText, 'Scope') || section(planText, 'Touches');
   const inScope = scope.split(/out of scope|\*\*out:?\*\*/i)[0];
-  const named = [...new Set([...inScope.matchAll(/`([^`\s]+\.[A-Za-z0-9]+)(?::[\d-]+)?`/g)].map((m) => m[1]))];
+  // A code span is a file when it looks like one: it has an extension or a
+  // folder, is a well-known bare name or a dotfile, stands alone as a list
+  // item (a task's Touches), or exists in the project. A bare word such as a
+  // function name is not a file.
+  const spans = [...inScope.matchAll(/`([^`\s]+)`/g)].map((m) => m[1].replace(/:[\d-]+$/, '')).filter((x) => !/[()<>{}=;,]/.test(x));
+  const alone = new Set([...inScope.matchAll(/^\s*[-*]\s+`([^`\s]+)`\s*$/gm)].map((m) => m[1].replace(/:[\d-]+$/, '')));
+  const onDisk = (f) => {
+    if (!root) return false;
+    const abs = resolve(root, f);
+    if (abs !== root && !abs.startsWith(root + sep)) return false;
+    try { return lstatSync(abs).isFile(); } catch { return false; }
+  };
+  const fileLike = (x) => /\.[A-Za-z0-9]+$/.test(x) || x.includes('/') || BARE_FILES.test(x) || /^\.[\w.-]+$/.test(x) || alone.has(x) || onDisk(x);
+  const named = [...new Set(spans.filter(fileLike))];
   // With the project at hand only files that exist count, and their size too.
   let files = named;
   let lines = null;
@@ -397,8 +412,11 @@ export function next(files, { root = null } = {}) {
     ? stop('stuck', `${step} gave up ${stuck(step)} times, the last time on a stronger model.`)
     : run(step, stuck(step) > 0));
   // A step whose result is one file should not need a third run to write it.
-  const once = (step, what) => (log.filter((e) => e.step === step && e.event === 'done').length >= 2
-    ? stop('no-progress', `${step} ran twice and ${what}. Look at its last check-in.`)
+  // Twice in a row: a run of another step in between (a build, a review)
+  // means the evidence changed, and running it again is legitimate.
+  const inARow = (step) => { let n = 0; for (let i = log.length - 1; i >= 0 && log[i].step === step && log[i].event === 'done'; i--) n += 1; return n; };
+  const once = (step, what) => (inARow(step) >= 2
+    ? stop('no-progress', `${step} ran twice in a row and ${what}. Look at its last check-in.`)
     : guarded(step));
 
   const full = t.lane === 'full';
