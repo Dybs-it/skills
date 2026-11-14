@@ -4375,3 +4375,8 @@ test('every planning skill works alone and leaves the decision to the human', ()
   assert.match(idea, /Copyright \(c\) 2026 Matt Pocock/);
   assert.match(readFileSync(join(SKILLS_SRC, 'dybs-idea', 'template.md'), 'utf8'), /^status: captured$/m);
 });
+
+test('dybs-check compares working with architecture', () => {
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-check', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /the test commands and quality bars in architecture versus Testing in working/);
+});

@@ -3691,3 +3691,12 @@ test('--accept undoes the acceptance even when the look at the placed doc failed
   assert.equal(readFileSync(path, 'utf8'), before, 'the doc is back as it was');
   rmSync(dir, { recursive: true });
 });
+
+test('working is never skipped: the work loop reads it', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: working'));
+  const r = validateProject(dir).results.find((x) => x.name === 'project');
+  rmSync(dir, { recursive: true });
+  assert.ok(r.rules.includes('doc-lists'), r.errors.join('; '));
+  assert.ok(r.errors.some((e) => /working, which every project needs/.test(e)));
+});

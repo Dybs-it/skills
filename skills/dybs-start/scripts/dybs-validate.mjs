@@ -57,6 +57,8 @@ export const DOCS = {
 };
 
 export const ORDER = ['project', 'prd', 'scope', 'domain', 'architecture', 'ux', 'ui', 'working'];
+// Docs every project needs, whatever it is: the work loop reads them.
+export const NEVER_SKIP = ['working'];
 export const STATUSES = ['draft', 'accepted'];
 export const DEPTHS = ['quick', 'thorough'];
 export const CHECKINS = ['each-doc', 'end', 'none'];
@@ -73,7 +75,7 @@ export const MANUAL_RULES = [
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
   { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.' },
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
-  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).' },
+  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux). `working` is never skipped: every project says how its work is tested and merged.' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
   { id: 'html', text: 'No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.' },
@@ -1005,6 +1007,7 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
         if (unknown.length) fail('doc-lists', `"${key}:" names unknown doc(s) ${unknown.join(', ')}. Known: ${LISTABLE.join(', ')}`);
       }
       const skipList = list(data.skip);
+      for (const n of NEVER_SKIP) if (skipList.has(n)) fail('doc-lists', `"skip:" lists ${n}, which every project needs: the work loop reads it`);
       for (const [doc, needs] of Object.entries(REQUIRES)) {
         if (skipList.has(doc)) continue;
         for (const n of needs) if (skipList.has(n)) fail('doc-lists', `"skip:" lists ${n}, but ${doc} needs it; skip ${doc} too or keep ${n}`);

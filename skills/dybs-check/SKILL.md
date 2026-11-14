@@ -34,8 +34,10 @@ finding:
    not skipped) match the glossary, when domain is not skipped. Flag
    synonyms the glossary forbids or never defines.
 3. **Contradictions.** Scope constraints versus architecture choices; UX
-   rules versus UI components; domain rules versus requirements: each pair
-   only when neither of its docs is skipped.
+   rules versus UI components; domain rules versus requirements; the test
+   commands and quality bars in architecture versus Testing in working;
+   the CI and merge rules in architecture versus Pull requests in working:
+   each pair only when neither of its docs is skipped.
 4. **Unsupported claims.** Statements presented as fact that nobody said and
    no code shows. These should be *(assumption)* or open questions.
 5. **Buildability.** Could an agent pick up a single requirement and know
@@ -314,7 +316,7 @@ so do not assume the others are present.
 7. Frontmatter `depth`, when present, is `quick` or `thorough`.
 8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.
 9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
-10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux). `working` is never skipped: every project says how its work is tested and merged.
 11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
 12. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
 13. No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.

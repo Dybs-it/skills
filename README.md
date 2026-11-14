@@ -53,7 +53,9 @@ project → prd → scope → domain → architecture → ux → ui → working 
 
 ### Quick or thorough
 
-The kickoff recommends a depth and you choose:
+The kickoff recommends thorough unless the project is a throwaway: agents
+build from these docs many times, so a gap left now is a guess repeated in
+every task. You choose:
 
 | | quick | thorough |
 |---|---|---|
