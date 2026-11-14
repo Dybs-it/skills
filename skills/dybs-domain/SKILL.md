@@ -5,43 +5,102 @@ description: Write or revise dybs/context/domain.md, the project's shared langua
 
 # dybs-domain
 
-Lead persona: **Ezra** (domain keeper). Follow `dybs/README.md`. If `dybs/` is
-missing, run `dybs-start` first.
+Lead persona: **Ezra** (domain keeper). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`domain` under `skip:`, say so and stop.
 
-**Reads:** `project.md`, `context/prd.md`, `context/scope.md`.
-**Writes:** `dybs/context/domain.md` from `template.md` (cap: 700 words).
+Partly adapted from Matt Pocock's `domain-modeling` skill
+(https://github.com/mattpocock/skills), MIT License, Copyright (c) 2026
+Matt Pocock.
+
+**Reads:** `project.md`, `context/prd.md`, `context/scope.md`, `log.md`.
+**Writes:** `dybs/context/domain.md` from `template.md` (cap: 700 words
+quick, 1500 thorough), and appends each round's answers and any **Needs you**
+items to `dybs/log.md`.
 
 This doc pays off more than any other for agents: a term defined here is a
 term every later task, spec and line of code can use without re-explaining.
 
-## Gather
+## Read first
 
-1. Collect candidate terms: the nouns and verbs in the PRD and scope that
-   carry business meaning. Existing project: also the names of core types,
-   tables, models and routes in the code.
-2. Find the conflicts: two words for one thing (`client` and `customer`),
-   one word for two things, or a code name that differs from the spoken name.
-   Each conflict is a question for the human, with your recommended winner.
-3. Ask for the rules the business runs on that the code must respect:
-   limits, states and the transitions between them, who may do what, what
-   must never happen. One question at a time, with a recommendation.
+Collect candidate terms: the nouns and verbs in the PRD and scope that carry
+business meaning. Existing project: also the names of core types, tables,
+models and routes in the code. Find the conflicts: two words for one thing,
+one word for two things, a code name that differs from the spoken name.
+
+## Readiness checklist
+
+**core**
+- [ ] Every business term in the PRD and scope defined, or rejected as a
+      synonym of another
+- [ ] Every naming conflict resolved, with one winning term
+- [ ] The rules the code must enforce: limits, permissions, what must never
+      happen
+
+**thorough**
+- [ ] For each main concept: its states and the allowed moves between them
+- [ ] Every rule tested against at least one edge-case scenario the human
+      answered
+- [ ] Code names mapped to glossary terms where they differ
+- [ ] Ambiguous words banned, each with the word to use instead
+- [ ] How the main concepts relate (one-to-many, owned by, belongs to)
+
+While interviewing, update the glossary the moment a term is settled; do
+not batch it up. The glossary holds meaning only: no implementation detail.
 
 ## Write
 
-- **Glossary:** a table of term, meaning, and *not to be confused with*.
-  Only terms someone could get wrong. 8 to 25 entries is typical.
-- **Rules:** numbered `D1`, `D2`... One line each, phrased so a test could
-  check it ("An order cannot be cancelled after it ships").
-- **Relationships** (optional): how the main concepts relate, as a short
-  list or a small Mermaid diagram if it is clearer.
-- **Avoid** (optional): words that are banned because they are ambiguous,
-  each with the word to use instead.
+- **Glossary:** term, meaning, *not to be confused with*. Add
+  "code: `Name`" when code differs.
+- **Rules:** numbered `D1`, `D2`... One line each, testable ("An order cannot
+  be cancelled after it ships").
+- **Relationships** and **Avoid** (optional, usually thorough).
 
-When code names differ from the glossary, record the mapping in the
-glossary row ("code: `Account`") rather than renaming code. Renames are work
-for later.
+Do not rename code to match the glossary. Renames are work for later.
 
 ## Check in
 
-Validate with `--doc domain`. Under **Needs you**, put every naming conflict
-you resolved and every rule you inferred rather than heard.
+With `checkins: end` or `none`, do not ask now: follow **5. Check in** in
+`interview.md` and log the items below as `needs-you` lines. With `each-doc`:
+
+Validate (`--doc domain`; when the human accepts, `--accept domain`, see **Accepting** below). Under **Needs you**, put every naming conflict you
+resolved and every rule you inferred rather than heard.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/` folder, or no `dybs/project.md`:** the project is not set up;
+  stop and suggest `dybs-start`. If that skill is not
+  installed, the human can add it with
+  `npx skills add Dybs-it/skills --skill dybs-start`.
+- **No `dybs/README.md`, or one that cannot be read:** the method rules
+  (safety stops, editing accepted docs, the check-in format) are missing;
+  stop and suggest `dybs-start`, which restores it. Do not go on without it.
+- **Accepting:** when the human accepts a doc in their own words, run the
+  validator with `--accept <name>` if it is installed (it sets the status,
+  the date and the `accepted-hash` fingerprint, and refuses a doc that does
+  not validate). Without it, set `status: accepted` and `accepted:` by hand
+  and say the acceptance is not fingerprinted.
+- **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
+  same skills folder as this skill and Node is available, run it from the
+  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  check every rule below by hand. Say in the check-in which way you
+  validated.
+
+<!-- rules:start (generated by scripts/sync-rules.mjs, do not edit) -->
+1. The doc starts with a frontmatter block between two `---` lines; every line in it is one `key: value`, and no key appears twice.
+2. Frontmatter `doc` is exactly this doc's name (for example `doc: prd`).
+3. Frontmatter `status` is `draft` or `accepted`, nothing else.
+4. Frontmatter `updated` is a date written as YYYY-MM-DD.
+5. An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human's word.
+6. Every required `##` section is present (see the template or the doc contract).
+7. Frontmatter `depth`, when present, is `quick` or `thorough`.
+8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.
+9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
+11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
+12. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
+13. No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.
+<!-- rules:end -->

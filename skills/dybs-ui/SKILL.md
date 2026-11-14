@@ -5,44 +5,94 @@ description: Write or revise dybs/context/ui.md, the visual guidelines (tone, de
 
 # dybs-ui
 
-Lead persona: **Jun** (visual designer). Follow `dybs/README.md`. If `dybs/` is
-missing, run `dybs-start` first. If `project.md` lists `ui` under `skip:`,
-say so and stop.
+Lead persona: **Jun** (visual designer). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists `ui`
+under `skip:`, say so and stop.
 
-**Reads:** `project.md`, `context/ux.md`, `context/domain.md`.
-**Writes:** `dybs/context/ui.md` from `template.md` (cap: 700 words).
+**Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
+`context/domain.md`, `context/architecture.md`, `context/ux.md`, `log.md`
+(every earlier doc that is not skipped).
+**Writes:** `dybs/context/ui.md` from `template.md` (cap: 700 words quick,
+1400 thorough), and appends each round's answers and any **Needs you** items
+to `dybs/log.md`.
 
-## Gather
+## Read first
 
-Existing project: extract before asking. Look for CSS custom properties,
-Tailwind or theme config, design-token files, a component library or
-`components/` folder, and fonts. Record what is actually used. Values that
-appear only once or twice are candidates for removal, not tokens; list them
-as an open point.
+Existing project: extract before asking. CSS custom properties, Tailwind or
+theme config, design-token files, a component library or `components/`
+folder, fonts. Record what is actually used. Values that appear only once or
+twice are candidates for removal, not tokens.
 
-Greenfield, ask one at a time with recommendations:
+## Readiness checklist
 
-1. Three words for how it should feel.
-2. Light, dark, or both?
-3. Is there a brand (logo, colours, font) or a component library already
-   chosen? If not, recommend one that fits the architecture's stack.
-4. Any interface the human admires, and what specifically about it?
+**core**
+- [ ] Three words for how it should feel
+- [ ] Light, dark, or both
+- [ ] Colour roles (surface, text, accent, danger...) with values or a source
+- [ ] Where tokens live (a file in the code, or this doc)
+- [ ] Component library, or the decision to build your own
+
+**thorough**
+- [ ] Full type, spacing, radius and shadow scales
+- [ ] Every component in use or planned, with when to use it
+- [ ] States for interactive elements: hover, focus, disabled, error, loading
+- [ ] Icon set and illustration style
+- [ ] Breakpoints and how layouts adapt
+- [ ] Brand assets: logo, colours, fonts, and who owns them
+- [ ] Existing project: one-off values to retire
+- [ ] Interfaces the human admires, and what specifically about them
 
 ## Write
 
-- **Tone:** the three words, and what each means visually.
-- **Tokens:** colour roles (not raw colours: `surface`, `text`, `accent`,
-  `danger`...), type scale, spacing scale, radius, shadow. Give values and
-  the source file when they exist in code. Dark mode values where relevant.
-- **Components:** the components that exist or should exist, each with when
-  to use it. Point to the library or folder rather than describing markup.
-- **Do and don't:** short paired rules agents get wrong most often (one-off
-  colours, mixed icon sets, new spacing values).
-
-Point to the source of truth instead of copying it when tokens live in code.
-This doc says *which* tokens and *when*; the code says *what value*.
+- **Tone:** the three words and what each means visually.
+- **Tokens:** roles, not raw colours. Point to the source file when tokens
+  live in code; this doc says *which* and *when*, the code says *what value*.
+- **Components:** what exists or should exist, and when to use each.
+- **Do and don't:** paired rules agents get wrong most often.
 
 ## Check in
 
-Validate with `--doc ui`. Under **Needs you**, list one-off values you
-propose to retire and any library choice you recommended.
+With `checkins: end` or `none`, do not ask now: follow **5. Check in** in
+`interview.md` and log the items below as `needs-you` lines. With `each-doc`:
+
+Validate (`--doc ui`; when the human accepts, `--accept ui`, see **Accepting** below). Under **Needs you**, list one-off values you propose
+to retire and any library choice you recommended.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/` folder, or no `dybs/project.md`:** the project is not set up;
+  stop and suggest `dybs-start`. If that skill is not
+  installed, the human can add it with
+  `npx skills add Dybs-it/skills --skill dybs-start`.
+- **No `dybs/README.md`, or one that cannot be read:** the method rules
+  (safety stops, editing accepted docs, the check-in format) are missing;
+  stop and suggest `dybs-start`, which restores it. Do not go on without it.
+- **Accepting:** when the human accepts a doc in their own words, run the
+  validator with `--accept <name>` if it is installed (it sets the status,
+  the date and the `accepted-hash` fingerprint, and refuses a doc that does
+  not validate). Without it, set `status: accepted` and `accepted:` by hand
+  and say the acceptance is not fingerprinted.
+- **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
+  same skills folder as this skill and Node is available, run it from the
+  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  check every rule below by hand. Say in the check-in which way you
+  validated.
+
+<!-- rules:start (generated by scripts/sync-rules.mjs, do not edit) -->
+1. The doc starts with a frontmatter block between two `---` lines; every line in it is one `key: value`, and no key appears twice.
+2. Frontmatter `doc` is exactly this doc's name (for example `doc: prd`).
+3. Frontmatter `status` is `draft` or `accepted`, nothing else.
+4. Frontmatter `updated` is a date written as YYYY-MM-DD.
+5. An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human's word.
+6. Every required `##` section is present (see the template or the doc contract).
+7. Frontmatter `depth`, when present, is `quick` or `thorough`.
+8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.
+9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
+11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
+12. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
+13. No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.
+<!-- rules:end -->

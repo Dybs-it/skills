@@ -1,20 +1,37 @@
 # Roadmap
 
-Only phase 1 is built. Each later phase is drafted here, so its design can be
+Built: phase 1 (Getting Started) and the quality skills (test plan, tests,
+review, gate, PR), which work on their own. The work loop that will connect
+them is not built. Each later phase is drafted here, so its design can be
 argued with before any skill exists. Each phase ships only after the
 previous one passes the field test (`tests/PROTOCOL.md`).
 
-## 0. Distribution (v0.1, built)
+## 0. Distribution (v0.2, built)
 
-`npx dybs-skills install|update|uninstall|status|validate` into
-`.claude/skills`, `.agents/skills` and `.opencode/commands`, with a
-per-target manifest so user edits are never overwritten. Every later phase
-ships as more skills in the same package.
+Installed through package managers: `npx skills add Dybs-it/skills` (18+
+agents) and the Claude Code plugin marketplace. The `dybs-skills` CLI adds
+only `validate` and a safe `update` that never overwrites user edits. Every
+later phase ships as more skills in the same repo. See decision 0002.
 
-## 1. Getting Started (v0.1, built)
+Later: make the repo public with a license, publish the CLI to npm, list it
+on skills.sh.
+
+## 1. Getting Started (v0.3, built)
 
 `dybs-start`, `-prd`, `-scope`, `-domain`, `-architecture`, `-ux`, `-ui`,
-`-check`. Output: `dybs/` with an accepted context.
+`-check`. Output: `dybs/` with an accepted context. Two depths, quick and
+thorough, share one interview method (`interview.md`) and one doc format.
+See decision 0003.
+
+### Follow-ups for Getting Started
+
+- **Interview state with stable ids.** Give every checklist item an id
+  (`prd.core.3`) and persist the interview's open, blocked, answered and
+  parked items, with sources and supersession, in a machine-readable file.
+  Today `log.md` records decisions in prose and resuming relies on the agent
+  rebuilding the frontier.
+- **Acceptance bound to content.** `--accept` writes `accepted-hash`; the
+  Dybs app should accept through it rather than by editing frontmatter.
 
 ## 2. Ideas (next)
 
@@ -45,8 +62,17 @@ dybs/roadmap.md         an ordered list of links to accepted ideas, nothing else
 
 ## 4. Work loop
 
+**Built ahead of the loop (v0.4):** `dybs-test-plan`, `dybs-tests`,
+`dybs-review`, `dybs-gate` and `dybs-pr` work on any task or part of the
+code, writing to `dybs/work/<task>/`. The loop below will create `task.md`
+there and call them; a task is a folder, not a single file. See decision
+0004.
+
+
 ```
-dybs/work/<id>.md       one file per task; status lives in its frontmatter
+dybs/work/<task>/       one folder per task
+  task.md               what is asked; status lives in its frontmatter
+  test-plan.md, review.md, gate.md, pr.md   written by the quality skills
 ```
 
 - `dybs-to-tasks`: split an accepted idea into tasks. Each task cites its
@@ -56,15 +82,15 @@ dybs/work/<id>.md       one file per task; status lives in its frontmatter
   and the code and lists what it had to guess. Build only if field runs of
   `dybs-build` show rework caused by missed callers or modules.
 - `dybs-build`: implement one task test-first against the context.
-- `dybs-review`: check the change against the task's acceptance, the domain
-  rules and the quality bars. Findings, then fixes.
+- `dybs-review` (built): check the change against the task's spec, the
+  repo's standards, the domain rules and boundaries, and verification gaps.
 - `dybs-checkin`: the one-screen brief at the moments the human chose.
 
 Rules decided now, from lessons in the Dybs repo:
 
-- **One file per task, never one shared board file.** A shared status file
-  lost every row three times when parallel agents rewrote it. The board is
-  derived by reading task frontmatter.
+- **One folder per task, never one shared board file.** A shared status
+  file lost every row three times when parallel agents rewrote it. The board
+  is derived by reading each task's `task.md` frontmatter.
 - **Check-ins are configured per idea**, with per-task overrides:
   `after-grill`, `after-tasks`, `before-build`, `after-review`, `none`.
 - **Safety stops are fixed and few:** destructive or outward actions,

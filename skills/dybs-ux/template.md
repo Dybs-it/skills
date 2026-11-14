@@ -1,6 +1,7 @@
 ---
 doc: ux
 status: draft
+depth: {{quick | thorough}}
 updated: {{YYYY-MM-DD}}
 ---
 

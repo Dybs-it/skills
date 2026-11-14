@@ -5,43 +5,104 @@ description: Write or revise dybs/context/prd.md, the project's short product re
 
 # dybs-prd
 
-Lead persona: **Noor** (see `dybs/team.md`). Follow the run loop and rules in
-`dybs/README.md`. If `dybs/` is missing, stop and run `dybs-start` first.
+Lead persona: **Noor** (see `dybs/team.md`). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`prd` under `skip:`, say so and stop.
 
-**Reads:** `dybs/project.md`. **Writes:** `dybs/context/prd.md` from
-`template.md` (cap: 900 words).
+The thorough items on journeys with a named person and counter-metrics are
+adapted from the BMad Method (https://github.com/bmad-code-org/BMAD-METHOD),
+MIT License, Copyright (c) 2025 BMad Code, LLC.
 
-## Gather
+**Reads:** `dybs/project.md`, `dybs/log.md`. **Writes:** `dybs/context/prd.md`
+from `template.md` (cap: 900 words quick, 1800 thorough), and appends each
+round's answers and any **Needs you** items to `dybs/log.md`.
 
-Existing project: read the README, any PRD, brief or spec docs, and skim the
-main entry points and routes to see what the product actually does. Where
-docs and code disagree, the code describes the present and the docs describe
-an intent; note the gap as an open question.
+## Read first
 
-Greenfield: interview. Cover these, one question at a time, each with your
-recommended answer. Stop as soon as you can draft.
+Existing project: the README, any PRD, brief or spec docs, and the main
+entry points and routes, to see what the product does today. Where docs and
+code disagree, the code is the present and the docs are an intent: ask which
+one the PRD should describe.
 
-1. What does the user do today, and what is painful about it?
-2. Who exactly is the first user? One concrete person or role, not a market.
-3. What will they be able to do that they cannot now?
-4. How will we know it worked? Something you could observe or count.
-5. What must it never do? (Data, money, privacy, trust.)
+## Readiness checklist
+
+**core**
+- [ ] The problem in the user's words, and what they do today instead
+- [ ] The primary user: one concrete person or role, not a market
+- [ ] 3 to 5 goals, each one you could check afterwards
+- [ ] Every must-have requirement, each testable by observing behaviour
+- [ ] How each goal will be observed (a number, or who you will ask)
+- [ ] What it must never do (data, money, privacy, trust)
+
+**thorough**
+- [ ] Every user group, and what each is trying to get done
+- [ ] At least one journey told with a named person, start to finish,
+      including where it goes wrong
+- [ ] Should-haves, ranked
+- [ ] Counter-metrics: what must not get worse while the goals improve
+- [ ] Each concern from the concern scan has requirements, or is marked not
+      applicable with a reason
+- [ ] Platforms and form factor (web, mobile, desktop, API, hardware)
+- [ ] The riskiest assumptions, each with how it will be tested
+- [ ] Every open question has an owner
 
 ## Write
 
 - **Problem:** the pain in the user's terms. No solution words.
-- **Users:** primary user first. At most three groups.
+- **Users:** primary user first. Thorough adds the other groups.
+- **Journeys** (thorough): short numbered steps per journey, named person.
 - **Goals:** 3 to 5 outcomes, each checkable.
-- **Requirements:** numbered `R1`, `R2`... so later work can cite them. Each
-  is one line describing behaviour, not implementation. Mark must-haves
-  **(must)**; everything else is a should.
-- **Success measures:** how each goal is observed. Numbers where honest,
-  "we'll ask the first five users" where not.
-- **Open questions:** what you do not know, each with who can answer it.
+- **Requirements:** numbered `R1`, `R2`... so later work can cite them. One
+  line each, behaviour not implementation. Mark must-haves **(must)**.
+- **Success measures:** how each goal is observed. Thorough adds the
+  counter-metrics.
+- **Open questions:** each with who can answer it.
 
 Scope boundaries (what is out) belong in `scope.md`, not here.
 
 ## Check in
 
-Validate with `--doc prd`, then give the check-in brief. Under **Needs you**,
+With `checkins: end` or `none`, do not ask now: follow **5. Check in** in
+`interview.md` and log the items below as `needs-you` lines. With `each-doc`:
+
+Validate (`--doc prd`; when the human accepts, `--accept prd`, see **Accepting** below), then give the check-in brief. Under **Needs you**,
 list the goals and must-haves you are least sure the human agrees with.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/` folder, or no `dybs/project.md`:** the project is not set up;
+  stop and suggest `dybs-start`. If that skill is not
+  installed, the human can add it with
+  `npx skills add Dybs-it/skills --skill dybs-start`.
+- **No `dybs/README.md`, or one that cannot be read:** the method rules
+  (safety stops, editing accepted docs, the check-in format) are missing;
+  stop and suggest `dybs-start`, which restores it. Do not go on without it.
+- **Accepting:** when the human accepts a doc in their own words, run the
+  validator with `--accept <name>` if it is installed (it sets the status,
+  the date and the `accepted-hash` fingerprint, and refuses a doc that does
+  not validate). Without it, set `status: accepted` and `accepted:` by hand
+  and say the acceptance is not fingerprinted.
+- **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
+  same skills folder as this skill and Node is available, run it from the
+  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  check every rule below by hand. Say in the check-in which way you
+  validated.
+
+<!-- rules:start (generated by scripts/sync-rules.mjs, do not edit) -->
+1. The doc starts with a frontmatter block between two `---` lines; every line in it is one `key: value`, and no key appears twice.
+2. Frontmatter `doc` is exactly this doc's name (for example `doc: prd`).
+3. Frontmatter `status` is `draft` or `accepted`, nothing else.
+4. Frontmatter `updated` is a date written as YYYY-MM-DD.
+5. An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human's word.
+6. Every required `##` section is present (see the template or the doc contract).
+7. Frontmatter `depth`, when present, is `quick` or `thorough`.
+8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.
+9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
+11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
+12. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
+13. No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.
+<!-- rules:end -->

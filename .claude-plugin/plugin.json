@@ -1,0 +1,9 @@
+{
+  "name": "dybs",
+  "version": "0.4.0",
+  "description": "The Dybs method for AI coding agents: skills that build a short, human-accepted project context (project, PRD, scope, domain, architecture, UX, UI), and quality skills that plan tests, review, compute the quality gate and prepare the PR.",
+  "author": {
+    "name": "Dybs.it"
+  },
+  "repository": "https://github.com/Dybs-it/skills"
+}

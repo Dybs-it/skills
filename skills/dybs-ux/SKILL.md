@@ -5,47 +5,111 @@ description: Write or revise dybs/context/ux.md, the experience guidelines for h
 
 # dybs-ux
 
-Lead persona: **Mila** (experience designer). Follow `dybs/README.md`. If
-`dybs/` is missing, run `dybs-start` first. If `project.md` lists `ux` under
-`skip:`, say so and stop.
+Lead persona: **Mila** (experience designer). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`ux` under `skip:`, say so and stop.
 
 **Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
-`context/domain.md`. **Writes:** `dybs/context/ux.md` from `template.md`
-(cap: 700 words).
+`context/domain.md`, `context/architecture.md`, `log.md` (every earlier doc
+that is not skipped). **Writes:** `dybs/context/ux.md` from
+`template.md` (cap: 700 words quick, 1400 thorough), and appends each round's
+answers and any **Needs you** items to `dybs/log.md`.
 
 These are guidelines an agent applies while building any screen, not a
 screen-by-screen specification.
 
-## Gather
+## Read first
 
-Existing project: walk the main flows in code (routes, views, forms) and
-note how it handles loading, empty, error and success states today. The
+Existing project: walk the main flows in code (routes, views, forms) and note
+how loading, empty, error and success states are handled today. The
 inconsistencies you find are the most useful input.
 
-Ask, one at a time with recommendations:
+## API, library or CLI
 
-1. Which 3 to 5 tasks must feel effortless? (From the PRD's must-haves.)
-2. What does the user feel when something goes wrong, and what should they
-   be able to do next?
-3. Who might be using it in a hard situation (keyboard only, screen reader,
-   small screen, poor connection, in a hurry)?
-4. Any product whose behaviour the human wants this to feel like, and why?
+When the product has no screens, this doc covers **developer experience**
+and every checklist item is read that way: tasks are developer journeys
+(install, first call, the most common job); states are responses, error
+messages, exit codes and timeouts; destructive actions are calls that delete
+or overwrite; the accessibility target is about docs, error text and
+terminal output (meaning never in colour alone, a machine-readable mode).
+An item with no developer equivalent (first-run screens, for example) is
+parked with the reason "no screens". The sections stay the same.
+
+## Readiness checklist
+
+**core**
+- [ ] The tasks that must feel effortless: the PRD's must-haves (all of
+      them when there are fewer than three, at most 5), each as steps from
+      intent to done
+- [ ] For each of those, the main way it fails and what the user can do next
+- [ ] Rules for loading, empty, error and success states
+- [ ] Accessibility target (for example WCAG 2.2 AA)
+
+**thorough**
+- [ ] 3 to 5 principles, each with the trade-off it makes, confirmed
+- [ ] Every must-have flow, including recovery from failure
+- [ ] Destructive actions: confirm, undo, or both
+- [ ] Notifications and reminders: when, how often, and how to turn off
+- [ ] First run: what a new user sees before there is any data
+- [ ] Users in hard situations (keyboard only, screen reader, small screen,
+      poor connection, in a hurry) and the rules that follow
+- [ ] Voice for user-facing text, using glossary terms
+- [ ] Products whose behaviour this should feel like, and why
 
 ## Write
 
-- **Principles:** 3 to 5, each with what it means in practice. "Clear" is
-  not a principle; "every destructive action can be undone for 10 seconds" is.
-- **Key flows:** the must-have tasks, each as numbered steps from intent to
-  done, including the main way it fails.
-- **Behaviour rules:** how every screen handles loading, empty, error,
-  success and confirmation. Write them as rules agents can apply anywhere.
-- **Accessibility:** the target level (for example WCAG 2.2 AA) and the
-  concrete rules that follow from the users above.
-- **Copy** (optional): voice and terms for user-facing text, using the
-  domain glossary.
+- **Principles:** each with what it means in practice. "Clear" is not a
+  principle; "every destructive action can be undone for 10 seconds" is.
+- **Key flows:** numbered steps per flow, including the main failure.
+- **Behaviour rules:** loading, empty, error, success, confirmation, as rules
+  agents can apply anywhere.
+- **Accessibility:** target level plus concrete rules.
+- **Copy** (optional): voice and terms.
 
 ## Check in
 
-Validate with `--doc ux`. Under **Needs you**, list the principles that
-trade something away (speed versus safety, for example) so the human
-confirms the trade.
+With `checkins: end` or `none`, do not ask now: follow **5. Check in** in
+`interview.md` and log the items below as `needs-you` lines. With `each-doc`:
+
+Validate (`--doc ux`; when the human accepts, `--accept ux`, see **Accepting** below). Under **Needs you**, list the principles that trade
+something away (speed versus safety, for example) so the human confirms the
+trade.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/` folder, or no `dybs/project.md`:** the project is not set up;
+  stop and suggest `dybs-start`. If that skill is not
+  installed, the human can add it with
+  `npx skills add Dybs-it/skills --skill dybs-start`.
+- **No `dybs/README.md`, or one that cannot be read:** the method rules
+  (safety stops, editing accepted docs, the check-in format) are missing;
+  stop and suggest `dybs-start`, which restores it. Do not go on without it.
+- **Accepting:** when the human accepts a doc in their own words, run the
+  validator with `--accept <name>` if it is installed (it sets the status,
+  the date and the `accepted-hash` fingerprint, and refuses a doc that does
+  not validate). Without it, set `status: accepted` and `accepted:` by hand
+  and say the acceptance is not fingerprinted.
+- **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
+  same skills folder as this skill and Node is available, run it from the
+  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  check every rule below by hand. Say in the check-in which way you
+  validated.
+
+<!-- rules:start (generated by scripts/sync-rules.mjs, do not edit) -->
+1. The doc starts with a frontmatter block between two `---` lines; every line in it is one `key: value`, and no key appears twice.
+2. Frontmatter `doc` is exactly this doc's name (for example `doc: prd`).
+3. Frontmatter `status` is `draft` or `accepted`, nothing else.
+4. Frontmatter `updated` is a date written as YYYY-MM-DD.
+5. An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human's word.
+6. Every required `##` section is present (see the template or the doc contract).
+7. Frontmatter `depth`, when present, is `quick` or `thorough`.
+8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.
+9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
+11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
+12. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
+13. No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.
+<!-- rules:end -->

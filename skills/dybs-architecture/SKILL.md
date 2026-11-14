@@ -5,50 +5,113 @@ description: Write or revise dybs/context/architecture.md, the shape of the syst
 
 # dybs-architecture
 
-Lead persona: **Tess** (architect). Follow `dybs/README.md`. If `dybs/` is
-missing, run `dybs-start` first.
+Lead persona: **Tess** (architect). Run the interview in `interview.md` (in this skill's folder) at the depth
+`dybs/project.md` sets for this doc. Follow the rules in `dybs/README.md`. If `project.md` lists
+`architecture` under `skip:`, say so and stop.
+
+The three tests for a decision record are adapted from Matt Pocock's
+`domain-modeling` skill (https://github.com/mattpocock/skills), MIT License,
+Copyright (c) 2026 Matt Pocock.
 
 **Reads:** `project.md`, `context/prd.md`, `context/scope.md`,
-`context/domain.md`. **Writes:** `dybs/context/architecture.md` from
-`template.md` (cap: 900 words) and files in `dybs/context/decisions/` from
-`decision-template.md`.
+`context/domain.md`, `log.md`. **Writes:** `dybs/context/architecture.md` from
+`template.md` (cap: 900 words quick, 1800 thorough) and decision records in
+`dybs/context/decisions/` from `decision-template.md`, and appends each round's
+answers and any **Needs you** items to `dybs/log.md`.
 
-This is not a design document for every module. It records what an agent
-building any one part must know so its part fits the rest.
+This is not a design for every module. It records what an agent building any
+one part must know so its part fits the rest.
 
-## Gather
+## Read first
 
-Existing project: read before asking. Manifests and lockfiles (languages,
-frameworks, versions), entry points, folder layout, data stores, external
-services, build and test commands, CI config, and any existing architecture
-or ADR docs. Describe what **is**, not what docs wish. Gaps between the two
-are open points for the human.
+Existing project: manifests and lockfiles (languages, frameworks, versions),
+entry points, folder layout, data stores, external services, build and test
+commands, CI config, existing architecture or ADR docs. Describe what **is**.
+Gaps between code and docs are questions for the human.
 
-Greenfield: start from scope constraints. Ask only about choices that would
-be expensive to change later (runtime and language, where data lives, how
-parts talk to each other, hosting, auth). For each, give two options with
-one-line trade-offs and a recommendation. Everything cheap to change later is
-left to the work itself.
+Greenfield: for each choice, give two options with one-line trade-offs and a
+recommendation. Choices that are cheap to change later are left to the work.
+
+## Readiness checklist
+
+**core**
+- [ ] Language, runtime and main framework, each with the reason
+- [ ] Where data lives
+- [ ] The main parts and how they talk to each other
+- [ ] How code is verified: test, lint and CI commands
+- [ ] Constraints from scope that limit the architecture
+
+**thorough**
+- [ ] Every decision that passes the three tests below has a decision record
+- [ ] Which part owns which data and rules, and what may call what
+- [ ] Authentication and permissions
+- [ ] Every external service: what happens when it is slow or down
+- [ ] Security and privacy measures for the data the PRD handles
+- [ ] Performance and scale targets, with numbers
+- [ ] Environments and how code reaches production
+- [ ] Logging and monitoring: how you notice something broke
+- [ ] Existing project: what must stay compatible, and any migrations
+
+Write a decision record only when all three hold: **hard to reverse**,
+**surprising** to a future reader without context, and the result of a
+**real trade-off** between alternatives.
 
 ## Write
 
 - **Shape:** the main parts and how they connect. A short list or a small
-  Mermaid diagram. Name parts with glossary terms where they match.
-- **Decisions:** one line per decision, linking its record:
-  `- Postgres for all persistent data ([0002](decisions/0002-postgres.md))`.
-  Write a decision record only for choices someone might later question.
-- **Boundaries:** which part owns which data and rules; what may call what;
-  what must never happen across a boundary.
-- **Quality bars:** the testable non-functional needs that scope or PRD
-  implies (performance, security, privacy, offline, accessibility level),
-  plus how code is verified (test command, lint, CI gate).
-- **Commands** (optional): build, run, test, in one block. Agents use these.
+  Mermaid diagram, named with glossary terms.
+- **Decisions:** one line each, linking its record where one exists.
+- **Boundaries:** ownership, what may call what, what must never cross.
+- **Quality bars:** testable non-functional needs, plus how code is verified.
+- **Commands** (optional): build, run, test.
 
-Decision records are numbered `NNNN-short-title.md`, never renumbered, and
-never deleted: a reversed decision gets a new record that supersedes it.
+Decision records are numbered `NNNN-short-title.md`, never renumbered or
+deleted: a reversed decision gets a new record that supersedes it.
 
 ## Check in
 
-Validate with `--doc architecture`. Under **Needs you**, list each
+With `checkins: end` or `none`, do not ask now: follow **5. Check in** in
+`interview.md` and log the items below as `needs-you` lines. With `each-doc`:
+
+Validate (`--doc architecture`; when the human accepts, `--accept architecture`, see **Accepting** below). Under **Needs you**, list each
 recommendation the human has not explicitly confirmed and every place where
 the code and the existing docs disagree.
+
+## If something is not installed
+
+These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),
+so do not assume the others are present.
+
+- **No `dybs/` folder, or no `dybs/project.md`:** the project is not set up;
+  stop and suggest `dybs-start`. If that skill is not
+  installed, the human can add it with
+  `npx skills add Dybs-it/skills --skill dybs-start`.
+- **No `dybs/README.md`, or one that cannot be read:** the method rules
+  (safety stops, editing accepted docs, the check-in format) are missing;
+  stop and suggest `dybs-start`, which restores it. Do not go on without it.
+- **Accepting:** when the human accepts a doc in their own words, run the
+  validator with `--accept <name>` if it is installed (it sets the status,
+  the date and the `accepted-hash` fingerprint, and refuses a doc that does
+  not validate). Without it, set `status: accepted` and `accepted:` by hand
+  and say the acceptance is not fingerprinted.
+- **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
+  same skills folder as this skill and Node is available, run it from the
+  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  check every rule below by hand. Say in the check-in which way you
+  validated.
+
+<!-- rules:start (generated by scripts/sync-rules.mjs, do not edit) -->
+1. The doc starts with a frontmatter block between two `---` lines; every line in it is one `key: value`, and no key appears twice.
+2. Frontmatter `doc` is exactly this doc's name (for example `doc: prd`).
+3. Frontmatter `status` is `draft` or `accepted`, nothing else.
+4. Frontmatter `updated` is a date written as YYYY-MM-DD.
+5. An `accepted` doc also has `accepted: YYYY-MM-DD`, set only on the human's word.
+6. Every required `##` section is present (see the template or the doc contract).
+7. Frontmatter `depth`, when present, is `quick` or `thorough`.
+8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.
+9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
+11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
+12. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
+13. No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.
+<!-- rules:end -->

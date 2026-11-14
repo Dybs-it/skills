@@ -1,6 +1,7 @@
 ---
 doc: prd
 status: draft
+depth: {{quick | thorough}}
 updated: {{YYYY-MM-DD}}
 ---
 
@@ -14,6 +15,10 @@ updated: {{YYYY-MM-DD}}
 
 <!-- Primary first. Max three groups. What each is trying to get done. -->
 - **{{Primary user}}:** {{what they are trying to get done}}
+
+## Journeys
+
+<!-- Thorough. A named person, numbered steps, including where it goes wrong. Delete at quick depth. -->
 
 ## Goals
 
