@@ -84,3 +84,23 @@ container runs as root (not checked as a normal user).
 **Change for next version:** (1) a deterministic items table for the gate,
 built by a script from `test-plan.md`; (2) a run log line per skill run in
 `dybs/work/<task>/`.
+
+## Second run: routed, with the run log (decision 0005)
+
+Same task, skills at the commit that adds `dybs-route.mjs`, started with
+`tests/harness/run.sh routed`: each step got its flags from
+`dybs-route.mjs route ... --flags`.
+
+| Run | Tokens | Turns | Cost | Defects found in review | Code fixed, tests green | Gate (script) |
+|---|---|---|---|---|---|---|
+| Sonnet, routed (medium; low for gate and PR) | 1.60M | 35 | $0.72 | 4 of 4 | yes, 9 tests | PASS |
+
+- Every step wrote its log line: step, complexity S, routed model and
+  effort, the model it ran on. An uncommitted `log.md` did not make the gate
+  stale.
+- **The log is not free.** 35 turns against 32 for the Sonnet baseline, and
+  about 13% more tokens. One run each, so part of that is noise, but the
+  gate and PR steps each took one or two extra turns to log. A launcher that
+  writes the log line itself would remove that cost.
+- The review ran before a test plan existed, so it was routed as the
+  unknown case (M). Same model as S, so nothing changed here.
