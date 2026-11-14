@@ -4355,3 +4355,11 @@ test('a decision record starts proposed: only the human accepts one', () => {
   assert.match(skill, /Every record you write is `status: proposed`/);
   assert.match(skill, /Only the human's word makes it `accepted`/);
 });
+
+test('dybs-start says how a kickoff runs when nobody can answer', () => {
+  // Field run 2026-11-14: a headless session cannot hold the kickoff conversation.
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-start', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /### When nobody can answer/);
+  assert.match(t, /No route given: quick start with `checkins: none`/);
+  assert.match(t, /Never invent who the users are/);
+});

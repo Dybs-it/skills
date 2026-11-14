@@ -62,6 +62,21 @@ question about where they want to take it.
 Read whatever they share. Do not ask anything yet that the brain dump or the
 repo already answers.
 
+### When nobody can answer
+
+A launcher or a script may start the kickoff unattended: the first message
+says nobody can answer, and usually carries the kickoff answers (idea, type,
+who it is for, stage, horizon, builders, hard limits) and a route. Then do
+not open with the question above and do not wait:
+
+- Take the answers given. Look up what the repository can answer.
+- Anything still missing becomes *(assumption)* in `project.md` and a
+  `needs-you` line in `dybs/log.md`. Never invent who the users are: with no
+  answer and nothing in the repository, write that it is unknown.
+- No route given: quick start with `checkins: none`, skipping nothing.
+- Go straight to **4. Set up** and **5. Status and route**, and say in the
+  final report that the kickoff ran unattended.
+
 ## 2. A few sharp questions
 
 Ask **one round** of at most six questions, numbered, each with your
