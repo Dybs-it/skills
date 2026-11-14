@@ -23,6 +23,7 @@
 import { readFileSync, appendFileSync, existsSync, lstatSync, readdirSync } from 'node:fs';
 import { resolve, join, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
 // Every step a skill can log. `tests` is dybs-tests used on its own, outside
 // the loop; the loop builds with `build`.
@@ -322,8 +323,26 @@ export function gateTables(planText) {
 // What gate.md says was decided, or null. The gate script is the judge;
 // this only reads what the gate step copied from it.
 export function gateDecision(gateText) {
-  const m = section(gateText, 'Decision').match(/Decision:\**\s*\**\s*(PASS|CONCERNS|FAIL|WAIVED)\b/i);
-  return m ? m[1].toUpperCase() : null;
+  const d = section(gateText, 'Decision');
+  if (/not computed|\bSTALE\b/i.test(d)) return null;
+  // The first verdict word, however the step phrased the line around it.
+  const m = d.match(/\b(PASS|CONCERNS|FAIL|WAIVED)\b/);
+  return m ? m[1] : null;
+}
+
+// The gate script's own answer for this task, when dybs-gate is installed
+// beside this skill: PASS, CONCERNS, WAIVED, FAIL, or null when it gives no
+// decision (stale evidence, a format problem). undefined when it cannot be
+// asked, and the text of gate.md has to do.
+export function askGate(dir) {
+  const script = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..', 'dybs-gate', 'scripts', 'dybs-gate.mjs');
+  if (!existsSync(script)) return undefined;
+  const r = spawnSync(process.execPath, [script, join(dir, 'gate.md'), '--json'], { encoding: 'utf8', cwd: projectRoot(dir) || dir });
+  if (r.error) return undefined;
+  try {
+    const d = JSON.parse(r.stdout).decision;
+    return ['PASS', 'CONCERNS', 'WAIVED', 'FAIL'].includes(d) ? d : null;
+  } catch { return null; }
 }
 
 export function parseLog(logText) {
@@ -359,6 +378,10 @@ export function next(files, { root = null } = {}) {
   const guarded = (step) => (stuck(step) >= MAX_STUCK
     ? stop('stuck', `${step} gave up ${stuck(step)} times, the last time on a stronger model.`)
     : run(step, stuck(step) > 0));
+  // A step whose result is one file should not need a third run to write it.
+  const once = (step, what) => (log.filter((e) => e.step === step && e.event === 'done').length >= 2
+    ? stop('no-progress', `${step} ran twice and ${what}. Look at its last check-in.`)
+    : guarded(step));
 
   const full = t.lane === 'full';
   const has = (x) => typeof x === 'string' && x.trim() !== '';
@@ -377,16 +400,19 @@ export function next(files, { root = null } = {}) {
   }
   if (rv.human > 0) return stop('findings', `${rv.human} review findings need your decision. They are marked (needs human) in review.md.`);
   if (full) {
-    const g = has(f.gate) ? gateDecision(f.gate) : null;
-    if (g === null) return guarded('gate');
+    // The gate script is the judge when it can be asked; gate.md is only
+    // what the step wrote down.
+    const g = !has(f.gate) ? null : f.gateDecision !== undefined ? f.gateDecision : gateDecision(f.gate);
+    if (g === null) return once('gate', 'there is still no gate decision (stale evidence, or the gate was not computed)');
     if (g === 'FAIL') return stop('gate-fail', 'The gate says FAIL. Fix what blocks it, or waive it yourself.');
   }
-  if (!has(f.pr)) return guarded('pr');
+  if (!has(f.pr)) return once('pr', 'there is still no pr.md');
   return stop('merge', 'The PR text is ready. Open and merge the PR, then run dybs-done to close the task.');
 }
 
 export function nextForTask(dir) {
   const files = { task: read(dir, 'task.md'), testPlan: read(dir, 'test-plan.md'), review: read(dir, 'review.md'), gate: read(dir, 'gate.md'), pr: read(dir, 'pr.md'), log: read(dir, 'log.md') };
+  if (files.gate !== null) files.gateDecision = askGate(dir);
   return next(files, { root: projectRoot(dir) });
 }
 

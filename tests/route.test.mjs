@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { score, route, logLine, taskInfo, findings, next, gateItems, gateTables, STEPS, SKILLS, LEVELS, MODELS, EFFORTS, ROUTES, MAX_ROUNDS } from '../skills/dybs-task/scripts/dybs-route.mjs';
+import { score, route, logLine, taskInfo, findings, next, gateItems, gateTables, gateDecision, STEPS, SKILLS, LEVELS, MODELS, EFFORTS, ROUTES, MAX_ROUNDS } from '../skills/dybs-task/scripts/dybs-route.mjs';
 import { SKILLS_SRC, QUALITY } from '../src/update.mjs';
 
 const SCRIPT = join(SKILLS_SRC, 'dybs-task/scripts/dybs-route.mjs');
@@ -409,4 +409,41 @@ test('items refuses a task folder without a test plan', () => {
   const r = run('items', dir);
   assert.equal(r.status, 2);
   assert.match(r.stderr, /no test-plan\.md/);
+});
+
+// --- Field run 2026-11-14: the gate step wrote "PASS. Coverage: ..." and the loop ran the gate three times ---
+
+test('the decision is read however the gate step phrased it, and never from a gate that was not computed', () => {
+  for (const d of ['Decision: PASS', '**Decision:** PASS (computed)', 'PASS. Coverage: 100% overall, P0 100%.', 'The script says: CONCERNS']) {
+    assert.ok(['PASS', 'CONCERNS'].includes(gateDecision(`## Decision\n\n${d}\n`)), d);
+  }
+  assert.equal(gateDecision('## Decision\n\nDecision: not computed (no gate script). It would PASS.\n'), null);
+  assert.equal(gateDecision('## Decision\n\nSTALE: uncommitted changes. Last time it said PASS.\n'), null);
+  assert.equal(gateDecision('## Items\n\nPASS\n\n## Decision\n\n'), null);
+});
+
+test("the gate script's own answer wins over what gate.md says", () => {
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 0 }), review: review(), gate: gateMd('PASS') };
+  assert.equal(step({ ...f, gateDecision: 'FAIL' }), 'stop:gate-fail');
+  assert.equal(step({ ...f, gateDecision: null }), 'gate');
+  assert.equal(step({ ...f, gate: gateMd('FAIL'), gateDecision: 'PASS' }), 'pr');
+});
+
+test('a gate or PR step that ran twice without its result stops instead of running a third time', () => {
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 0 }), review: review(), gate: gateMd('not computed') };
+  assert.equal(step({ ...f, log: logMd(['gate', 'done']) }), 'gate');
+  assert.equal(step({ ...f, log: logMd(['gate', 'done'], ['gate', 'done']) }), 'stop:no-progress');
+  const g = { task: task({ status: 'review' }), review: review(), log: logMd(['pr', 'done'], ['pr', 'done']) };
+  assert.equal(step(g), 'stop:no-progress');
+});
+
+test('next asks the installed gate script, so a stale gate is computed again and a real PASS moves on', async () => {
+  const { committedGate } = await import('./gate-repo.mjs');
+  const gateText = `---\ntask: t\nupdated: 2026-11-14\n---\n\n# Gate: t\n\n## Items\n\n| Item | Priority | Coverage | Evidence | Security |\n|---|---|---|---|---|\n| AC1 | P0 | FULL | tests/a.test.js:3 | no |\n\n## Risks\n\n| Risk | Category | P | I | Score | Status |\n|---|---|---|---|---|---|\n\n## Waivers\n\n| Item | Reason | Approved by | Approved | Expires |\n|---|---|---|---|---|\n\n## Decision\n\nIt went fine.\n`;
+  const files = { 'tests/a.test.js': 'test\n'.repeat(60), 'dybs/work/t/task.md': task({ criteria: 5, status: 'review' }), 'dybs/work/t/test-plan.md': plan({ scenarios: 0 }), 'dybs/work/t/review.md': review() };
+  const { repo } = committedGate(gateText, files);
+  const dir = join(repo, 'dybs/work/t');
+  assert.equal(JSON.parse(run('next', dir, '--json').stdout).step, 'pr');
+  writeFileSync(join(repo, 'tests/a.test.js'), 'changed\n'.repeat(60));
+  assert.equal(JSON.parse(run('next', dir, '--json').stdout).step, 'gate');
 });
