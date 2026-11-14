@@ -21,6 +21,10 @@
   every quality skill. The groups live in `src/update.mjs`.
 - The gate decision is code (`skills/dybs-gate/scripts/dybs-gate.mjs`), not
   agent judgement. Change a rule there, in `quality.md`, and in the tests.
+- Which model and effort a step runs on is code too
+  (`skills/dybs-test-plan/scripts/dybs-route.mjs`: `ROUTES`, `BOUNDS`), read
+  by the skills and by any launcher. Change the table there and in the
+  tests; tune it from run logs and `tests/runs/`, not by feel.
 - After changing anything under `skills/`, run `npm run record-hashes`.
   `src/known-hashes.json` is append-only. `npm test` must pass.
 - Practise what the skills preach: short, plain, no invented facts.

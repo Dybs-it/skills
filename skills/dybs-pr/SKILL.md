@@ -45,19 +45,20 @@ Before and after, as concrete as the environment allows:
 - the gate decision with its coverage numbers: run the gate script on
   `gate.md` again now (in a git repository it reports `STALE` itself, exit
   3, for the cases below), and compare its `commit:` with the last commit that
-  changed anything besides this task's `gate.md` and `pr.md`:
+  changed anything besides this task's `gate.md`, `pr.md` and `log.md`:
   `git log -1 --format=%H -- . ':(exclude,literal)dybs/work/<task>/gate.md'
-  ':(exclude,literal)dybs/work/<task>/pr.md'`. Compare full commit ids, never
+  ':(exclude,literal)dybs/work/<task>/pr.md'
+':(exclude,literal)dybs/work/<task>/log.md'`. Compare full commit ids, never
   as written: resolve `commit:` with `git rev-parse --verify --end-of-options
   '<commit>^{commit}'` first, since the same commit can be written short or
-  in full. Committing those two outputs moves
+  in full. Committing those outputs moves
   `HEAD` but changes no evidence, so it never makes the gate stale. If that
   commit differs from `commit:` (code or tests changed since), if `commit:`
   says `uncommitted`, or if
   `git status --porcelain --untracked-files=all` shows any uncommitted change other than this
-  task's `gate.md` and `pr.md`, the result is **stale**: say so and suggest
+  task's `gate.md`, `pr.md` and `log.md`, the result is **stale**: say so and suggest
   running `dybs-gate` again rather than quoting the old decision. Only those
-  two outputs are expected to be uncommitted. A changed `review.md`,
+  three outputs are expected to be uncommitted. A changed `review.md`,
   `test-plan.md`, `task.md` or context doc is a gate input: re-running the
   script only recounts the tables already in `gate.md`, it does not rebuild
   them from those inputs
@@ -76,6 +77,8 @@ Say plainly what was **not** verified.
 
 Show the human the PR text before opening or updating the PR. Opening a PR
 is outward-facing: do it only on their word.
+
+Last, log the run (see "Model, effort and the run log" in `quality.md`).
 
 ## If something is not installed
 

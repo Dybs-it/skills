@@ -68,6 +68,12 @@ code, writing to `dybs/work/<task>/`. The loop below will create `task.md`
 there and call them; a task is a folder, not a single file. See decision
 0004.
 
+**Model routing and run log (built, unverified above S):** a script scores
+each task S, M, L or XL from its test plan and names the model and effort
+per step; every run appends a line to the task's `log.md`. See decision
+0005. Next: build the gate's items table by script (six runs on one task
+gave three different decisions), and measure an L and an XL task.
+
 
 ```
 dybs/work/<task>/       one folder per task

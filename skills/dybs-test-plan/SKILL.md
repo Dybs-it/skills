@@ -81,6 +81,9 @@ a scenario; every scenario names a confirmed seam. Then give a short brief:
 the scenarios by priority, the risks still open, and what needs the human
 (unconfirmed criteria or seams, risks without an owner).
 
+Last, log the run and report the task's complexity and the route for the
+next step (see "Model, effort and the run log" in `quality.md`).
+
 ## If something is not installed
 
 These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),

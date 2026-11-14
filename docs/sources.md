@@ -68,8 +68,10 @@ they care about, what they always ask, what they won't accept.
 
 ### Validator and gate script
 
-`dybs-start/scripts/dybs-validate.mjs` (doc contract, depths, acceptance) and
-`dybs-gate/scripts/dybs-gate.mjs` (gate decision).
+`dybs-start/scripts/dybs-validate.mjs` (doc contract, depths, acceptance),
+`dybs-gate/scripts/dybs-gate.mjs` (gate decision) and
+`dybs-test-plan/scripts/dybs-route.mjs` (task complexity, model and effort
+per step, the run log).
 
 - **Our own:** all code. The gate rules it computes are adapted from TEA, as
   described under `quality.md`.

@@ -97,6 +97,26 @@ Five skills for any task or part of the code. Results go in
 They share one vocabulary, `quality.md`, copied into each so every skill
 works on its own.
 
+### The right model for the task
+
+Tokens are mostly fixed context times turns, so the cheapest run is the
+smallest model that gets it right in few turns. A script scores each task
+**S, M, L or XL** from its test plan and the code it names, and holds one
+table of model and effort per step:
+
+```
+node .claude/skills/dybs-test-plan/scripts/dybs-route.mjs score dybs/work/<task>
+claude $(node .claude/skills/dybs-test-plan/scripts/dybs-route.mjs route dybs/work/<task> tests --flags) "/dybs-tests <task>"
+```
+
+Small and medium tasks run on Sonnet; large ones plan, build and review on
+Opus; the gate and the PR text stay on Sonnet at low effort. A step that
+gets stuck names the next model up instead of trying again. You overrule
+the score with `complexity: L` in the plan's frontmatter. Every run appends
+one line to `dybs/work/<task>/log.md`: step, complexity, the routed model
+and the model it really ran on. The table is a first guess from one small
+measured task (`tests/runs/`); see decision 0005.
+
 ## The dybs-skills CLI
 
 For what a package manager can't do. Until it is on npm, run it from GitHub:

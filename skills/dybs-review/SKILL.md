@@ -106,6 +106,8 @@ Brief: the summary line, then what needs the human (findings that are
 design questions rather than fixes). Hand fixes to the person or agent doing
 the work; with the human's go, fix them and run `dybs-review` again.
 
+Last, log the run (see "Model, effort and the run log" in `quality.md`).
+
 ## If something is not installed
 
 These skills install one by one (`npx skills add Dybs-it/skills --skill <name>`),

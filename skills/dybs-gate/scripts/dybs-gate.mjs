@@ -637,6 +637,9 @@ export function freshness(gatePath, text) {
     return { status: 'stale', reason: `the task folder ${taskName} is not named by the rule in quality.md (letters and digits in any script, ".", "_" and "-", starting with a letter or digit). Rename it and run the gate again` };
   }
   const prRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}pr.md`;
+  // The run log (one appended line per quality step) records what ran, not
+  // what was built: like pr.md it is an output, never evidence.
+  const logRel = `${gateRel.slice(0, gateRel.lastIndexOf('/') + 1)}log.md`;
   // The tests cited as FULL evidence, as repository paths: the project
   // root is the folder holding dybs/, and evidence is relative to it.
   const rootRel = gateRel.slice(0, gateRel.lastIndexOf('dybs/work/'));
@@ -681,8 +684,8 @@ export function freshness(gatePath, text) {
       paths.push(e.slice(3));
       if (e[0] === 'R' || e[0] === 'C') paths.push(entries[++i]);
     }
-    const changed = paths.filter((f) => f && f !== gateRel && f !== prRel);
-    if (changed.length) return { status: 'stale', reason: `uncommitted changes besides gate.md and pr.md: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}. Commit the evidence first` };
+    const changed = paths.filter((f) => f && f !== gateRel && f !== prRel && f !== logRel);
+    if (changed.length) return { status: 'stale', reason: `uncommitted changes besides gate.md, pr.md and log.md: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', …' : ''}. Commit the evidence first` };
     // `git status` is blind to a tracked file flagged assume-unchanged or
     // skip-worktree: its edits never show above. Such a file cannot be
     // vouched for, so it makes the evidence stale (a lowercase tag from
@@ -694,7 +697,7 @@ export function freshness(gatePath, text) {
       const said = String(e.stderr || '').trim().split('\n')[0];
       return { status: 'stale', reason: `git could not list the tracked files (${said || e.message}). Fix the repository and run the gate again` };
     }
-    const hidden = listed.split('\0').filter((e) => e && (/^[a-z]/.test(e) || e[0] === 'S')).map((e) => e.slice(2)).filter((f) => f !== gateRel && f !== prRel);
+    const hidden = listed.split('\0').filter((e) => e && (/^[a-z]/.test(e) || e[0] === 'S')).map((e) => e.slice(2)).filter((f) => f !== gateRel && f !== prRel && f !== logRel);
     if (hidden.length) return { status: 'stale', reason: `tracked files git status cannot see changes in (assume-unchanged or skip-worktree): ${hidden.slice(0, 5).join(', ')}${hidden.length > 5 ? ', …' : ''}. Clear those flags (git update-index --no-assume-unchanged --no-skip-worktree) and run the gate again` };
     // An ignored file never shows in `git status` and, untracked, not in
     // `ls-files` either: a test cited as FULL evidence that Git ignores is
@@ -721,16 +724,16 @@ export function freshness(gatePath, text) {
     const unreadable = [];
     const special = [];
     const inputs = [...gateInputs(top, gateRel.slice(0, gateRel.lastIndexOf('/')), linkedInputs, unreadable, special), ...gateInputs(top, `${rootRel}dybs/context`, linkedInputs, unreadable, special)]
-      .filter((f) => f !== gateRel && f !== prRel);
+      .filter((f) => f !== gateRel && f !== prRel && f !== logRel);
     // A FIFO, socket or device among the inputs is in no commit (Git cannot
     // hold one) and never shows in `git status`: it can feed anything.
-    const odd = special.filter((f) => f !== gateRel && f !== prRel);
+    const odd = special.filter((f) => f !== gateRel && f !== prRel && f !== logRel);
     if (odd.length) return { status: 'stale', reason: `gate inputs that are not regular files or folders (a FIFO, socket or device), so no commit holds them: ${odd.slice(0, 5).join(', ')}${odd.length > 5 ? ', …' : ''}. Keep the task files and context docs as regular files and run the gate again` };
     // A folder that cannot be searched may hide an ignored input, which
     // `git status` never lists: what was not looked at is not approved.
     if (unreadable.length) return { status: 'stale', reason: `gate input folders that cannot be read: ${unreadable.slice(0, 5).join(', ')}${unreadable.length > 5 ? ', …' : ''}. Fix their permissions and run the gate again` };
     // gate.md and pr.md are the outputs; a gate.md that is a link has its own refusal.
-    const linked = linkedInputs.filter((f) => f !== gateRel && f !== prRel);
+    const linked = linkedInputs.filter((f) => f !== gateRel && f !== prRel && f !== logRel);
     if (linked.length) return { status: 'stale', reason: `gate inputs that are links, so the commit holds only where they point: ${linked.slice(0, 5).join(', ')}${linked.length > 5 ? ', …' : ''}. Keep the task files and context docs as real files and run the gate again` };
     if (inputs.length) {
       let ignored = '';
@@ -752,7 +755,7 @@ export function freshness(gatePath, text) {
   let head;
   // Literal: a task folder named with `*` or `?` must exclude only its own
   // gate.md and pr.md, never other tasks' (pathspec magic would match them).
-  const evidenceHead = () => git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude,literal)${gateRel}`, `:(exclude,literal)${prRel}`]);
+  const evidenceHead = () => git(top, ['log', '-1', '--format=%H', '--', '.', `:(exclude,literal)${gateRel}`, `:(exclude,literal)${prRel}`, `:(exclude,literal)${logRel}`]);
   // Git failing here is never "nothing to check": it is refused.
   try { head = evidenceHead(); } catch {
     return { status: 'stale', reason: 'git could not read the history of the evidence. Fix the repository and run the gate again' };
@@ -832,7 +835,7 @@ export function freshness(gatePath, text) {
   // evidence commit itself: an edit or a commit since shows either way.
   let since;
   try {
-    since = execFileSync('git', ['-C', top, 'diff', '--name-only', '-z', '--no-ext-diff', '--ignore-submodules=none', head, '--', '.', `:(exclude,literal)${gateRel}`, `:(exclude,literal)${prRel}`], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'pipe'] });
+    since = execFileSync('git', ['-C', top, 'diff', '--name-only', '-z', '--no-ext-diff', '--ignore-submodules=none', head, '--', '.', `:(exclude,literal)${gateRel}`, `:(exclude,literal)${prRel}`, `:(exclude,literal)${logRel}`], { encoding: 'utf8', maxBuffer: GIT_MAX, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     const said = String(e.stderr || '').trim().split('\n')[0];
     return { status: 'stale', reason: `git could not compare the tree with the evidence commit (${said || e.message}). Fix the repository and run the gate again` };
