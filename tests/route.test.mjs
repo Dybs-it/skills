@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, relative, sep } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { score, route, logLine, taskInfo, findings, next, gateItems, gateTables, gateDecision, STEPS, SKILLS, LEVELS, MODELS, EFFORTS, ROUTES, MAX_ROUNDS } from '../skills/dybs-task/scripts/dybs-route.mjs';
+import { score, route, logLine, taskInfo, findings, next, gateItems, gateTables, gateDecision, testLocations, scenarios, MAX_BUILDS, STEPS, SKILLS, LEVELS, MODELS, EFFORTS, ROUTES, MAX_ROUNDS } from '../skills/dybs-task/scripts/dybs-route.mjs';
 import { SKILLS_SRC, QUALITY } from '../src/update.mjs';
 
 const SCRIPT = join(SKILLS_SRC, 'dybs-task/scripts/dybs-route.mjs');
@@ -470,4 +470,56 @@ test('a test plan without a single scenario is planned again, once, and never bu
   const f = { task: task({ criteria: 5 }), testPlan: '# Test plan: t\n\nNothing yet.\n' };
   assert.equal(step(f), 'test-plan');
   assert.equal(step({ ...f, log: logMd(['test-plan', 'done'], ['test-plan', 'done']) }), 'stop:no-progress');
+});
+
+// --- Codex review of PR 9, 2026-11-14 ---
+
+test('a recorded FAIL still stops when the gate can no longer be computed', () => {
+  // The evidence changed after the FAIL, so the gate script gives no decision (null).
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 2 }), review: review({ open: 1 }), gate: gateMd('FAIL') };
+  assert.equal(step({ ...f, gateDecision: null }), 'stop:gate-fail');
+  assert.equal(step({ ...f, testPlan: donePlan, review: review(), gateDecision: null }), 'stop:gate-fail');
+  // A new computed verdict replaces it; a stale gate that never failed is computed again.
+  assert.equal(step({ ...f, testPlan: donePlan, review: review(), gateDecision: 'PASS' }), 'pr');
+  assert.equal(step({ ...f, testPlan: donePlan, review: review(), gate: gateMd('PASS'), gateDecision: null }), 'gate');
+});
+
+test('the lane counts every file the task names, also the ones it will create', () => {
+  const { dir } = project({ files: ['src/a.js'] });
+  execFileSync('rm', [join(dir, 'test-plan.md')]);
+  writeFileSync(join(dir, 'task.md'), task({ files: ['src/a.js', 'src/new-one.js', 'src/new-two.js'] }));
+  assert.equal(JSON.parse(run('next', dir, '--json').stdout).step, 'test-plan');
+  writeFileSync(join(dir, 'task.md'), task({ files: ['src/a.js', 'src/new-one.js'] }));
+  assert.equal(JSON.parse(run('next', dir, '--json').stdout).step, 'build');
+});
+
+test('a planned P3 scenario is not pending work: the task moves on without it', () => {
+  const lines = plan({ scenarios: 2 }).split('\n');
+  const rowsAt = lines.map((l, i) => (l.startsWith('| t-UNIT-') ? i : -1)).filter((i) => i >= 0);
+  lines[rowsAt[0]] = lines[rowsAt[0]].replace('| planned |', '| green |');
+  lines[rowsAt[1]] = lines[rowsAt[1]].replace('| P1 |', '| P3 |');
+  const p3 = lines.join('\n');
+  const sc = scenarios(p3);
+  assert.equal(sc.planned + sc.optional, 1, JSON.stringify(sc));
+  assert.equal(sc.optional, 1);
+  assert.equal(step({ task: task({ criteria: 5, status: 'review' }), testPlan: p3 }), 'review');
+});
+
+test('a build that keeps reporting done without getting ready for review stops', () => {
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 1 }) };
+  const done = (n) => logMd(...Array.from({ length: n }, () => ['build', 'done']));
+  assert.equal(step({ ...f, log: done(MAX_BUILDS - 1) }), 'build');
+  assert.equal(step({ ...f, log: done(MAX_BUILDS) }), 'stop:no-progress');
+});
+
+test('a test path in a code span is one location, spaces and commas included, and is printed back in its span', async () => {
+  assert.deepEqual(testLocations('`tests/api cases.test.js:2`, tests/b.test.js:9; `tests/a,b.test.js:4`'), ['tests/api cases.test.js:2', 'tests/a,b.test.js:4', 'tests/b.test.js:9']);
+  assert.deepEqual(testLocations('cases.test.js see line 2'), []);
+  const text = gatePlan([['AC1', '`tests/api cases.test.js:2`', 'green'], ['AC2', 'tests/b.test.js:5', 'green'], ['AC3', 'tests/b.test.js:7', 'proven']]);
+  const g = gateItems(text);
+  assert.deepEqual(row(g, 'AC1').evidence, ['tests/api cases.test.js:2']);
+  assert.match(gateTables(text), /\| AC1 \| P1 \| FULL \| `tests\/api cases\.test\.js:2` \| no \|/);
+  // The gate script reads the printed cell as the same single location.
+  const { locations } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  assert.deepEqual(locations('`tests/api cases.test.js:2`'), ['tests/api cases.test.js:2']);
 });

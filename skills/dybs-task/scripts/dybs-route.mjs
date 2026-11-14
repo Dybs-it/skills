@@ -37,6 +37,8 @@ export const FAST = { files: 2, lines: 600, criteria: 3 };
 export const MAX_STUCK = 2;
 // Reviews of one task before open findings go to the human.
 export const MAX_ROUNDS = 3;
+// Builds of one task that report done before the loop stops asking for more.
+export const MAX_BUILDS = 5;
 export const EVENTS = ['start', 'done', 'stuck', 'escalate'];
 export const LEVELS = ['S', 'M', 'L', 'XL'];
 // Weakest first. Escalating moves one place to the right.
@@ -163,7 +165,7 @@ export function score(planText, { root = null } = {}) {
   const computed = points >= BOUNDS.XL ? 'XL' : points >= BOUNDS.L ? 'L' : points >= BOUNDS.M ? 'M' : 'S';
   // The human's word wins: `complexity: L` in the plan's frontmatter.
   const override = LEVELS.includes((fm.complexity || '').toUpperCase()) ? fm.complexity.toUpperCase() : null;
-  return { complexity: override || computed, computed, override, points, reasons, files: files.length, lines };
+  return { complexity: override || computed, computed, override, points, reasons, files: files.length, named: named.length, lines };
 }
 
 export function route(step, complexity, { escalate = false } = {}) {
@@ -218,8 +220,10 @@ export function taskInfo(taskText, { root = null } = {}) {
   const s = score(taskText, { root });
   const rules = /\bD\d+\b/.test(section(taskText, 'Acceptance') + section(taskText, 'Ask'));
   const why = [];
-  if (s.files === 0) why.push('it names no file it touches');
-  if (s.files > FAST.files) why.push(`${s.files} files`);
+  // Every file the task names counts, also one it will create: a task is
+  // not smaller because its files do not exist yet.
+  if (s.named === 0) why.push('it names no file it touches');
+  if (s.named > FAST.files) why.push(`${s.named} files`);
   if (s.lines !== null && s.lines > FAST.lines) why.push(`${s.lines} lines in those files`);
   if (criteria === 0) why.push('no acceptance criteria');
   if (criteria > FAST.criteria) why.push(`${criteria} acceptance criteria`);
@@ -246,12 +250,15 @@ export function findings(reviewText) {
 export function scenarios(planText) {
   const scen = section(planText, 'Scenarios');
   const col = column(scen, 'Status');
-  const out = { total: 0, planned: 0, stuck: 0 };
+  const prio = column(scen, 'Priority');
+  const out = { total: 0, planned: 0, stuck: 0, optional: 0 };
   if (col < 0) return out;
   for (const r of rows(scen)) {
     const st = (r[col] || '').toLowerCase();
     out.total += 1;
-    if (st === 'planned') out.planned += 1;
+    // dybs-build takes P3 only when asked: a planned P3 is not pending work.
+    if (st === 'planned' && prio >= 0 && (r[prio] || '').toUpperCase() === 'P3') out.optional += 1;
+    else if (st === 'planned') out.planned += 1;
     if (st === 'stuck') out.stuck += 1;
   }
   return out;
@@ -259,7 +266,18 @@ export function scenarios(planText) {
 
 const PRIO = ['P0', 'P1', 'P2', 'P3'];
 const higher = (a, b) => (PRIO.indexOf(a) <= PRIO.indexOf(b) ? a : b);
-const LOCATION = /^[^\s:`|]+:[1-9]\d*$/;
+// Same reading as dybs-gate.mjs: a bare token `path:line`, or a whole code
+// span when the path holds a space, a comma or a Markdown character.
+const LOCATION = /^(?:[A-Za-z]:[\\/])?[^\s:`|]+:[1-9]\d*$/;
+const SPANNED = /^(?:[A-Za-z]:[\\/])?(?=\S)[^:`|]*[^\s:`|]:[1-9]\d*$/;
+export function testLocations(cellText) {
+  const out = [];
+  const rest = String(cellText ?? '').replace(/`([^`]+)`/g, (m, inner) => { if (SPANNED.test(inner)) out.push(inner); return ' '; });
+  for (const tok of rest.split(/[,;\s]+/)) if (LOCATION.test(tok)) out.push(tok);
+  return out;
+}
+// Printed back in a code span when the bare token would not survive.
+const shown = (loc) => (/[\s,;*_[\]<>~\\&]/.test(loc) ? `\`${loc}\`` : loc);
 const cell = (v) => String(v ?? '').replace(/[|\\]/g, '').replace(/\s+/g, ' ').trim();
 // The gate script takes a risk's name only as plain text: no Markdown, no
 // entities. A plan writes them freely, so the name is made plain here.
@@ -284,7 +302,7 @@ export function gateItems(planText) {
   const [cCov, cTest, cStatus, cPrio] = [col('Covers'), col('Test'), col('Status'), col('Priority')];
   const sc = rows(scen).map((r) => ({
     covers: (r[cCov] || '').split(/[,\s]+/).filter(Boolean),
-    tests: (r[cTest] || '').replace(/`/g, '').split(/[,;\s]+/).filter((x) => LOCATION.test(x)),
+    tests: testLocations(r[cTest]),
     proven: ['green', 'proven'].includes((r[cStatus] || '').toLowerCase()),
     priority: PRIO.includes(r[cPrio]) ? r[cPrio] : null,
   }));
@@ -314,7 +332,7 @@ export function gateItems(planText) {
 export function gateTables(planText) {
   const g = gateItems(planText);
   const out = ['## Items', '', '| Item | Priority | Coverage | Evidence | Security |', '|---|---|---|---|---|'];
-  for (const i of g.items) out.push(`| ${i.item} | ${i.priority} | ${i.coverage} | ${i.evidence.join(', ')} | no |`);
+  for (const i of g.items) out.push(`| ${i.item} | ${i.priority} | ${i.coverage} | ${i.evidence.map(shown).join(', ')} | no |`);
   out.push('', '## Risks', '', '| Risk | Category | P | I | Score | Status |', '|---|---|---|---|---|---|');
   g.risks.forEach((r, n) => out.push(`| ${[plain(r[0], n + 1), ...r.slice(1).map(cell)].join(' | ')} |`));
   return out.join('\n') + '\n';
@@ -387,7 +405,10 @@ export function next(files, { root = null } = {}) {
   const has = (x) => typeof x === 'string' && x.trim() !== '';
   // A FAIL always hands the task to the human, whatever else is pending:
   // no unattended session runs past a failed gate.
-  const gate = !full || !has(f.gate) ? null : f.gateDecision !== undefined ? f.gateDecision : gateDecision(f.gate);
+  // A recorded FAIL also outlives a gate that cannot be computed any more
+  // (evidence changed since): only a new computed verdict replaces it.
+  const written = full && has(f.gate) ? gateDecision(f.gate) : null;
+  const gate = !full || !has(f.gate) ? null : f.gateDecision === undefined ? written : f.gateDecision === null && written === 'FAIL' ? 'FAIL' : f.gateDecision;
   if (gate === 'FAIL') return stop('gate-fail', 'The gate says FAIL. Fix what blocks it, or waive it yourself, then run dybs-gate again.');
   if (full && !has(f.testPlan)) return guarded('test-plan');
   const sc = has(f.testPlan) ? scenarios(f.testPlan) : { total: 0, planned: 0, stuck: 0 };
@@ -395,7 +416,12 @@ export function next(files, { root = null } = {}) {
   if (full && sc.total === 0) return once('test-plan', 'the plan still has no scenarios');
   const rv = has(f.review) ? findings(f.review) : null;
 
-  if (t.status !== 'review' || sc.planned > 0 || sc.stuck > 0) return guarded('build');
+  if (t.status !== 'review' || sc.planned > 0 || sc.stuck > 0) {
+    // A first build, a fix round per review and one escalation fit in this.
+    const builds = log.filter((e) => e.step === 'build' && e.event === 'done').length;
+    if (builds >= MAX_BUILDS) return stop('no-progress', `build reported done ${builds} times and the task is still not ready for review. Look at its last check-in.`);
+    return guarded('build');
+  }
   if (!rv || rv.stale) {
     if (rv && rv.round >= MAX_ROUNDS) return stop('review-rounds', `Reviewed ${rv.round} times and the code still changed afterwards. Look at review.md.`);
     return guarded('review');
