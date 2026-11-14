@@ -1,6 +1,6 @@
 ---
 decision: {{NNNN}}
-status: {{proposed | accepted | superseded by NNNN}}
+status: proposed
 date: {{YYYY-MM-DD}}
 ---
 

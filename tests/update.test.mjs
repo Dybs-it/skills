@@ -9,7 +9,7 @@ import { join, dirname, sep, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import {
-  PKG_ROOT, SKILLS_SRC, GETTING_STARTED, QUALITY, findInstalls, discover, update, updateInstall, skillNames, shippedFiles, knownHashes, sha,
+  PKG_ROOT, SKILLS_SRC, GETTING_STARTED, PLANNING, QUALITY, findInstalls, discover, update, updateInstall, skillNames, shippedFiles, knownHashes, sha,
 } from '../src/update.mjs';
 import { DOCS, ORDER } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 import { rulesBlock, checklistsBlock, checklistOf } from '../scripts/sync-rules.mjs';
@@ -330,7 +330,7 @@ test('interview.md defines how depth and check-ins combine', () => {
 // --- quality skills ---
 
 test('every skill belongs to exactly one group', () => {
-  assert.deepEqual([...GETTING_STARTED, ...QUALITY].sort(), skillNames());
+  assert.deepEqual([...GETTING_STARTED, ...PLANNING, ...QUALITY].sort(), skillNames());
 });
 
 test('every quality skill carries an identical quality.md', () => {
@@ -4345,4 +4345,33 @@ test('an added file is rolled back even when the look at it right after placing 
   assert.ok(err, 'the update stopped');
   assert.ok(!existsSync(target), 'the added file is not left installed');
   rmSync(root, { recursive: true });
+});
+
+test('a decision record starts proposed: only the human accepts one', () => {
+  // Field run 2026-11-14: a record inferred from CLAUDE.md was written as accepted.
+  const tpl = readFileSync(join(SKILLS_SRC, 'dybs-architecture', 'decision-template.md'), 'utf8');
+  assert.match(tpl, /^status: proposed$/m);
+  const skill = readFileSync(join(SKILLS_SRC, 'dybs-architecture', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(skill, /Every record you write is `status: proposed`/);
+  assert.match(skill, /Only the human's word makes it `accepted`/);
+});
+
+test('dybs-start says how a kickoff runs when nobody can answer', () => {
+  // Field run 2026-11-14: a headless session cannot hold the kickoff conversation.
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-start', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /### When nobody can answer/);
+  assert.match(t, /No route given: quick start with `checkins: none`/);
+  assert.match(t, /Never invent who the users are/);
+});
+
+test('every planning skill works alone and leaves the decision to the human', () => {
+  for (const s of PLANNING) {
+    const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
+    assert.match(t, /## If something is not installed/, s);
+    assert.match(t, /the human (decides|sets it|orders)/i, s);
+  }
+  const idea = readFileSync(join(SKILLS_SRC, 'dybs-idea', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(idea, /Never write a decision for them/);
+  assert.match(idea, /Copyright \(c\) 2026 Matt Pocock/);
+  assert.match(readFileSync(join(SKILLS_SRC, 'dybs-idea', 'template.md'), 'utf8'), /^status: captured$/m);
 });

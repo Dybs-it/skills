@@ -70,7 +70,7 @@ they care about, what they always ask, what they won't accept.
 
 `dybs-start/scripts/dybs-validate.mjs` (doc contract, depths, acceptance),
 `dybs-gate/scripts/dybs-gate.mjs` (gate decision) and
-`dybs-test-plan/scripts/dybs-route.mjs` (task complexity, model and effort
+`dybs-task/scripts/dybs-route.mjs` (task complexity, model and effort
 per step, the run log).
 
 - **Our own:** all code. The gate rules it computes are adapted from TEA, as
@@ -149,7 +149,63 @@ acceptance.
 - **Our own:** all of it, including the agent-ready test with a fresh
   sub-agent and the generated readiness checklists.
 
+## Planning skills
+
+### `dybs-idea`
+
+Captures one idea in `dybs/ideas/<slug>.md`, questions it against the
+context, collects each persona's advice, and records the human's decision.
+
+- **Our own:** the idea file, the four words of advice (go, change, park,
+  drop), the rule that only the human decides.
+- **Adapted from Matt** `skills/productivity/grilling/SKILL.md`: numbered
+  rounds of questions, each with a recommended answer. The notice is in the
+  skill.
+- **Inspired by BMad** party mode: several personas reviewing one thing.
+  Much smaller; no text taken.
+
+### `dybs-roadmap`
+
+Keeps `dybs/roadmap.md`: links to accepted ideas in build order, nothing
+else.
+
+- **Our own:** all of it. A roadmap of links, so it cannot drift from the
+  ideas, is a lesson from a shared status file that lost its rows.
+
 ## Quality skills
+
+### `dybs-task`
+
+Turns an issue or an idea into `dybs/work/<task>/task.md`: the ask, checkable
+acceptance criteria, the files it touches, what is out of scope. Shows the
+board. Ships `scripts/dybs-route.mjs`.
+
+- **Our own:** the task format, the fast and full lanes computed from the
+  task, the board derived from task folders, and the script.
+- **Inspired by Matt** `skills/engineering` issue slicing and **BMad** story
+  files: one unit of work with its own acceptance. No text taken.
+
+### `dybs-build`
+
+Builds one task test first, fixes open review findings, and keeps the task's
+status so a fresh session can resume.
+
+- **Our own:** the status rules, the fix loop over checklist findings, the
+  fast-lane rule of one test per acceptance criterion.
+- **Adapted from Matt** `skills/engineering/tdd/SKILL.md`: one behaviour at a
+  time, red then green, the least code that passes (shared with
+  `dybs-tests`).
+- **Adapted from TEA** `testarch-test-review`: the order for looking into a
+  failing test (shared with `dybs-tests`).
+
+### `dybs-done`
+
+Closes a merged task and writes down what the work taught that the context
+does not say yet, as proposals for the human.
+
+- **Our own:** all of it. The idea that a retrospective feeds the next
+  piece of work is common practice; BMad's `bmad-retrospective` does it per
+  epic. No text taken.
 
 ### `dybs-test-plan`
 

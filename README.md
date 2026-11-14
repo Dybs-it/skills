@@ -1,8 +1,10 @@
 # Dybs.it skills
 
-The Dybs method as agent skills: a short, human-accepted project context
-that AI coding agents build from. Phase 1 ships **Getting Started**. Ideas,
-roadmap and the work loop follow (see [docs/ROADMAP.md](docs/ROADMAP.md)).
+The Dybs method as agent skills, from a first idea to a merged change: a
+short, human-accepted project context (**Getting Started**), **ideas** and
+a **roadmap**, and a **work loop** that takes one issue through build,
+review, the quality gate and the PR. Agents draft and advise; you decide.
+What is built and what is still unproven: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install
 
@@ -81,21 +83,58 @@ Every decision lands in `dybs/log.md`.
 Every skill works on its own. Without `dybs-start` installed, a skill says
 which one to add; without the validator, it checks the doc by hand.
 
+## Ideas and roadmap
+
+```
+dybs-idea → the human decides → dybs-roadmap → dybs-task
+```
+
+| Skill | Does | Writes |
+|---|---|---|
+| `dybs-idea` | Captures one idea, questions it against the context in rounds with recommended answers, and collects each persona's advice: go, change, park or drop. You decide | `dybs/ideas/<slug>.md` |
+| `dybs-roadmap` | Proposes an order for the accepted ideas; you set it. Links only, so it cannot drift from the ideas | `dybs/roadmap.md` |
+
 ## Quality: test, review, gate, PR
 
-Five skills for any task or part of the code. Results go in
+Five skills that also work on their own, on any task or part of the code. Results go in
 `dybs/work/<task>/`, one folder per piece of work.
 
 | Skill | Does | Writes |
 |---|---|---|
 | `dybs-test-plan` | Risks (probability × impact), P0 to P3, the lowest test level that proves each behaviour, seams agreed with you, given/when/then scenarios, and a mechanical hunt for unhandled edge cases | `test-plan.md` |
 | `dybs-tests` | Red then green, one slice at a time; for existing code each new test is proven by breaking the code on purpose. Never skips or weakens a test | tests, plan status |
-| `dybs-review` | Separate axes, never ranked against each other: standards, spec, your `dybs/context` rules, and changed behaviour no test would catch | `review.md` |
+| `dybs-review` | Separate axes, never ranked against each other: standards, spec, your `dybs/context` rules, security, and changed behaviour no test would catch | `review.md` |
 | `dybs-gate` | Requirement → test matrix that counts only tests that really prove it; PASS, CONCERNS or FAIL computed by a script. Only you can waive, with a reason and an expiry; security gaps never | `gate.md` |
 | `dybs-pr` | PR text: one small picture of the change, before and after evidence, the gate result, one-way or two-way door and blast radius | `pr.md` |
 
 They share one vocabulary, `quality.md`, copied into each so every skill
 works on its own.
+
+### The work loop: an issue from start to merge
+
+```
+dybs-task → (dybs-test-plan) → dybs-build → dybs-review → (dybs-gate) → dybs-pr → merge → dybs-done
+```
+
+| Skill | Does | Writes |
+|---|---|---|
+| `dybs-task` | Turns an issue or an idea into one task: the ask, checkable acceptance, the files it touches. Shows the board | `task.md` |
+| `dybs-build` | Builds the task test first, fixes open review findings, keeps the task's status so a fresh session can resume | code, tests |
+| `dybs-done` | Closes a merged task and proposes what the context should learn from it | `task.md` |
+
+A small task (at most two files, three acceptance criteria, no domain rule)
+goes the **fast lane** and skips the test plan and the gate. Everything
+else goes the **full lane**. A script decides, from the task file, and you
+overrule it with `lane:` in the task's frontmatter:
+
+```
+node .claude/skills/dybs-task/scripts/dybs-route.mjs status dybs/work          # the board
+node .claude/skills/dybs-task/scripts/dybs-route.mjs next dybs/work/<task>     # the next skill, or what it waits on from you
+```
+
+The loop stops for you, and never decides for you: a gate FAIL, review
+findings that are questions, a step that gave up twice, three reviews
+without closing the findings, and the merge itself. See decision 0007.
 
 ### The right model for the task
 
@@ -105,8 +144,8 @@ smallest model that gets it right in few turns. A script scores each task
 table of model and effort per step:
 
 ```
-node .claude/skills/dybs-test-plan/scripts/dybs-route.mjs score dybs/work/<task>
-claude $(node .claude/skills/dybs-test-plan/scripts/dybs-route.mjs route dybs/work/<task> tests --flags) "/dybs-tests <task>"
+node .claude/skills/dybs-task/scripts/dybs-route.mjs score dybs/work/<task>
+claude $(node .claude/skills/dybs-task/scripts/dybs-route.mjs route dybs/work/<task> tests --flags) "/dybs-tests <task>"
 ```
 
 Small and medium tasks run on Sonnet; large ones plan, build and review on

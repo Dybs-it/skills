@@ -23,7 +23,7 @@ step starts, and a wrong guess must be corrected cheaply.
 
 ## Decision
 
-- **One table, as code:** `dybs-test-plan/scripts/dybs-route.mjs` maps step
+- **One table, as code:** `dybs-task/scripts/dybs-route.mjs` maps step
   and complexity (S, M, L, XL) to a model and an effort.
 - **Complexity is computed, not felt:** from the test plan and the code it
   names: files and lines in scope, folders touched, scenarios, test levels.

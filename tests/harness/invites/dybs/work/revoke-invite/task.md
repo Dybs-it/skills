@@ -1,6 +1,6 @@
 ---
 task: revoke-invite
-status: in-progress
+status: review
 ---
 
 # Revoke an invite

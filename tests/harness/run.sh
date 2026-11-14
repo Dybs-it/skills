@@ -25,7 +25,7 @@ fixture() { # dir
 step() { # dir skill step
   local flags=()
   if [ -n "$model" ]; then flags=(--model "$model"); [ -n "$effort" ] && flags+=(--effort "$effort")
-  else read -ra flags <<<"$(node "$1/.claude/skills/dybs-test-plan/scripts/dybs-route.mjs" route "$1/dybs/work/revoke-invite" "$3" --flags)"; fi
+  else read -ra flags <<<"$(node "$1/.claude/skills/dybs-task/scripts/dybs-route.mjs" route "$1/dybs/work/revoke-invite" "$3" --flags)"; fi
   (cd "$1" && timeout 1500 claude -p "/$2 revoke-invite. $NOTE" "${flags[@]}" --output-format json \
     --setting-sources project --strict-mcp-config --permission-mode acceptEdits --max-budget-usd 4 \
     --allowedTools "Bash Read Write Edit Glob Grep Agent Task Skill" > "$OUT/$label-$2.json" 2> "$OUT/$label-$2.err"

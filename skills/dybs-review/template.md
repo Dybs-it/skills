@@ -2,6 +2,8 @@
 task: {{task}}
 reviewed: {{commit sha}}
 against: {{fixed point}}
+round: 1
+status: current
 updated: {{YYYY-MM-DD}}
 ---
 
@@ -19,9 +21,14 @@ updated: {{YYYY-MM-DD}}
 
 <!-- Glossary, domain rules (D#), architecture boundaries, UX rules. -->
 
+## Security
+
+<!-- What the change newly exposes, each with the input that triggers it. -->
+
 ## Verification
 
 <!-- Changed behaviour no test would catch. Say how far you looked. -->
+<!-- Every finding, on every axis: - [ ] **V1** what, where, the smallest fix -->
 
 ## Summary
 

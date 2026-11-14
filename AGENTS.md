@@ -18,15 +18,21 @@
   `npm run sync-rules`.
 - `interview.md` is edited in `dybs-start` and copied to every Getting
   Started skill; `quality.md` is edited in `dybs-test-plan` and copied to
-  every quality skill. The groups live in `src/update.mjs`.
+  every quality skill (the work-loop skills `dybs-task`, `dybs-build` and
+  `dybs-done` are in that group). The groups live in `src/update.mjs`.
 - The gate decision is code (`skills/dybs-gate/scripts/dybs-gate.mjs`), not
   agent judgement. Change a rule there, in `quality.md`, and in the tests.
 - Which model and effort a step runs on is code too
-  (`skills/dybs-test-plan/scripts/dybs-route.mjs`: `ROUTES`, `BOUNDS`), read
+  (`skills/dybs-task/scripts/dybs-route.mjs`: `ROUTES`, `BOUNDS`), read
   by the skills and by any launcher. Change the table there and in the
   tests; tune it from run logs and `tests/runs/`, not by feel.
+- The order of the steps, the lanes and what a task needs next are code in
+  the same script (`next`, `taskInfo`, `findings`). A skill never decides
+  what runs next; it says what the script says.
 - After changing anything under `skills/`, run `npm run record-hashes`.
   `src/known-hashes.json` is append-only. `npm test` must pass.
+  CI (`.github/workflows/tests.yml`) runs the tests on Node 20 and 22 and
+  fails when generated text or hashes are not committed.
 - Practise what the skills preach: short, plain, no invented facts.
   No em dashes in any text.
 - A skill change is only done after a field run (`tests/PROTOCOL.md`) on
