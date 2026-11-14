@@ -1,8 +1,10 @@
 # Dybs.it skills
 
-The Dybs method as agent skills: a short, human-accepted project context
-that AI coding agents build from. Phase 1 ships **Getting Started**. Ideas,
-roadmap and the work loop follow (see [docs/ROADMAP.md](docs/ROADMAP.md)).
+The Dybs method as agent skills, from a first idea to a merged change: a
+short, human-accepted project context (**Getting Started**), **ideas** and
+a **roadmap**, and a **work loop** that takes one issue through build,
+review, the quality gate and the PR. Agents draft and advise; you decide.
+What is built and what is still unproven: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install
 
@@ -94,14 +96,14 @@ dybs-idea → the human decides → dybs-roadmap → dybs-task
 
 ## Quality: test, review, gate, PR
 
-Five skills for any task or part of the code. Results go in
+Five skills that also work on their own, on any task or part of the code. Results go in
 `dybs/work/<task>/`, one folder per piece of work.
 
 | Skill | Does | Writes |
 |---|---|---|
 | `dybs-test-plan` | Risks (probability × impact), P0 to P3, the lowest test level that proves each behaviour, seams agreed with you, given/when/then scenarios, and a mechanical hunt for unhandled edge cases | `test-plan.md` |
 | `dybs-tests` | Red then green, one slice at a time; for existing code each new test is proven by breaking the code on purpose. Never skips or weakens a test | tests, plan status |
-| `dybs-review` | Separate axes, never ranked against each other: standards, spec, your `dybs/context` rules, and changed behaviour no test would catch | `review.md` |
+| `dybs-review` | Separate axes, never ranked against each other: standards, spec, your `dybs/context` rules, security, and changed behaviour no test would catch | `review.md` |
 | `dybs-gate` | Requirement → test matrix that counts only tests that really prove it; PASS, CONCERNS or FAIL computed by a script. Only you can waive, with a reason and an expiry; security gaps never | `gate.md` |
 | `dybs-pr` | PR text: one small picture of the change, before and after evidence, the gate result, one-way or two-way door and blast radius | `pr.md` |
 
