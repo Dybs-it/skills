@@ -27,6 +27,8 @@
   tests; tune it from run logs and `tests/runs/`, not by feel.
 - After changing anything under `skills/`, run `npm run record-hashes`.
   `src/known-hashes.json` is append-only. `npm test` must pass.
+  CI (`.github/workflows/tests.yml`) runs the tests on Node 20 and 22 and
+  fails when generated text or hashes are not committed.
 - Practise what the skills preach: short, plain, no invented facts.
   No em dashes in any text.
 - A skill change is only done after a field run (`tests/PROTOCOL.md`) on

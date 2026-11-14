@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Pinned: the tests exercise file modes and owners, so the image should
+    # change when we choose, not when ubuntu-latest moves.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # No dependencies to install: the package has none.
+      - run: npm test
+      # Generated text and fingerprints must be committed with their source.
+      - name: Generated files are up to date
+        run: |
+          npm run sync-rules
+          npm run record-hashes
+          git diff --exit-code
