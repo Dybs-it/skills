@@ -4346,3 +4346,12 @@ test('an added file is rolled back even when the look at it right after placing 
   assert.ok(!existsSync(target), 'the added file is not left installed');
   rmSync(root, { recursive: true });
 });
+
+test('a decision record starts proposed: only the human accepts one', () => {
+  // Field run 2026-11-14: a record inferred from CLAUDE.md was written as accepted.
+  const tpl = readFileSync(join(SKILLS_SRC, 'dybs-architecture', 'decision-template.md'), 'utf8');
+  assert.match(tpl, /^status: proposed$/m);
+  const skill = readFileSync(join(SKILLS_SRC, 'dybs-architecture', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(skill, /Every record you write is `status: proposed`/);
+  assert.match(skill, /Only the human's word makes it `accepted`/);
+});

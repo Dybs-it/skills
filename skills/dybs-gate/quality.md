@@ -1,7 +1,7 @@
 # Dybs quality vocabulary
 
-Shared by `dybs-test-plan`, `dybs-tests`, `dybs-review`, `dybs-gate` and
-`dybs-pr`. An identical copy sits in each of those skill folders so each one
+Shared by `dybs-task`, `dybs-test-plan`, `dybs-build`, `dybs-tests`,
+`dybs-review`, `dybs-gate`, `dybs-pr` and `dybs-done`. An identical copy sits in each of those skill folders so each one
 works on its own. Edit it in `dybs-test-plan` and copy it to the others.
 
 Adapted, not copied, from: BMad Method's Test Architect module (risk scoring,
@@ -17,7 +17,7 @@ Everything about one piece of work goes in `dybs/work/<task>/`:
 
 ```
 dybs/work/<task>/
-  task.md         what is asked (written later by the work loop, or by hand)
+  task.md         what is asked, and the task's status (dybs-task)
   test-plan.md    dybs-test-plan
   review.md       dybs-review
   gate.md         dybs-gate
@@ -31,6 +31,51 @@ It holds only letters and digits (in any script), `.`, `_` and `-`, and
 starts with a letter or digit, so it is safe in a shell command as written. A folder named otherwise
 is renamed first (ask the human); never run a command with such a name in it.
 Edit these files in place; never rewrite one from memory.
+
+## Task
+
+`task.md` has frontmatter (`task`, `status`, `source`, `created`, `updated`,
+and optionally `lane` and `complexity`, which only the human writes) and
+these sections: **Ask** (what was asked, in the asker's words),
+**Acceptance** (one checkable line each, citing `R#`/`D#`), **Touches** (the
+files it will change, as paths in code spans), **Out of scope**, **Open
+questions**, and **Learned** once it is done.
+
+`status` is the task's state, so a fresh session can pick it up:
+
+| Status | Means | Set by |
+|---|---|---|
+| `open` | written, nothing built | `dybs-task` |
+| `building` | a build is in flight or stopped part-way | `dybs-build`, before it changes code |
+| `review` | built; everything asked is green | `dybs-build`, when it finishes |
+| `done` | merged and closed | `dybs-done` |
+| `stopped` | stopped on purpose, with a line why | the human; only they clear it |
+
+## Lanes
+
+Not every task needs every step. The lane is computed from `task.md` by
+`dybs-task/scripts/dybs-route.mjs`:
+
+- **fast:** build, review, PR, done. For a task that touches at most two
+  files of at most 600 lines together, has at most three acceptance
+  criteria and cites no domain rule (`D#`).
+- **full:** test plan, build, review, gate, PR, done. Everything else, and
+  any task that names no file or no acceptance criterion.
+
+The human overrules it with `lane: fast` or `lane: full` in the task's
+frontmatter. `node '<skills>/dybs-task/scripts/dybs-route.mjs' next
+'dybs/work/<task>'` names the next step, or what the task waits on from the
+human; `status 'dybs/work'` prints the board. Both read the files and store
+nothing.
+
+A review's findings are checklist items, so the loop can see what is open:
+`- [ ] **V1** ...` is open, `- [x] **V1** ...` is closed (with the test or
+change that closed it), and an open one marked `(needs human: ...)` is a
+question for the human, not a fix. The letter is the axis: `S` standards,
+`P` spec, `C` context, `V` verification. After a review with open findings
+the task goes back to `dybs-build`; a build that changes code sets
+`status: stale` in `review.md`, and the change is reviewed again, at most
+three times before it goes to the human.
 
 ## Test plan layout
 
@@ -134,8 +179,8 @@ Never skip, delete or weaken a test to get green.
 ## Model, effort and the run log
 
 How strong a model a step needs depends on the task's **complexity**: S, M,
-L or XL. `dybs-test-plan/scripts/dybs-route.mjs` computes it from the test
-plan and the code it names (files and lines in scope, folders touched,
+L or XL. `dybs-task/scripts/dybs-route.mjs` computes it from the test
+plan (or, before there is one, from the task) and the code it names (files and lines in scope, folders touched,
 scenarios, test levels; what the plan only judges, such as risk scores, adds
 one point at most), so the same plan always gives the same answer. The human
 overrules it with `complexity: L` in the plan's frontmatter. The script also
@@ -143,12 +188,12 @@ holds the table of model and effort per step and complexity.
 
 - **Whoever starts a step picks the model**, because a skill cannot change
   the model it runs on:
-  `claude $(node '<skills>/dybs-test-plan/scripts/dybs-route.mjs' route 'dybs/work/<task>' tests --flags) "/dybs-tests <task>"`
+  `claude $(node '<skills>/dybs-task/scripts/dybs-route.mjs' route 'dybs/work/<task>' tests --flags) "/dybs-tests <task>"`
 - **Every step logs once, at its end:**
-  `node '<skills>/dybs-test-plan/scripts/dybs-route.mjs' log 'dybs/work/<task>' <step> done --ran-on '<the model you are>'`
+  `node '<skills>/dybs-task/scripts/dybs-route.mjs' log 'dybs/work/<task>' <step> done --ran-on '<the model you are>'`
   with `stuck` instead of `done` when the step gave up, and
-  `--note '<one line>'` for why. `<step>` is `test-plan`, `tests`, `review`,
-  `gate` or `pr`. Add it to the last shell command you run anyway, so it
+  `--note '<one line>'` for why. `<step>` is `task`, `test-plan`, `build`,
+  `tests`, `review`, `gate`, `pr` or `done`. Add it to the last shell command you run anyway, so it
   costs no extra turn. It appends one line to `dybs/work/<task>/log.md`;
   never edit that file by hand.
 - **Say it when the model does not fit.** The script prints the route. When

@@ -1,9 +1,10 @@
 # Roadmap
 
-Built: phase 1 (Getting Started) and the quality skills (test plan, tests,
-review, gate, PR), which work on their own. The work loop that will connect
-them is not built. Each later phase is drafted here, so its design can be
-argued with before any skill exists. Each phase ships only after the
+Built: phase 1 (Getting Started) and phase 4 (the work loop: task, test
+plan, build, review, gate, PR, done). Ideas and the roadmap, phases 2 and 3,
+are not built: a task starts from an issue or a description. Each later
+phase is drafted here, so its design can be argued with before any skill
+exists. Each phase ships only after the
 previous one passes the field test (`tests/PROTOCOL.md`).
 
 ## 0. Distribution (v0.2, built)
@@ -60,70 +61,60 @@ dybs/roadmap.md         an ordered list of links to accepted ideas, nothing else
 - `dybs-roadmap`: propose an order (value, risk, dependencies), the human
   reorders. Kept as links so it can never drift from the ideas.
 
-## 4. Work loop
+## 4. Work loop (v0.5, built, one machine run)
 
-**Built ahead of the loop (v0.4):** `dybs-test-plan`, `dybs-tests`,
-`dybs-review`, `dybs-gate` and `dybs-pr` work on any task or part of the
-code, writing to `dybs/work/<task>/`. The loop below will create `task.md`
-there and call them; a task is a folder, not a single file. See decision
-0004.
-
-**Model routing and run log (built, unverified above S):** a script scores
-each task S, M, L or XL from its test plan and names the model and effort
-per step; every run appends a line to the task's `log.md`. See decision
-0005. Next: build the gate's items table by script (six runs on one task
-gave three different decisions), and measure an L and an XL task.
-
+```
+dybs-task → (dybs-test-plan) → dybs-build → dybs-review → (dybs-gate) → dybs-pr → merge → dybs-done
+```
 
 ```
 dybs/work/<task>/       one folder per task
-  task.md               what is asked; status lives in its frontmatter
-  test-plan.md, review.md, gate.md, pr.md   written by the quality skills
+  task.md               what is asked; its status is the task's state
+  test-plan.md, review.md, gate.md, pr.md, log.md   written by the steps
 ```
 
-- `dybs-to-tasks`: split an accepted idea into tasks. Each task cites its
-  idea, the requirements and domain rules it touches, and acceptance checks.
-  Vertical slices that can each be verified alone.
-  Candidate, unproven: a ready test per task. A fresh agent reads the task
-  and the code and lists what it had to guess. Build only if field runs of
-  `dybs-build` show rework caused by missed callers or modules.
-- `dybs-build`: implement one task test-first against the context.
-- `dybs-review` (built): check the change against the task's spec, the
-  repo's standards, the domain rules and boundaries, and verification gaps.
-- `dybs-checkin`: the one-screen brief at the moments the human chose.
+- `dybs-task`: an issue or an idea becomes one task with acceptance
+  criteria and the files it touches. Shows the board.
+- `dybs-build`: builds test first, fixes open review findings, resumes
+  from the task's status.
+- `dybs-review`, `dybs-gate`, `dybs-pr`: as before; findings are checklist
+  items so the loop can see what is open.
+- `dybs-done`: closes a merged task and proposes what the context should
+  learn.
+- `dybs-test-plan`, `dybs-tests`: the plan for the full lane, and tests for
+  existing code outside the loop.
 
-Rules decided now, from lessons in the Dybs repo:
+A script (`dybs-task/scripts/dybs-route.mjs`) computes the lane (fast or
+full), the next step, the board, the task's size and the model and effort
+per step. See decisions 0004, 0005, 0006 and 0007.
+
+Rules, from lessons in the Dybs repo:
 
 - **One folder per task, never one shared board file.** A shared status
   file lost every row three times when parallel agents rewrote it. The board
-  is derived by reading each task's `task.md` frontmatter.
-- **Check-ins are configured per idea**, with per-task overrides:
-  `after-grill`, `after-tasks`, `before-build`, `after-review`, `none`.
-- **Safety stops are fixed and few:** destructive or outward actions,
-  contradictions with accepted context, repeated failure.
+  is derived by reading each task's `task.md`.
+- **Safety stops are fixed and few:** a gate FAIL, findings that are
+  questions, a step that gave up twice, three reviews without closing the
+  findings, a stopped task, and the merge.
+- **Runtime state is not work state.** An agent going idle, exiting or being
+  resumed never moves a task. Only its files do.
 
-Interruption and resume (decision 0006, proposed, unproven). The human may
-close the terminal at any moment. A fresh agent running the same skill must
-pick up from the task file alone:
+Open:
 
-- **Write the step before acting.** Task frontmatter holds `status` and
-  `step`, edited in place before each step that changes files or runs
-  commands.
-- **Mark a run in flight.** `run:` holds the start time and is cleared at
-  each check-in. A skill that finds it set says which step was interrupted
-  and checks that step's effect on disk before doing it again.
-- **Steps are safe to run twice.** Edit in place, re-run tests, never
-  append blindly. No runtime can promise a prompt was not already sent.
-- **A deliberate stop is recorded.** `status: stopped` with a line why. A
-  skill never restarts a stopped task; only the human clears it.
-- **Runtime state is not work state.** An agent going idle, exiting or
-  being resumed never moves a task. Only review and the human's word do.
-
-Pass when a field run kills the terminal mid-`dybs-build`, and a fresh
-session names the interrupted step and neither redoes nor skips it.
-
-Borrowed: TDD loop and issue slicing (Matt Pocock), story structure and
-code review lenses (BMad).
+- **Split an idea into several tasks** (`dybs-to-tasks`). Today one issue is
+  one task.
+- **Check-ins per task.** The loop follows `checkins:` in `project.md`; there
+  is no per-task setting yet.
+- **The gate's items table is agent-built.** Six runs of one task gave three
+  decisions. Build the table by script from the test plan.
+- **Resume inside a step.** `status: building` says a build stopped
+  part-way; there is no `step:` marker finer than that. Pass when a field
+  run kills the terminal mid-`dybs-build` and a fresh session neither redoes
+  nor skips work.
+- **Measured only at size S.** The fast-lane limits, the size bounds and the
+  Opus and Fable rows of the routing table need an L and an XL task.
+- **A per-task ready test** (candidate, unproven): a fresh agent reads the
+  task and the code and lists what it had to guess.
 
 ## 5. Dybs app integration
 

@@ -121,7 +121,8 @@ so do not assume the others are present.
 - **No `dybs/context/`:** work without it. Say in the check-in which context
   was missing (requirements, domain rules, architecture boundaries, UX
   rules), because findings that depend on it could not be made.
-- **No test plan** in `dybs/work/<task>/`: `dybs-test-plan` writes it (when
+- **No test plan** in `dybs/work/<task>/`: a task in the fast lane has none
+  by design (see "Lanes" in `quality.md`). Otherwise `dybs-test-plan` writes it (when
   you are `dybs-test-plan`, that is your job now). Any other quality skill
   suggests `dybs-test-plan`; if it is not installed, agree the acceptance
   criteria, risks and seams with the human in one round and write them to
@@ -133,4 +134,7 @@ so do not assume the others are present.
   `Decision: not computed (no gate script)`, list what looks blocking against
   the rules in `quality.md`, and say it must be computed before merging. It
   never counts as PASS.
+- **No routing script** (`dybs-task/scripts/dybs-route.mjs`), or no Node: skip
+  the run log and say so. Take the next step from the order in `quality.md`,
+  and stay on the model you are.
 - **No `dybs/team.md`:** work without a persona; the rules here still apply.

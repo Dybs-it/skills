@@ -4,10 +4,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { score, route, logLine, STEPS, LEVELS, MODELS, EFFORTS, ROUTES } from '../skills/dybs-test-plan/scripts/dybs-route.mjs';
+import { score, route, logLine, taskInfo, findings, next, STEPS, SKILLS, LEVELS, MODELS, EFFORTS, ROUTES, MAX_ROUNDS } from '../skills/dybs-task/scripts/dybs-route.mjs';
 import { SKILLS_SRC, QUALITY } from '../src/update.mjs';
 
-const SCRIPT = join(SKILLS_SRC, 'dybs-test-plan/scripts/dybs-route.mjs');
+const SCRIPT = join(SKILLS_SRC, 'dybs-task/scripts/dybs-route.mjs');
 const run = (...args) => spawnSync('node', [SCRIPT, ...args], { encoding: 'utf8' });
 
 const plan = ({ files = ['src/a.js'], scenarios = 3, level = 'unit', risk = 4, p0 = 1, extra = '' } = {}) => `---
@@ -60,7 +60,7 @@ function project(opts = {}, sizes = {}) {
 }
 
 test('the routing table names a known model and effort for every step and complexity', () => {
-  assert.deepEqual(Object.keys(ROUTES), STEPS);
+  assert.deepEqual(Object.keys(ROUTES).sort(), [...STEPS].sort());
   for (const s of STEPS) for (const l of LEVELS) {
     const [m, e] = ROUTES[s][l];
     assert.ok(MODELS.includes(m) && EFFORTS.includes(e), `${s} ${l}`);
@@ -162,7 +162,7 @@ test('stuck names the stronger model to run the step on', () => {
 
 test('an unknown step, event or task folder is refused and nothing is logged', () => {
   const { dir, root } = project();
-  assert.equal(run('log', dir, 'build', 'done').status, 2);
+  assert.equal(run('log', dir, 'deploy', 'done').status, 2);
   assert.equal(run('log', dir, 'tests', 'finished').status, 2);
   assert.equal(run('route', join(root, 'nope'), 'tests').status, 2);
   mkdirSync(join(root, 'dybs/work/$(x)'));
@@ -178,4 +178,160 @@ test('every quality skill tells the agent to log its run, and quality.md says ho
   const q = readFileSync(join(SKILLS_SRC, 'dybs-test-plan/quality.md'), 'utf8');
   assert.ok(q.includes('## Model, effort and the run log') && q.includes('dybs-route.mjs'));
   for (const s of STEPS) assert.ok(q.includes(`\`${s}\``), s);
+});
+
+// --- The work loop: lanes, findings, what a task needs next ---
+
+const task = ({ status = 'open', files = ['src/a.js'], criteria = 2, rule = '', extra = '' } = {}) => `---
+task: t
+status: ${status}
+${extra}---
+
+# T
+
+## Ask
+
+Make it work${rule}.
+
+## Acceptance
+
+${Array.from({ length: criteria }, (_, i) => `- it does thing ${i + 1}`).join('\n')}
+
+## Touches
+
+${files.map((f) => `- \`${f}\``).join('\n')}
+
+## Out of scope
+
+- \`other/not-this.js\`
+`;
+const review = ({ open = 0, fixed = 0, human = 0, round = 1, status = 'current' } = {}) => [
+  '---', 'task: t', `round: ${round}`, `status: ${status}`, '---', '', '## Verification', '',
+  ...Array.from({ length: open }, (_, i) => `- [ ] **V${i + 1}** a behaviour no test would catch`),
+  ...Array.from({ length: fixed }, (_, i) => `- [x] **P${i + 1}** done, test/a.test.js:${i + 1}`),
+  ...Array.from({ length: human }, (_, i) => `- [ ] **S${i + 1}** rename the module (needs human: a design question)`),
+  '',
+].join('\n');
+const gateMd = (d) => `---\ntask: t\n---\n\n## Decision\n\nDecision: ${d}\n`;
+const logMd = (...ev) => ev.map(([s, e]) => `- 2026-11-14T10:00Z | ${s} | ${e} | complexity S | routed sonnet medium`).join('\n') + '\n';
+const step = (files) => { const n = next(files); return n.kind === 'run' ? n.step : `${n.kind}:${n.reason ?? ''}`; };
+
+test('every step has a skill and a route', () => {
+  assert.deepEqual(Object.keys(SKILLS).sort(), [...STEPS].sort());
+});
+
+test('a small task goes the fast lane; size, criteria, a domain rule or a missing file list send it the full one', () => {
+  assert.equal(taskInfo(task()).lane, 'fast');
+  assert.equal(taskInfo(task({ files: ['a.js', 'b.js', 'c.js'] })).lane, 'full');
+  assert.equal(taskInfo(task({ criteria: 4 })).lane, 'full');
+  assert.equal(taskInfo(task({ rule: ' and keep D2' })).lane, 'full');
+  assert.equal(taskInfo(task({ files: [] })).lane, 'full');
+  assert.equal(taskInfo(task({ criteria: 0 })).lane, 'full');
+});
+
+test('files named as out of scope do not push a task out of the fast lane', () => {
+  assert.equal(taskInfo(task({ files: ['a.js', 'b.js'] })).lane, 'fast');
+});
+
+test("the human's lane wins either way, and an unknown lane is ignored", () => {
+  assert.equal(taskInfo(task({ files: ['a.js', 'b.js', 'c.js'], extra: 'lane: fast\n' })).lane, 'fast');
+  assert.equal(taskInfo(task({ extra: 'lane: full\n' })).lane, 'full');
+  assert.equal(taskInfo(task({ extra: 'lane: express\n' })).lane, 'fast');
+});
+
+test('with the project at hand, large files send a two-file task the full lane', () => {
+  const { root, dir } = project({ files: ['src/a.js'] }, { 'src/a.js': 700 });
+  writeFileSync(join(dir, 'task.md'), task());
+  execFileSync('rm', [join(dir, 'test-plan.md')]);
+  const out = JSON.parse(run('next', dir, '--json').stdout);
+  assert.equal(out.step, 'test-plan', JSON.stringify(out));
+  assert.ok(root);
+});
+
+test('findings are counted from checklist items: open, fixed, and questions for the human', () => {
+  assert.deepEqual(findings(review({ open: 2, fixed: 3, human: 1, round: 2 })), { total: 6, fixed: 3, open: 2, human: 1, stale: false, round: 2 });
+  assert.equal(findings(review({ status: 'stale' })).stale, true);
+  assert.equal(findings('- [ ] **V1** {{what}}').total, 0);
+  assert.equal(findings('<!--\n- [ ] **V1** hidden\n-->').total, 0);
+});
+
+test('the fast lane runs build, review, pr, and then waits for the merge', () => {
+  const f = {};
+  assert.equal(step(f), 'task');
+  f.task = task();
+  assert.equal(step(f), 'build');
+  f.task = task({ status: 'building' });
+  assert.equal(step(f), 'build');
+  f.task = task({ status: 'review' });
+  assert.equal(step(f), 'review');
+  f.review = review();
+  assert.equal(step(f), 'pr');
+  f.pr = '# PR';
+  assert.equal(step(f), 'stop:merge');
+  f.task = task({ status: 'done' });
+  assert.deepEqual(next(f), { kind: 'done' });
+});
+
+test('the full lane adds the test plan and the gate', () => {
+  const f = { task: task({ criteria: 5 }) };
+  assert.equal(step(f), 'test-plan');
+  f.testPlan = plan({ scenarios: 2 });
+  assert.equal(step(f), 'build');
+  f.testPlan = plan({ scenarios: 2 }).replaceAll('| planned |', '| green |');
+  f.task = task({ criteria: 5, status: 'review' });
+  assert.equal(step(f), 'review');
+  f.review = review();
+  assert.equal(step(f), 'gate');
+  f.gate = gateMd('not computed (no gate script)');
+  assert.equal(step(f), 'gate');
+  f.gate = gateMd('PASS');
+  assert.equal(step(f), 'pr');
+});
+
+test('a task marked review still builds while a scenario is planned', () => {
+  assert.equal(step({ task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 1 }) }), 'build');
+});
+
+test('a gate FAIL stops for the human and never reaches the PR', () => {
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 0 }), review: review(), gate: gateMd('FAIL') };
+  assert.equal(step(f), 'stop:gate-fail');
+});
+
+test('open findings send the task back to build; a stale review is reviewed again', () => {
+  const f = { task: task({ status: 'review' }), review: review({ open: 2 }) };
+  assert.equal(step(f), 'build');
+  f.review = review({ fixed: 2, status: 'stale' });
+  assert.equal(step(f), 'review');
+  f.review = review({ fixed: 2, round: 2 });
+  assert.equal(step(f), 'pr');
+});
+
+test('findings that are questions stop for the human once the fixable ones are closed', () => {
+  assert.equal(step({ task: task({ status: 'review' }), review: review({ open: 1, human: 1 }) }), 'build');
+  assert.equal(step({ task: task({ status: 'review' }), review: review({ fixed: 1, human: 1 }) }), 'stop:findings');
+});
+
+test('the fix loop ends: findings still open after the last round go to the human', () => {
+  assert.equal(step({ task: task({ status: 'review' }), review: review({ open: 1, round: MAX_ROUNDS }) }), 'stop:review-rounds');
+  assert.equal(step({ task: task({ status: 'review' }), review: review({ fixed: 1, round: MAX_ROUNDS, status: 'stale' }) }), 'stop:review-rounds');
+});
+
+test('a step that gave up runs once more one model up, then goes to the human', () => {
+  const f = { task: task() };
+  assert.deepEqual(next({ ...f, log: logMd(['build', 'stuck']) }), { kind: 'run', step: 'build', skill: 'dybs-build', escalate: true });
+  assert.equal(step({ ...f, log: logMd(['build', 'stuck'], ['build', 'stuck']) }), 'stop:stuck');
+});
+
+test('a stopped task is never started again by the loop', () => {
+  assert.equal(step({ task: task({ status: 'stopped' }) }), 'stop:stopped');
+});
+
+test('status prints the board from the task folders and stores nothing', () => {
+  const { root, dir } = project();
+  writeFileSync(join(dir, 'task.md'), task({ status: 'review' }));
+  execFileSync('rm', [join(dir, 'test-plan.md')]);
+  mkdirSync(join(root, 'dybs/work/empty'));
+  const b = JSON.parse(run('status', join(root, 'dybs/work'), '--json').stdout);
+  assert.deepEqual(b.map((r) => [r.task, r.status, r.next]), [['empty', 'no task.md', 'task'], ['t', 'review', 'review']]);
+  assert.match(run('status', join(root, 'dybs/work')).stdout, /\| t \| review \| fast \| S \| review \|/);
 });

@@ -97,6 +97,32 @@ Five skills for any task or part of the code. Results go in
 They share one vocabulary, `quality.md`, copied into each so every skill
 works on its own.
 
+### The work loop: an issue from start to merge
+
+```
+dybs-task → (dybs-test-plan) → dybs-build → dybs-review → (dybs-gate) → dybs-pr → merge → dybs-done
+```
+
+| Skill | Does | Writes |
+|---|---|---|
+| `dybs-task` | Turns an issue or an idea into one task: the ask, checkable acceptance, the files it touches. Shows the board | `task.md` |
+| `dybs-build` | Builds the task test first, fixes open review findings, keeps the task's status so a fresh session can resume | code, tests |
+| `dybs-done` | Closes a merged task and proposes what the context should learn from it | `task.md` |
+
+A small task (at most two files, three acceptance criteria, no domain rule)
+goes the **fast lane** and skips the test plan and the gate. Everything
+else goes the **full lane**. A script decides, from the task file, and you
+overrule it with `lane:` in the task's frontmatter:
+
+```
+node .claude/skills/dybs-task/scripts/dybs-route.mjs status dybs/work          # the board
+node .claude/skills/dybs-task/scripts/dybs-route.mjs next dybs/work/<task>     # the next skill, or what it waits on from you
+```
+
+The loop stops for you, and never decides for you: a gate FAIL, review
+findings that are questions, a step that gave up twice, three reviews
+without closing the findings, and the merge itself. See decision 0007.
+
 ### The right model for the task
 
 Tokens are mostly fixed context times turns, so the cheapest run is the
@@ -105,8 +131,8 @@ smallest model that gets it right in few turns. A script scores each task
 table of model and effort per step:
 
 ```
-node .claude/skills/dybs-test-plan/scripts/dybs-route.mjs score dybs/work/<task>
-claude $(node .claude/skills/dybs-test-plan/scripts/dybs-route.mjs route dybs/work/<task> tests --flags) "/dybs-tests <task>"
+node .claude/skills/dybs-task/scripts/dybs-route.mjs score dybs/work/<task>
+claude $(node .claude/skills/dybs-task/scripts/dybs-route.mjs route dybs/work/<task> tests --flags) "/dybs-tests <task>"
 ```
 
 Small and medium tasks run on Sonnet; large ones plan, build and review on

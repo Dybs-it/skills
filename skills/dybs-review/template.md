@@ -2,6 +2,8 @@
 task: {{task}}
 reviewed: {{commit sha}}
 against: {{fixed point}}
+round: 1
+status: current
 updated: {{YYYY-MM-DD}}
 ---
 
@@ -22,6 +24,7 @@ updated: {{YYYY-MM-DD}}
 ## Verification
 
 <!-- Changed behaviour no test would catch. Say how far you looked. -->
+<!-- Every finding, on every axis: - [ ] **V1** what, where, the smallest fix -->
 
 ## Summary
 

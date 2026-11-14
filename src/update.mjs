@@ -47,7 +47,7 @@ function walk(dir) {
 // Skill groups. Getting Started skills share interview.md and the doc rules;
 // quality skills share quality.md. A test keeps these lists complete.
 export const GETTING_STARTED = ['dybs-start', 'dybs-prd', 'dybs-scope', 'dybs-domain', 'dybs-architecture', 'dybs-ux', 'dybs-ui', 'dybs-check'];
-export const QUALITY = ['dybs-test-plan', 'dybs-tests', 'dybs-review', 'dybs-gate', 'dybs-pr'];
+export const QUALITY = ['dybs-task', 'dybs-test-plan', 'dybs-build', 'dybs-tests', 'dybs-review', 'dybs-gate', 'dybs-pr', 'dybs-done'];
 
 export function skillNames() {
   return readdirSync(SKILLS_SRC).filter((n) => existsSync(join(SKILLS_SRC, n, 'SKILL.md'))).sort();

@@ -286,6 +286,10 @@ Write a decision record only when all three hold: **hard to reverse**,
 **surprising** to a future reader without context, and the result of a
 **real trade-off** between alternatives.
 
+Every record you write is `status: proposed`, also when the decision was
+already made and you only found it in the code or the docs. Only the human's
+word makes it `accepted`.
+
 ### ux
 
 *core*

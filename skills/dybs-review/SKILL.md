@@ -95,6 +95,15 @@ finding.
 ## 4. Write the review
 
 One section per axis, findings as the sub-agent gave them, lightly cleaned.
+Each finding is one checklist item with an id, `- [ ] **V1** ...`, where the
+letter is the axis (`S`, `P`, `C`, `V`): see "Lanes" in `quality.md`. A
+finding that is a design question rather than a fix ends with
+`(needs human: <why>)`.
+
+When `review.md` already exists this is a later round: keep the ticked
+findings as they are, check that each one really is closed (untick it and
+say why if not), add new findings with new ids, add one to `round:` in the
+frontmatter and set `status: current`.
 **Do not merge or rerank across axes:** code can follow every standard and
 still do the wrong thing, or do the right thing against every convention,
 and one axis must not hide the other. End with one line: the number of
@@ -116,7 +125,8 @@ so do not assume the others are present.
 - **No `dybs/context/`:** work without it. Say in the check-in which context
   was missing (requirements, domain rules, architecture boundaries, UX
   rules), because findings that depend on it could not be made.
-- **No test plan** in `dybs/work/<task>/`: `dybs-test-plan` writes it (when
+- **No test plan** in `dybs/work/<task>/`: a task in the fast lane has none
+  by design (see "Lanes" in `quality.md`). Otherwise `dybs-test-plan` writes it (when
   you are `dybs-test-plan`, that is your job now). Any other quality skill
   suggests `dybs-test-plan`; if it is not installed, agree the acceptance
   criteria, risks and seams with the human in one round and write them to
@@ -128,4 +138,7 @@ so do not assume the others are present.
   `Decision: not computed (no gate script)`, list what looks blocking against
   the rules in `quality.md`, and say it must be computed before merging. It
   never counts as PASS.
+- **No routing script** (`dybs-task/scripts/dybs-route.mjs`), or no Node: skip
+  the run log and say so. Take the next step from the order in `quality.md`,
+  and stay on the model you are.
 - **No `dybs/team.md`:** work without a persona; the rules here still apply.
