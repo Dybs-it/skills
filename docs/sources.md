@@ -70,6 +70,7 @@ they care about, what they always ask, what they won't accept.
 
 `dybs-start/scripts/dybs-validate.mjs` (doc contract, depths, acceptance),
 `dybs-gate/scripts/dybs-gate.mjs` (gate decision) and
+`dybs-start/scripts/dybs-probe.mjs` (what the repository shows, read-only),
 `dybs-task/scripts/dybs-route.mjs` (task complexity, model and effort
 per step, the run log).
 
@@ -139,6 +140,18 @@ Writes `context/ui.md`: tone, token roles, components, do and don't, pointing
 to tokens in code when they exist.
 
 - **Our own:** all of it.
+
+### `dybs-working`
+
+How the work is done on this project: what is tested and how, GitHub and
+where issues live, the pull request policy, and which agents and runtime do
+the work. The work loop reads it. Ships no script of its own; it uses
+`dybs-start/scripts/dybs-probe.mjs`.
+
+- **Our own:** the doc, its machine-readable frontmatter, and the rule that
+  facts are probed and only decisions are asked.
+- **Inspired by TEA** `testarch-framework` and `testarch-ci`: a project
+  states its test levels and what CI must show. No text taken.
 
 ### `dybs-check`
 

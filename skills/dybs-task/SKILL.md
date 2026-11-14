@@ -33,8 +33,10 @@ it is waiting on from the human.
 
 ## 1. Take the ask
 
-From an issue link or number, read the issue with the tools you have (its
-title, body and comments). From a description, take the human's words. Copy
+From an issue link or number, read the issue (its title, body and
+comments): with `gh issue view <number> --comments` when
+`dybs/context/working.md` says `github: yes` and `gh` is signed in,
+otherwise with the tools you have. From a description, take the human's words. Copy
 the ask into the task as it was said, in two to five lines. Do not improve
 it: what the human asked is the spec.
 

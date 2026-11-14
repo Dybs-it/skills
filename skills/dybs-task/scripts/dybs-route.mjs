@@ -454,6 +454,9 @@ export function next(files, { root = null } = {}) {
     // what the step wrote down.
     if (gate === null) return once('gate', 'there is still no gate decision (stale evidence, or the gate was not computed)');
   }
+  // dybs/context/working.md may say this project uses no pull requests:
+  // then there is no PR text to write, and the merge is the human's own.
+  if (f.pullRequests === 'none') return stop('merge', 'This project uses no pull requests. Merge the branch yourself, then run dybs-done to close the task.');
   if (!has(f.pr)) return once('pr', 'there is still no pr.md');
   return stop('merge', 'The PR text is ready. Open and merge the PR, then run dybs-done to close the task.');
 }
@@ -461,7 +464,22 @@ export function next(files, { root = null } = {}) {
 export function nextForTask(dir) {
   const files = { task: read(dir, 'task.md'), testPlan: read(dir, 'test-plan.md'), review: read(dir, 'review.md'), gate: read(dir, 'gate.md'), pr: read(dir, 'pr.md'), log: read(dir, 'log.md') };
   if (files.gate !== null) files.gateDecision = askGate(dir);
+  files.pullRequests = working(dir)['pull-requests'] || null;
   return next(files, { root: projectRoot(dir) });
+}
+
+// What dybs/context/working.md says in its frontmatter (github, issues,
+// pull-requests, runtime): the settings a script may act on. {} when the
+// project has no such doc.
+export function working(dir) {
+  const root = projectRoot(dir);
+  if (!root) return {};
+  const text = read(join(root, 'dybs', 'context'), 'working.md');
+  if (text === null) return {};
+  const fm = frontmatter(text);
+  const out = {};
+  for (const k of ['github', 'issues', 'pull-requests', 'runtime']) if (fm[k]) out[k] = fm[k].toLowerCase();
+  return out;
 }
 
 // The board: one row per task folder, read from the files. Nothing is stored.

@@ -20,6 +20,7 @@ const TEMPLATES = {
   architecture: 'skills/dybs-architecture/template.md',
   ux: 'skills/dybs-ux/template.md',
   ui: 'skills/dybs-ui/template.md',
+  working: 'skills/dybs-working/template.md',
 };
 
 function copySample() {
@@ -860,7 +861,9 @@ test('checkins: none refuses any thorough doc', () => {
   assert.ok(!project('').rules.includes('checkins'), project('').errors.join('; '));
   assert.ok(project('\nthorough: prd').rules.includes('checkins'));
   assert.ok(project('\ndepth: thorough').rules.includes('checkins'));
-  assert.ok(!project('\ndepth: thorough\nquick: prd, scope, domain, architecture, ux, ui').rules.includes('checkins'));
+  assert.ok(!project('\ndepth: thorough\nquick: prd, scope, domain, architecture, ux, ui, working').rules.includes('checkins'));
+  // The working doc counts like any other: left thorough, `none` is refused.
+  assert.ok(project('\ndepth: thorough\nquick: prd, scope, domain, architecture, ux, ui').rules.includes('checkins'));
 });
 
 test('--doc and --accept may each appear once, and not together', () => {

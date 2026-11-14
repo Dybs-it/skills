@@ -58,3 +58,27 @@ conversation and a headless session cannot hold one.
 to judge the answer.
 **Change for next version:** validate decision records (status, numbering)
 in the validator; cut the fixed context a launcher loads.
+
+## Later the same day: `dybs-working` and the probe (decision 0009)
+
+One more headless session on the same copy of Dybs, Sonnet at medium effort,
+quick depth, `checkins: none`.
+
+| Step | Turns | Tokens | Cost | Validator | Words |
+|---|---|---|---|---|---|
+| working | 6 | 310k | $0.22 | draft, valid, near the cap | 418 |
+
+- **The probe's facts were right** on this repository: GitHub remote
+  `joskoomen/Dybs`, Vitest and Playwright, the five CI workflows, `gh`
+  installed but not signed in, Claude Code as the only agent present, no
+  Herdr. Two misreads on its first try were fixed before this run: it missed
+  `styles/jk-tokens.css`, and it took an agent command file in a hidden
+  folder for a style guide. Both are tests now.
+- **The doc asked nothing it could look up** and marked the rest: one pull
+  request per task and what may run unattended are *(assumption)*, and it
+  wrote five `needs-you` lines, among them `gh auth login` and whether
+  GitHub Issues are wanted at all (work is tracked in story files today).
+- **It stayed conservative where others can see:** an agent may not open a
+  pull request until the human says so.
+- **Not tested:** the thorough interview, which needs a human to answer. A
+  headless run can only show the quick path.

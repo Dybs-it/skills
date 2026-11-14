@@ -36,7 +36,7 @@ should live), then advises how to continue and lets you choose: a quick
 start, a thorough kickoff, a custom mix, or park it for later.
 
 ```
-project → prd → scope → domain → architecture → ux → ui → check
+project → prd → scope → domain → architecture → ux → ui → working → check
 ```
 
 | Skill | Writes | Lead persona |
@@ -48,6 +48,7 @@ project → prd → scope → domain → architecture → ux → ui → check
 | `dybs-architecture` | `context/architecture.md`, `context/decisions/` | Tess |
 | `dybs-ux` | `context/ux.md` | Mila |
 | `dybs-ui` | `context/ui.md` | Jun |
+| `dybs-working` | `context/working.md` (tests, GitHub and issues, pull requests, agents and runtime) | Tess, with Bas |
 | `dybs-check` | nothing; one check-in brief across all docs | Bas |
 
 ### Quick or thorough

@@ -18,7 +18,9 @@ to `dybs/log.md`.
 
 ## Read first
 
-Existing project: extract before asking. CSS custom properties, Tailwind or
+Existing project: extract before asking. The probe from the kickoff
+(`dybs-start/scripts/dybs-probe.mjs`, its Interface lines) already names the
+UI libraries, token files and any style guide it found. CSS custom properties, Tailwind or
 theme config, design-token files, a component library or `components/`
 folder, fonts. Record what is actually used. Values that appear only once or
 twice are candidates for removal, not tokens.
@@ -26,6 +28,7 @@ twice are candidates for removal, not tokens.
 ## Readiness checklist
 
 **core**
+- [ ] An existing style guide, design file or brand book, and whether it is the source of truth
 - [ ] Three words for how it should feel
 - [ ] Light, dark, or both
 - [ ] Colour roles (surface, text, accent, danger...) with values or a source
@@ -91,7 +94,7 @@ so do not assume the others are present.
 7. Frontmatter `depth`, when present, is `quick` or `thorough`.
 8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.
 9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
-10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).
 11. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
 12. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
 13. No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.
