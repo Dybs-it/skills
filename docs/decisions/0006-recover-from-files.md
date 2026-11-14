@@ -1,10 +1,10 @@
 ---
-decision: 0002
+decision: 0006
 status: proposed
 date: 2026-10-04
 ---
 
-# 0002. Skills recover from files; a runtime like Herdr stays optional
+# 0006. Skills recover from files; a runtime like Herdr stays optional
 
 ## Context
 

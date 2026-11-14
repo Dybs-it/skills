@@ -102,7 +102,7 @@ Rules decided now, from lessons in the Dybs repo:
 - **Safety stops are fixed and few:** destructive or outward actions,
   contradictions with accepted context, repeated failure.
 
-Interruption and resume (decision 0002, proposed, unproven). The human may
+Interruption and resume (decision 0006, proposed, unproven). The human may
 close the terminal at any moment. A fresh agent running the same skill must
 pick up from the task file alone:
 
@@ -131,7 +131,7 @@ The Dybs app reads `dybs/` natively: Getting Started shows doc status from
 the validator's `--json` output, ideas and roadmap become views, tasks
 become the board. BMad projects stay supported through a read-only adapter.
 
-Runtime (decision 0002): the app may use Herdr as an optional backend, so a
+Runtime (decision 0006): the app may use Herdr as an optional backend, so a
 closed view or app does not kill a running agent. Work state comes from
 `dybs/`, process state from the runtime; the mapping between them lives in
 the app's own storage, not the repo. Spike first, on a spare Mac.
