@@ -77,6 +77,32 @@ On the existing project, note how long the same ground took with BMad
 (product brief, PRD, architecture, UX) and how many words it produced.
 Words and minutes are crude, but they are the complaint we are testing.
 
+## Ideas, roadmap and the work loop
+
+Run on a real codebase with `dybs/context/` accepted.
+
+1. `dybs-idea` on something you are honestly unsure about. Decide it.
+2. `dybs-roadmap` with at least three accepted ideas.
+3. `dybs-task` on the first one, and on one real issue.
+4. Follow `dybs-route.mjs next` until it says done. Answer every stop.
+5. Kill the terminal once in the middle of `dybs-build`, then run it again.
+
+| Check | Pass when |
+|---|---|
+| **Idea** | The questions changed what you thought, or showed it was already clear. The advice was not four times "go". Nothing was decided for you. |
+| **Roadmap** | Links only. The order had a reason you could argue with. |
+| **Task** | The ask is in your words. The lane it computed is the lane you would have chosen. |
+| **Next** | You never had to know which skill came next, and it never ran a step twice for nothing. |
+| **Stops** | Every stop was a decision only you could make. Count the ones that were not. |
+| **Fix loop** | Ticked findings were really closed. It ended. |
+| **Resume** | After the kill, nothing was redone and nothing was skipped. |
+| **Done** | The lines under Learned were true and worth reading, or it said "Nothing new." |
+
+Record it as `tests/runs/<date>-<project>-loop.md`: steps, minutes and
+tokens per step, stops that were noise, and one or two concrete edits to a
+skill. `tests/harness/loop.sh` runs the same loop unattended on a small
+task; it is a smoke test, not this run.
+
 ## Quality skills
 
 Run on one real task in a real codebase, ideally one with a known bug or a
