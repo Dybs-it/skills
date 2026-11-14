@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, relative, sep } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { score, route, logLine, taskInfo, findings, next, gateItems, gateTables, gateDecision, STEPS, SKILLS, LEVELS, MODELS, EFFORTS, ROUTES, MAX_ROUNDS } from '../skills/dybs-task/scripts/dybs-route.mjs';
 import { SKILLS_SRC, QUALITY } from '../src/update.mjs';
@@ -52,6 +52,8 @@ function project(opts = {}, sizes = {}) {
   const dir = join(root, 'dybs/work/t');
   mkdirSync(dir, { recursive: true });
   for (const f of opts.files ?? ['src/a.js']) {
+    // Never write outside the temporary project, whatever a plan names.
+    if (!resolve(root, f).startsWith(root + sep)) continue;
     mkdirSync(join(root, f, '..'), { recursive: true });
     writeFileSync(join(root, f), 'x\n'.repeat(sizes[f] ?? 10));
   }
@@ -105,9 +107,16 @@ test('with the project at hand, only files that exist count, and their size does
 });
 
 test('a file named outside the project is not read', () => {
-  const { dir } = project({ files: ['../../../../etc/hosts.txt', 'src/a.js'] });
+  // A large file beside the project, named with a path that climbs out of it.
+  const outside = mkdtempSync(join(tmpdir(), 'dybs-outside-'));
+  writeFileSync(join(outside, 'big.js'), 'x\n'.repeat(6000));
+  const { root, dir } = project({ files: ['src/a.js'] });
+  const climb = `${relative(root, outside)}/big.js`;
+  assert.ok(climb.startsWith('..'));
+  writeFileSync(join(dir, 'test-plan.md'), plan({ files: [climb, 'src/a.js'] }));
   const out = JSON.parse(run('score', dir, '--json').stdout);
   assert.equal(out.complexity, 'S');
+  assert.ok(!out.reasons.some((r) => /lines in those files/.test(r)), out.reasons.join('; '));
 });
 
 test("the human's complexity in the frontmatter wins over the computed one", () => {
