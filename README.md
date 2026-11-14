@@ -81,6 +81,17 @@ Every decision lands in `dybs/log.md`.
 Every skill works on its own. Without `dybs-start` installed, a skill says
 which one to add; without the validator, it checks the doc by hand.
 
+## Ideas and roadmap
+
+```
+dybs-idea → the human decides → dybs-roadmap → dybs-task
+```
+
+| Skill | Does | Writes |
+|---|---|---|
+| `dybs-idea` | Captures one idea, questions it against the context in rounds with recommended answers, and collects each persona's advice: go, change, park or drop. You decide | `dybs/ideas/<slug>.md` |
+| `dybs-roadmap` | Proposes an order for the accepted ideas; you set it. Links only, so it cannot drift from the ideas | `dybs/roadmap.md` |
+
 ## Quality: test, review, gate, PR
 
 Five skills for any task or part of the code. Results go in

@@ -1,6 +1,6 @@
 ---
 name: dybs-review
-description: Review a change against a fixed point (commit, branch or main) on separate axes that are never ranked against each other - standards (the repo's rules plus a code-smell baseline), spec (does it do what was asked), context (the project's domain rules, architecture boundaries and UX rules) and verification (changed behaviour no test would catch). Runs the axes as parallel sub-agents and writes dybs/work/<task>/review.md. Use when the user says "review", "code review", "review this branch", "dybs review", or before a PR.
+description: Review a change against a fixed point (commit, branch or main) on separate axes that are never ranked against each other - standards (the repo's rules plus a code-smell baseline), spec (does it do what was asked), context (the project's domain rules, architecture boundaries and UX rules), security (what the change newly exposes) and verification (changed behaviour no test would catch). Runs the axes as parallel sub-agents and writes dybs/work/<task>/review.md. Use when the user says "review", "code review", "review this branch", "dybs review", or before a PR.
 ---
 
 # dybs-review
@@ -82,6 +82,16 @@ forbids; UX behaviour rules (loading, empty, error, destructive actions) the
 change ignores. Skip this axis when `dybs/context/` does not exist, and say
 so.
 
+**Security.** Only what the diff changes or newly exposes, each with the
+input that triggers it: input that reaches a query, a command, a path, a
+template or HTML without being checked or escaped; a check for who may do
+this that is missing, comes after the action, or trusts a value the caller
+controls; a secret, token or personal data written to a log, an error, a
+URL or the repository; a new dependency, or one loaded from a place that can
+change under you; a default that is open (a debug flag, a wide permission,
+a disabled check). No finding without a concrete path from input to harm.
+Say so when the change touches none of this.
+
 **Verification.** For each behaviour the change alters (output, error,
 side effect, default, contract), name the smallest realistic way it could
 break where it is used, then find the test that would catch that. A finding
@@ -96,7 +106,7 @@ finding.
 
 One section per axis, findings as the sub-agent gave them, lightly cleaned.
 Each finding is one checklist item with an id, `- [ ] **V1** ...`, where the
-letter is the axis (`S`, `P`, `C`, `V`): see "Lanes" in `quality.md`. A
+letter is the axis (`S`, `P`, `C`, `X`, `V`): see "Lanes" in `quality.md`. A
 finding that is a design question rather than a fix ends with
 `(needs human: <why>)`.
 

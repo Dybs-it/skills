@@ -1,10 +1,10 @@
 # Roadmap
 
-Built: phase 1 (Getting Started) and phase 4 (the work loop: task, test
-plan, build, review, gate, PR, done). Ideas and the roadmap, phases 2 and 3,
-are not built: a task starts from an issue or a description. Each later
-phase is drafted here, so its design can be argued with before any skill
-exists. Each phase ships only after the
+Built: Getting Started (phase 1), ideas and the roadmap (phases 2 and 3)
+and the work loop (phase 4). Getting Started and the work loop each have
+one recorded machine run; ideas and the roadmap have none. No phase has the
+human field run yet. What follows says what each phase holds and what is
+still open. Each phase ships only after the
 previous one passes the field test (`tests/PROTOCOL.md`).
 
 ## 0. Distribution (v0.2, built)
@@ -34,32 +34,31 @@ See decision 0003.
 - **Acceptance bound to content.** `--accept` writes `accepted-hash`; the
   Dybs app should accept through it rather than by editing frontmatter.
 
-## 2. Ideas (next)
+## 2. Ideas (v0.5, built, not run)
 
 ```
 dybs/ideas/<slug>.md    one idea, its grilling, the team's advice, the human's decision
 ```
 
-- `dybs-idea`: capture an idea in a few lines: the problem, who it is for,
-  and which requirement or goal it serves (or that it is new).
-- `dybs-grill`: interrogate one idea against the context, one question at a
-  time with recommended answers. Then each relevant persona gives **advice**
-  (go / change / park / drop, with reasons and what would change their mind).
-  Bas always speaks.
+- `dybs-idea`: captures an idea in a few lines, questions it against the
+  context in rounds with recommended answers, and collects each relevant
+  persona's advice (go, change, park or drop, with the reason and what
+  would change their mind). Bas always speaks. One skill, not two: capture
+  without questions is a note, and questions without a file are lost.
 - The **human decides**, in the idea file: accepted, parked or dropped, with
   a line why. Agents never decide.
 
-Borrowed: grilling with recommendations (Matt Pocock), multi-persona review
-(BMad party mode, much smaller).
-
-## 3. Roadmap
+## 3. Roadmap (v0.5, built, not run)
 
 ```
 dybs/roadmap.md         an ordered list of links to accepted ideas, nothing else
 ```
 
-- `dybs-roadmap`: propose an order (value, risk, dependencies), the human
-  reorders. Kept as links so it can never drift from the ideas.
+- `dybs-roadmap`: proposes an order (what unblocks, what serves a must, what
+  teaches cheaply), the human reorders. Kept as links so it can never drift
+  from the ideas. A delivered idea leaves the roadmap; its file stays.
+- `dybs-task` splits an accepted idea into tasks, and `dybs-done` says when
+  the last one closes. See decision 0008.
 
 ## 4. Work loop (v0.5, built, one machine run)
 
@@ -101,12 +100,11 @@ Rules, from lessons in the Dybs repo:
 
 Open:
 
-- **Split an idea into several tasks** (`dybs-to-tasks`). Today one issue is
-  one task.
 - **Check-ins per task.** The loop follows `checkins:` in `project.md`; there
   is no per-task setting yet.
-- **The gate's items table is agent-built.** Six runs of one task gave three
-  decisions. Build the table by script from the test plan.
+- **The gate's items table** now comes from a script. Whether the decisions
+  agree across runs has to be measured again; the scenarios and their
+  `Covers` column are still agent-written.
 - **Resume inside a step.** `status: building` says a build stopped
   part-way; there is no `step:` marker finer than that. Pass when a field
   run kills the terminal mid-`dybs-build` and a fresh session neither redoes

@@ -2,6 +2,7 @@
 task: {{task}}
 status: open
 source: {{issue link, or "described by <name>"}}
+idea: {{slug of the idea this comes from; leave out when there is none}}
 created: {{YYYY-MM-DD}}
 updated: {{YYYY-MM-DD}}
 ---

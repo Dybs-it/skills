@@ -7,6 +7,7 @@
 // Usage:
 //   node dybs-route.mjs next   <task-folder> [--json]
 //   node dybs-route.mjs status <dybs/work folder> [--json]
+//   node dybs-route.mjs items  <task-folder>          the gate's Items and Risks tables
 //   node dybs-route.mjs score  <task-folder> [--json]
 //   node dybs-route.mjs route  <task-folder> <step> [--escalate] [--json|--flags]
 //   node dybs-route.mjs log    <task-folder> <step> <event> [--ran-on <model>] [--note <text>]
@@ -255,6 +256,69 @@ export function scenarios(planText) {
   return out;
 }
 
+const PRIO = ['P0', 'P1', 'P2', 'P3'];
+const higher = (a, b) => (PRIO.indexOf(a) <= PRIO.indexOf(b) ? a : b);
+const LOCATION = /^[^\s:`|]+:[1-9]\d*$/;
+const cell = (v) => String(v ?? '').replace(/[|\\]/g, '').replace(/\s+/g, ' ').trim();
+// The gate script takes a risk's name only as plain text: no Markdown, no
+// entities. A plan writes them freely, so the name is made plain here.
+const plain = (v, n) => {
+  const t = String(v ?? '').replace(/&[#A-Za-z0-9]+;/g, ' ').replace(/[[\]<>`*~\\|]/g, '').replace(/\s+/g, ' ').trim().replace(/^_+|_+$/g, '').slice(0, 100).trim();
+  return /[\p{L}\p{N}]/u.test(t) ? t : `risk ${n}`;
+};
+
+// The gate's Items table, built from the test plan so it is the same every
+// time: one row per acceptance criterion and per requirement or rule (R#,
+// D#) the criteria cite. A row is FULL only when every scenario that covers
+// it is green or proven and names its test as path:line. The gate step may
+// lower a row after reading the test; it never raises one.
+export function gateItems(planText) {
+  const crit = [];
+  for (const m of section(planText, 'Acceptance criteria').matchAll(/^\s*[-*]\s*\*\*(AC\d+)\*\*\s*\(([^)]*)\)/gm)) {
+    const parts = m[2].split(/[,\s]+/).filter(Boolean);
+    crit.push({ id: m[1], priority: parts.find((x) => PRIO.includes(x)) || null, refs: parts.filter((x) => /^[RD]\d+$/.test(x)) });
+  }
+  const scen = section(planText, 'Scenarios');
+  const col = (n) => column(scen, n);
+  const [cCov, cTest, cStatus, cPrio] = [col('Covers'), col('Test'), col('Status'), col('Priority')];
+  const sc = rows(scen).map((r) => ({
+    covers: (r[cCov] || '').split(/[,\s]+/).filter(Boolean),
+    tests: (r[cTest] || '').replace(/`/g, '').split(/[,;\s]+/).filter((x) => LOCATION.test(x)),
+    proven: ['green', 'proven'].includes((r[cStatus] || '').toLowerCase()),
+    priority: PRIO.includes(r[cPrio]) ? r[cPrio] : null,
+  }));
+  const rowFor = (id, base, covering) => {
+    let priority = base;
+    for (const x of covering) if (x.priority) priority = priority ? higher(priority, x.priority) : x.priority;
+    const ok = covering.filter((x) => x.proven && x.tests.length);
+    const coverage = !covering.length || !ok.length ? 'NONE' : ok.length === covering.length ? 'FULL' : 'PARTIAL';
+    return { item: id, priority: priority || 'P0', coverage, evidence: [...new Set(ok.flatMap((x) => x.tests))] };
+  };
+  const items = crit.map((c) => rowFor(c.id, c.priority, sc.filter((x) => x.covers.includes(c.id))));
+  const byId = Object.fromEntries(items.map((i) => [i.item, i]));
+  for (const ref of [...new Set(crit.flatMap((c) => c.refs))]) {
+    const citing = crit.filter((c) => c.refs.includes(ref)).map((c) => byId[c.id]);
+    const direct = sc.filter((x) => x.covers.includes(ref));
+    const d = rowFor(ref, null, direct);
+    const all = [...citing, ...(direct.length ? [d] : [])];
+    const coverage = all.every((x) => x.coverage === 'FULL') ? 'FULL' : all.some((x) => x.coverage !== 'NONE') ? 'PARTIAL' : 'NONE';
+    items.push({ item: ref, priority: all.map((x) => x.priority).reduce(higher), coverage, evidence: [...new Set(all.flatMap((x) => x.evidence))] });
+  }
+  const risks = section(planText, 'Risks');
+  const rc = ['Risk', 'Category', 'P', 'I', 'Score', 'Status'].map((n) => column(risks, n));
+  const riskRows = rc.some((i) => i < 0) ? [] : rows(risks).map((r) => rc.map((i) => r[i] || ''));
+  return { items, risks: riskRows };
+}
+
+export function gateTables(planText) {
+  const g = gateItems(planText);
+  const out = ['## Items', '', '| Item | Priority | Coverage | Evidence | Security |', '|---|---|---|---|---|'];
+  for (const i of g.items) out.push(`| ${i.item} | ${i.priority} | ${i.coverage} | ${i.evidence.join(', ')} | no |`);
+  out.push('', '## Risks', '', '| Risk | Category | P | I | Score | Status |', '|---|---|---|---|---|---|');
+  g.risks.forEach((r, n) => out.push(`| ${[plain(r[0], n + 1), ...r.slice(1).map(cell)].join(' | ')} |`));
+  return out.join('\n') + '\n';
+}
+
 // What gate.md says was decided, or null. The gate script is the judge;
 // this only reads what the gate step copied from it.
 export function gateDecision(gateText) {
@@ -387,6 +451,11 @@ function main(argv) {
     for (const r of b) console.log(`| ${r.task} | ${r.status} | ${r.lane} | ${r.complexity} | ${r.next} |`);
     return;
   }
+  if (cmd === 'items') {
+    const plan = read(taskFolder(pos[0]), 'test-plan.md');
+    if (plan === null) throw new Error('no test-plan.md in this task folder: the gate has nothing to count');
+    return process.stdout.write(gateTables(plan));
+  }
   if (cmd === 'route' || cmd === 'log') {
     const dir = taskFolder(pos[0]);
     const step = pos[1];
@@ -412,7 +481,7 @@ function main(argv) {
     }
     return;
   }
-  throw new Error('usage: dybs-route.mjs next|status|score|route|log <folder> [<step> [<event>]]');
+  throw new Error('usage: dybs-route.mjs next|status|items|score|route|log <folder> [<step> [<event>]]');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

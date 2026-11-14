@@ -55,6 +55,9 @@ again, which is the human's call. Propose; the doc's own skill
 Set `status: done` and `updated:` in `task.md`. Leave every other file in the
 folder as it is: the folder is the record of the task.
 
+When the task carries `idea:` and every other task of that idea is `done`,
+say that the idea is delivered: `dybs-roadmap` takes it off the roadmap.
+
 ## Check in
 
 Brief: done or not and why, the lines under Learned with the doc each

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { score, route, logLine, taskInfo, findings, next, STEPS, SKILLS, LEVELS, MODELS, EFFORTS, ROUTES, MAX_ROUNDS } from '../skills/dybs-task/scripts/dybs-route.mjs';
+import { score, route, logLine, taskInfo, findings, next, gateItems, gateTables, STEPS, SKILLS, LEVELS, MODELS, EFFORTS, ROUTES, MAX_ROUNDS } from '../skills/dybs-task/scripts/dybs-route.mjs';
 import { SKILLS_SRC, QUALITY } from '../src/update.mjs';
 
 const SCRIPT = join(SKILLS_SRC, 'dybs-task/scripts/dybs-route.mjs');
@@ -334,4 +334,79 @@ test('status prints the board from the task folders and stores nothing', () => {
   const b = JSON.parse(run('status', join(root, 'dybs/work'), '--json').stdout);
   assert.deepEqual(b.map((r) => [r.task, r.status, r.next]), [['empty', 'no task.md', 'task'], ['t', 'review', 'review']]);
   assert.match(run('status', join(root, 'dybs/work')).stdout, /\| t \| review \| fast \| S \| review \|/);
+});
+
+// --- The gate's items table, built from the plan ---
+
+const gatePlan = (scen) => `---
+task: t
+---
+
+## Acceptance criteria
+
+- **AC1** (P1, R3, D2): given a, when b, then c
+- **AC2** (P2, R3): given a, when b, then d
+- **AC3** (R4): given a, when b, then e
+
+## Risks
+
+| Risk | Category | P | I | Score | Mitigation | Owner | Status |
+|---|---|---|---|---|---|---|---|
+| **risk-1** it \`leaks\` \\| badly &amp; [often] | security | 3 | 3 | 9 | t-UNIT-01 | dev | open |
+
+## Scenarios
+
+| Id | Priority | Level | Seam | Given / when / then | Covers | Test | Status |
+|---|---|---|---|---|---|---|---|
+${scen.map(([covers, test, status, prio], i) => `| t-UNIT-0${i + 1} | ${prio ?? 'P2'} | unit | exports | g | ${covers} | ${test} | ${status} |`).join('\n')}
+`;
+const row = (g, id) => g.items.find((i) => i.item === id);
+
+test('an item is FULL only when every scenario covering it is proven and names its test', () => {
+  const g = gateItems(gatePlan([['AC1', 'test/a.test.js:3', 'green'], ['AC1', 'test/a.test.js:9', 'proven'], ['AC2', 'test/a.test.js:20', 'planned'], ['AC2', '`test/a.test.js:30`', 'green']]));
+  assert.deepEqual(row(g, 'AC1'), { item: 'AC1', priority: 'P1', coverage: 'FULL', evidence: ['test/a.test.js:3', 'test/a.test.js:9'] });
+  assert.equal(row(g, 'AC2').coverage, 'PARTIAL');
+  assert.deepEqual(row(g, 'AC2').evidence, ['test/a.test.js:30']);
+});
+
+test('a green scenario without a test location proves nothing', () => {
+  const g = gateItems(gatePlan([['AC1', '', 'green'], ['AC2', 'somewhere in tests', 'proven']]));
+  assert.equal(row(g, 'AC1').coverage, 'NONE');
+  assert.equal(row(g, 'AC2').coverage, 'NONE');
+});
+
+test('priority is the item\'s own, raised by a covering scenario, and P0 when nothing gives one', () => {
+  const g = gateItems(gatePlan([['AC2', 'test/a.test.js:1', 'green', 'P0'], ['AC1', 'test/a.test.js:2', 'green', 'P3']]));
+  assert.equal(row(g, 'AC2').priority, 'P0');
+  assert.equal(row(g, 'AC1').priority, 'P1');
+  assert.equal(row(g, 'AC3').priority, 'P0');
+  assert.equal(row(g, 'AC3').coverage, 'NONE');
+});
+
+test('a requirement or rule is as covered as the criteria that cite it', () => {
+  const g = gateItems(gatePlan([['AC1', 'test/a.test.js:3', 'green'], ['AC2', 'test/a.test.js:5', 'planned']]));
+  assert.equal(row(g, 'D2').coverage, 'FULL');
+  assert.equal(row(g, 'R3').coverage, 'PARTIAL');
+  assert.equal(row(g, 'R3').priority, 'P1');
+  assert.equal(row(g, 'R4').coverage, 'NONE');
+  assert.deepEqual(g.items.map((i) => i.item), ['AC1', 'AC2', 'AC3', 'R3', 'D2', 'R4']);
+});
+
+test('the same plan always prints the same tables, and the gate script accepts them', async () => {
+  const text = gatePlan([['AC1', 'tests/a.test.js:3', 'green'], ['AC2', 'tests/a.test.js:5', 'green'], ['AC3', 'tests/a.test.js:7', 'proven']]);
+  assert.equal(gateTables(text), gateTables(text));
+  const { parseGate } = await import('../skills/dybs-gate/scripts/dybs-gate.mjs');
+  const parsed = parseGate(`---\ntask: t\nupdated: 2026-11-14\ncommit: abc1234\n---\n\n# Gate: t\n\n${gateTables(text)}\n## Waivers\n\n| Item | Reason | Approved by | Approved | Expires |\n|---|---|---|---|---|\n\n## Decision\n`);
+  assert.deepEqual(parsed.problems, []);
+  assert.equal(parsed.items.length, 6);
+  assert.equal(parsed.risks.length, 1);
+  assert.match(gateTables(text), /\| risk-1 it leaks badly often \| security \| 3 \| 3 \| 9 \| open \|/);
+});
+
+test('items refuses a task folder without a test plan', () => {
+  const { dir } = project();
+  execFileSync('rm', [join(dir, 'test-plan.md')]);
+  const r = run('items', dir);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /no test-plan\.md/);
 });

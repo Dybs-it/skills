@@ -149,6 +149,29 @@ acceptance.
 - **Our own:** all of it, including the agent-ready test with a fresh
   sub-agent and the generated readiness checklists.
 
+## Planning skills
+
+### `dybs-idea`
+
+Captures one idea in `dybs/ideas/<slug>.md`, questions it against the
+context, collects each persona's advice, and records the human's decision.
+
+- **Our own:** the idea file, the four words of advice (go, change, park,
+  drop), the rule that only the human decides.
+- **Adapted from Matt** `skills/productivity/grilling/SKILL.md`: numbered
+  rounds of questions, each with a recommended answer. The notice is in the
+  skill.
+- **Inspired by BMad** party mode: several personas reviewing one thing.
+  Much smaller; no text taken.
+
+### `dybs-roadmap`
+
+Keeps `dybs/roadmap.md`: links to accepted ideas in build order, nothing
+else.
+
+- **Our own:** all of it. A roadmap of links, so it cannot drift from the
+  ideas, is a lesson from a shared status file that lost its rows.
+
 ## Quality skills
 
 ### `dybs-task`

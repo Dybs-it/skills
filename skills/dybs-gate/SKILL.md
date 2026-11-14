@@ -20,31 +20,41 @@ scenarios), `dybs/work/<task>/review.md` when present, the tests themselves, and
 
 ## 1. Build the items table
 
-One row per thing that must hold: each acceptance criterion, each
-requirement (`R#`) and domain rule (`D#`) the task touches, each edge-case
-finding the plan kept. Its priority is fixed by one rule, never chosen:
+Start from the script, so the same plan gives the same table every time.
+From the project root:
 
-1. the priority the plan gives the item itself (every criterion has one);
-2. raised to the highest priority of any scenario that covers it;
-3. **P0** when neither gives one (an unprioritised item is treated as the
-   most important, never the least).
+```
+node '<skills>/dybs-task/scripts/dybs-route.mjs' items 'dybs/work/<task>'
+```
 
-For each item, find the tests and **read their assertions**. Coverage is:
+It prints the Items and Risks tables from `test-plan.md`: one row per
+acceptance criterion and per requirement (`R#`) and domain rule (`D#`) the
+criteria cite, with its priority (the item's own, raised to the highest of
+any scenario covering it, **P0** when neither gives one) and its coverage
+(FULL only when every covering scenario is green or proven and names its
+test as `path:line`). Copy both tables into `gate.md` as printed.
 
-- **FULL:** tests that count as proof (see `quality.md`) show every part of
-  the item. Evidence lists each test as `path:line`.
-- **PARTIAL:** some of it is shown, or only at a level that cannot show it
-  all (for example a unit test for a journey that crosses systems).
-- **NONE:** nothing shows it.
+Then check the script's claims against the tests. For each FULL row, **read
+the assertions** of the tests it cites:
 
-A test whose name claims the item while its assertions do not show it does
-not count. Mark items that concern security (authentication, permissions,
-secrets, personal data) with `yes` in the Security column.
+- A test whose name claims the item while its assertions do not show it
+  does not count (see "What counts as proof" in `quality.md`). Lower the row
+  to PARTIAL or NONE and say why in one line under the table.
+- Lower to PARTIAL when the tests show only part of the item, or only at a
+  level that cannot show it all (a unit test for a journey that crosses
+  systems).
+
+You may **lower** a row's coverage. Never raise one, never change a
+priority, never drop a row. Set Security to `yes` on items that concern
+authentication, permissions, secrets or personal data.
+
+Without the script or Node, build the table by hand under the same rules,
+and say so in the Decision section.
 
 ## 2. Risks
 
-Copy the plan's risks with category, P, I, score and status (the script
-checks that the score is P × I). A risk is `mitigated` only when
+The script printed the plan's risks with category, P, I, score and status
+(the gate script checks that the score is P × I). A risk is `mitigated` only when
 its mitigation exists and is proven, not when it is planned.
 
 Then read `review.md` when it exists. Every finding still open that is a

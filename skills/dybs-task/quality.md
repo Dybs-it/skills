@@ -35,7 +35,8 @@ Edit these files in place; never rewrite one from memory.
 ## Task
 
 `task.md` has frontmatter (`task`, `status`, `source`, `created`, `updated`,
-and optionally `lane` and `complexity`, which only the human writes) and
+`idea` when it comes from one, and optionally `lane` and `complexity`, which
+only the human writes) and
 these sections: **Ask** (what was asked, in the asker's words),
 **Acceptance** (one checkable line each, citing `R#`/`D#`), **Touches** (the
 files it will change, as paths in code spans), **Out of scope**, **Open
@@ -71,8 +72,11 @@ nothing.
 A review's findings are checklist items, so the loop can see what is open:
 `- [ ] **V1** ...` is open, `- [x] **V1** ...` is closed (with the test or
 change that closed it), and an open one marked `(needs human: ...)` is a
-question for the human, not a fix. The letter is the axis: `S` standards,
-`P` spec, `C` context, `V` verification. After a review with open findings
+question for the human, not a fix. The human answers it in the file: tick
+it with the decision in a few words (`- [x] ... decided: accept, it is
+documented`), or delete the `(needs human: ...)` part to send it back to
+`dybs-build`. The letter is the axis: `S` standards,
+`P` spec, `C` context, `X` security, `V` verification. After a review with open findings
 the task goes back to `dybs-build`; a build that changes code sets
 `status: stale` in `review.md`, and the change is reviewed again, at most
 three times before it goes to the human.

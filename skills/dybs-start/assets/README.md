@@ -29,9 +29,11 @@ dybs/
     decisions/         one file per decision (NNNN-short-title.md)
 ```
 
-`work/<task>/` holds one folder per task, written by the quality skills:
-`test-plan.md`, `review.md`, `gate.md` and `pr.md` (and later `task.md`).
-Later phases add `ideas/` and `roadmap.md`.
+`ideas/<slug>.md` holds one idea each, with its questions, the team's advice
+and the human's decision; `roadmap.md` is the ordered list of accepted ideas.
+`work/<task>/` holds one folder per task: `task.md` (what is asked, and the
+task's status), then `test-plan.md`, `review.md`, `gate.md`, `pr.md` and
+`log.md` as the steps write them.
 
 ## Order
 

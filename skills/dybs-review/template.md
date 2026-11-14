@@ -21,6 +21,10 @@ updated: {{YYYY-MM-DD}}
 
 <!-- Glossary, domain rules (D#), architecture boundaries, UX rules. -->
 
+## Security
+
+<!-- What the change newly exposes, each with the input that triggers it. -->
+
 ## Verification
 
 <!-- Changed behaviour no test would catch. Say how far you looked. -->

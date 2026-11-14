@@ -1,6 +1,6 @@
 ---
 name: dybs-task
-description: Turn an issue, a bug report or an idea into one task the work loop can pick up. Writes dybs/work/<task>/task.md with what is asked, checkable acceptance criteria, the code it touches and what is out of scope, and says whether it goes the fast lane or the full one. Also shows the board of all tasks and what each needs next. Use when the user says "pick up this issue", "new task", "dybs task", "what's next", "show the board", or gives an issue link or number to work on.
+description: Turn an issue, a bug report or an accepted idea into tasks the work loop can pick up. Writes dybs/work/<task>/task.md with what is asked, checkable acceptance criteria, the code it touches and what is out of scope, and says whether it goes the fast lane or the full one. Also shows the board of all tasks and what each needs next. Use when the user says "pick up this issue", "new task", "dybs task", "what's next", "show the board", or gives an issue link or number to work on.
 ---
 
 # dybs-task
@@ -12,7 +12,8 @@ skill's folder; read "Task" and "Lanes" there first.
 Parts are adapted from MIT-licensed work by Matt Pocock and BMad Code, LLC;
 their copyright notices are in the header of `quality.md` in this folder.
 
-**Reads:** the issue or description the human gives, the code it points at,
+**Reads:** the issue, the description or the accepted idea the human gives,
+the code it points at,
 and when present `dybs/context/` (requirements `R#`, domain rules `D#`,
 architecture boundaries). **Writes:** `dybs/work/<task>/task.md` from
 `template.md`. No code, no tests.
@@ -41,6 +42,21 @@ Pick the task name: the issue number and two or three words
 (`142-revoke-invite`), following the naming rule in `quality.md`. If
 `dybs/work/<task>/task.md` already exists, edit it in place; never start a
 second task for the same issue.
+
+### From an accepted idea
+
+When the human points at an idea in `dybs/ideas/` (its `status` must be
+`accepted`; otherwise stop and say `dybs-idea` comes first), split it into
+tasks that can each be built, checked and merged alone:
+
+- Cut by behaviour the user can see, start to finish, not by layer. "The
+  owner can revoke an invite" is a task; "add the database column" is not.
+- The first task is the smallest one that shows the idea works.
+- One task per slice, named `<idea>-1-<words>`, `<idea>-2-<words>`. Write
+  `idea: <slug>` in each task's frontmatter and say what each needs first.
+- An idea that fits one task stays one task.
+
+Show the list of tasks before writing them, unless `checkins: none`.
 
 ## 2. Find what it touches
 

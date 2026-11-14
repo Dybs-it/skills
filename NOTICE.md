@@ -12,7 +12,8 @@ This project is original work inspired by:
   https://github.com/mattpocock/skills. The interview method in every
   skill's `interview.md` (rounds, the frontier of open questions, a
   recommended answer per question, facts looked up rather than asked) is
-  adapted from his `grilling` skill. The domain disciplines in `dybs-domain`
+  adapted from his `grilling` skill, and so are the question rounds in
+  `dybs-idea`. The domain disciplines in `dybs-domain`
   and the three tests for a decision record in `dybs-architecture` are
   adapted from his `domain-modeling` skill.
 - **BMad Test Architect module**, MIT License, Copyright (c) 2025 BMad Code,
