@@ -223,6 +223,7 @@ const review = ({ open = 0, fixed = 0, human = 0, round = 1, status = 'current' 
 ].join('\n');
 const gateMd = (d) => `---\ntask: t\n---\n\n## Decision\n\nDecision: ${d}\n`;
 const logMd = (...ev) => ev.map(([s, e]) => `- 2026-11-14T10:00Z | ${s} | ${e} | complexity S | routed sonnet medium`).join('\n') + '\n';
+const donePlan = plan({ scenarios: 2 }).replaceAll('| planned |', '| green |');
 const step = (files) => { const n = next(files); return n.kind === 'run' ? n.step : `${n.kind}:${n.reason ?? ''}`; };
 
 test('every step has a skill and a route', () => {
@@ -302,7 +303,7 @@ test('a task marked review still builds while a scenario is planned', () => {
 });
 
 test('a gate FAIL stops for the human and never reaches the PR', () => {
-  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 0 }), review: review(), gate: gateMd('FAIL') };
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: donePlan, review: review(), gate: gateMd('FAIL') };
   assert.equal(step(f), 'stop:gate-fail');
 });
 
@@ -432,14 +433,14 @@ test('the decision is read however the gate step phrased it, and never from a ga
 });
 
 test("the gate script's own answer wins over what gate.md says", () => {
-  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 0 }), review: review(), gate: gateMd('PASS') };
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: donePlan, review: review(), gate: gateMd('PASS') };
   assert.equal(step({ ...f, gateDecision: 'FAIL' }), 'stop:gate-fail');
   assert.equal(step({ ...f, gateDecision: null }), 'gate');
   assert.equal(step({ ...f, gate: gateMd('FAIL'), gateDecision: 'PASS' }), 'pr');
 });
 
 test('a gate or PR step that ran twice without its result stops instead of running a third time', () => {
-  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 0 }), review: review(), gate: gateMd('not computed') };
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: donePlan, review: review(), gate: gateMd('not computed') };
   assert.equal(step({ ...f, log: logMd(['gate', 'done']) }), 'gate');
   assert.equal(step({ ...f, log: logMd(['gate', 'done'], ['gate', 'done']) }), 'stop:no-progress');
   const g = { task: task({ status: 'review' }), review: review(), log: logMd(['pr', 'done'], ['pr', 'done']) };
@@ -449,10 +450,24 @@ test('a gate or PR step that ran twice without its result stops instead of runni
 test('next asks the installed gate script, so a stale gate is computed again and a real PASS moves on', async () => {
   const { committedGate } = await import('./gate-repo.mjs');
   const gateText = `---\ntask: t\nupdated: 2026-11-14\n---\n\n# Gate: t\n\n## Items\n\n| Item | Priority | Coverage | Evidence | Security |\n|---|---|---|---|---|\n| AC1 | P0 | FULL | tests/a.test.js:3 | no |\n\n## Risks\n\n| Risk | Category | P | I | Score | Status |\n|---|---|---|---|---|---|\n\n## Waivers\n\n| Item | Reason | Approved by | Approved | Expires |\n|---|---|---|---|---|\n\n## Decision\n\nIt went fine.\n`;
-  const files = { 'tests/a.test.js': 'test\n'.repeat(60), 'dybs/work/t/task.md': task({ criteria: 5, status: 'review' }), 'dybs/work/t/test-plan.md': plan({ scenarios: 0 }), 'dybs/work/t/review.md': review() };
+  const files = { 'tests/a.test.js': 'test\n'.repeat(60), 'dybs/work/t/task.md': task({ criteria: 5, status: 'review' }), 'dybs/work/t/test-plan.md': donePlan, 'dybs/work/t/review.md': review() };
   const { repo } = committedGate(gateText, files);
   const dir = join(repo, 'dybs/work/t');
   assert.equal(JSON.parse(run('next', dir, '--json').stdout).step, 'pr');
   writeFileSync(join(repo, 'tests/a.test.js'), 'changed\n'.repeat(60));
   assert.equal(JSON.parse(run('next', dir, '--json').stdout).step, 'gate');
+});
+
+// --- Codex review on the Dybs app's copy of this rule, 2026-11-14: both held here too ---
+
+test('a gate FAIL stops for the human even while a scenario is still planned', () => {
+  const f = { task: task({ criteria: 5, status: 'review' }), testPlan: plan({ scenarios: 2 }), review: review(), gate: gateMd('FAIL') };
+  assert.equal(step(f), 'stop:gate-fail');
+  assert.equal(step({ ...f, task: task({ criteria: 5, status: 'building' }) }), 'stop:gate-fail');
+});
+
+test('a test plan without a single scenario is planned again, once, and never built from', () => {
+  const f = { task: task({ criteria: 5 }), testPlan: '# Test plan: t\n\nNothing yet.\n' };
+  assert.equal(step(f), 'test-plan');
+  assert.equal(step({ ...f, log: logMd(['test-plan', 'done'], ['test-plan', 'done']) }), 'stop:no-progress');
 });

@@ -385,8 +385,14 @@ export function next(files, { root = null } = {}) {
 
   const full = t.lane === 'full';
   const has = (x) => typeof x === 'string' && x.trim() !== '';
+  // A FAIL always hands the task to the human, whatever else is pending:
+  // no unattended session runs past a failed gate.
+  const gate = !full || !has(f.gate) ? null : f.gateDecision !== undefined ? f.gateDecision : gateDecision(f.gate);
+  if (gate === 'FAIL') return stop('gate-fail', 'The gate says FAIL. Fix what blocks it, or waive it yourself, then run dybs-gate again.');
   if (full && !has(f.testPlan)) return guarded('test-plan');
-  const sc = has(f.testPlan) ? scenarios(f.testPlan) : { planned: 0, stuck: 0 };
+  const sc = has(f.testPlan) ? scenarios(f.testPlan) : { total: 0, planned: 0, stuck: 0 };
+  // A plan without a single scenario is not a plan to build from.
+  if (full && sc.total === 0) return once('test-plan', 'the plan still has no scenarios');
   const rv = has(f.review) ? findings(f.review) : null;
 
   if (t.status !== 'review' || sc.planned > 0 || sc.stuck > 0) return guarded('build');
@@ -402,9 +408,7 @@ export function next(files, { root = null } = {}) {
   if (full) {
     // The gate script is the judge when it can be asked; gate.md is only
     // what the step wrote down.
-    const g = !has(f.gate) ? null : f.gateDecision !== undefined ? f.gateDecision : gateDecision(f.gate);
-    if (g === null) return once('gate', 'there is still no gate decision (stale evidence, or the gate was not computed)');
-    if (g === 'FAIL') return stop('gate-fail', 'The gate says FAIL. Fix what blocks it, or waive it yourself.');
+    if (gate === null) return once('gate', 'there is still no gate decision (stale evidence, or the gate was not computed)');
   }
   if (!has(f.pr)) return once('pr', 'there is still no pr.md');
   return stop('merge', 'The PR text is ready. Open and merge the PR, then run dybs-done to close the task.');
