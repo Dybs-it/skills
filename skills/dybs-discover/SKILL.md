@@ -34,6 +34,21 @@ readiness checklist. Going back is always allowed: the human may reopen an
 accepted stage, which makes it a draft again (see `dybs/README.md`), and
 the stages after it are checked against the change.
 
+## When the human is not asked now
+
+Each stage ends with a confirmation ("Done when" in its file). With
+`checkins: end` or `none` in `dybs/project.md`, the human chose not to be
+asked now, so that confirmation waits for the review point they chose: do
+not stop. Carry on with your recommendation, mark it *(assumption)*, list it
+under **Needs you**, and leave the doc a draft.
+
+Decide is the exception for the decision itself: nobody may choose for the
+human. Write the recommended concept under **Decision** as
+`Not decided yet. Recommended: <concept>, because ...`, and build the
+storyboard and prototype scope for that recommendation, marked
+*(assumption)*. The PRD and the rest then build on a recommendation the
+human has not made, and say so.
+
 ## Who is in the room
 
 `dybs/project.md` holds two kickoff answers. Adapt to them; never show the

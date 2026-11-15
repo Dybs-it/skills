@@ -4421,3 +4421,10 @@ test('each discovery stage is read only when it runs', () => {
   assert.match(skill, /Read only that stage's file in this folder/);
   assert.doesNotMatch(skill, /## Readiness checklist/);
 });
+
+test('discovery does not stall when the human chose not to be asked, and still never decides for them', () => {
+  // Field run 2026-11-15: with checkins: none, Sketch was refused twice for want of a confirmation.
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-discover', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /that confirmation waits for the review point they chose: do not stop/);
+  assert.match(t, /`Not decided yet\. Recommended: <concept>, because \.\.\.`/);
+});
