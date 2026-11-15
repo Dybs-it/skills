@@ -12,6 +12,14 @@ accepted: 2026-10-02
 
 The turn board. Decided by the human: they want one place that is always right, and a bot is too easy to mute. *(heard)*
 
+## Comparison
+
+| | Turn board | Chat bot |
+|---|---|---|
+| Effort to test | low | medium |
+| Answers "will they open an app?" | yes | no, it avoids the question |
+| Skeptic | "Only if it is always right." | "Muted within a week." |
+
 ## Rejected
 
 - **Chat bot:** easy to mute, and it needs one group chat every house may not have.

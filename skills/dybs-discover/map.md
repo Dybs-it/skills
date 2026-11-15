@@ -15,10 +15,13 @@ the biggest opportunity is, then choose one target to focus on.
    must answer.
 4. **Journey.** The primary user's path from their starting point to the
    outcome they want, in 5 to 12 steps, as it happens **today**. Mark where
-   it hurts, where it is slow, and where they give up.
+   it hurts, where it is slow, and where they give up: end that step with
+   `Pain:` and one word for the kind, then the detail (the template shows
+   the form; the app draws the journey from it).
 5. **Target.** One moment in the journey to focus on: the step where a
    solution would matter most and the riskiest question can be answered.
-   Recommend one and say why.
+   Recommend one and say why. Write it as `Step N:` with its journey number,
+   so the app can point at it.
 
 Ask progressively, one round at a time. Challenge vague words ("everyone",
 "easy", "fast"): ask who exactly, and what fast means. Summarise your

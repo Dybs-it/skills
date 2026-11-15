@@ -11,6 +11,17 @@ updated: {{YYYY-MM-DD}}
 
 <!-- The chosen direction, in the decider's words, and why. Name the decider. -->
 
+## Comparison
+
+<!-- Optional. The concepts side by side, as reviewed with the human. One row
+     per criterion, one column per concept, a short word or phrase per cell.
+     Last row: the skeptic's verdict on each. -->
+| | {{Concept A}} | {{Concept B}} |
+|---|---|---|
+| Effort to test | {{low}} | {{high}} |
+| Answers the riskiest question | {{partly}} | {{yes}} |
+| Skeptic | {{"..."}} | {{"..."}} |
+
 ## Rejected
 
 <!-- Each concept left behind, and why. -->

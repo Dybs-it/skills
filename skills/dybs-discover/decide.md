@@ -6,10 +6,13 @@ a storyboard of the experience the prototype must show.
 ## Steps
 
 1. **Review.** Show the concepts side by side: one line each for the
-   experience, the benefit, the risk.
+   experience, the benefit, the risk. Keep it as the `## Comparison` table
+   in the doc (a few criteria, one column per concept), so the app can show
+   the same comparison the human saw.
 2. **Critique.** For each concept: strengths, weaknesses, feasibility, and
    which question from the map it answers. Bas (the skeptic) speaks on every
-   concept. Critique the concepts, never the human.
+   concept; his verdict is the last row of the comparison. Critique the
+   concepts, never the human.
 3. **Decision.** Ask the human to choose a concept, or to combine named
    parts of several. Recommend one and say why. **Never choose for them.**
    With `decides: team` or `client`, the decision waits for the named
