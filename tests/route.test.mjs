@@ -567,3 +567,25 @@ test('the quality harness still ships the task its spec axis reads', () => {
   assert.match(t, /## Acceptance/);
   assert.match(readFileSync(join(SKILLS_SRC, '..', 'tests/harness/loop.sh'), 'utf8'), /rm -rf "\$W\/dybs\/work\/\$task"/);
 });
+
+// --- The project's own way of working (dybs/context/working.md) ---
+
+test('a project without pull requests goes from the gate to the merge, with no PR step', () => {
+  const f = { task: task({ status: 'review' }), review: review() };
+  assert.equal(step({ ...f, pullRequests: 'per-task' }), 'pr');
+  assert.equal(step({ ...f, pullRequests: 'none' }), 'stop:merge');
+  assert.match(next({ ...f, pullRequests: 'none' }).detail, /no pull requests/);
+  // The gate still comes first in the full lane.
+  assert.equal(step({ task: task({ criteria: 5, status: 'review' }), testPlan: donePlan, review: review(), pullRequests: 'none' }), 'gate');
+});
+
+test('next reads the pull request policy from working.md, and works without the doc', () => {
+  const { root, dir } = project();
+  execFileSync('rm', [join(dir, 'test-plan.md')]);
+  writeFileSync(join(dir, 'task.md'), task({ status: 'review' }));
+  writeFileSync(join(dir, 'review.md'), review());
+  assert.equal(JSON.parse(run('next', dir, '--json').stdout).step, 'pr');
+  mkdirSync(join(root, 'dybs/context'), { recursive: true });
+  writeFileSync(join(root, 'dybs/context/working.md'), '---\ndoc: working\npull-requests: None\n---\n\n# How we work\n');
+  assert.equal(JSON.parse(run('next', dir, '--json').stdout).reason, 'merge');
+});

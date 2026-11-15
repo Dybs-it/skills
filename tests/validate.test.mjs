@@ -6,7 +6,7 @@ import { join, dirname, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, acceptedHash, nextStep, main, headings } from '../skills/dybs-start/scripts/dybs-validate.mjs';
+import { DOCS, ORDER, MANUAL_RULES, validateDoc, validateProject, depthFor, acceptDoc, acceptedHash, nextStep, main, headings, setSettings } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
@@ -14,12 +14,16 @@ const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
 // Where each doc's template lives. Keeps templates and the validator contract in step.
 const TEMPLATES = {
   project: 'skills/dybs-start/assets/project.md',
+  map: 'skills/dybs-discover/map-template.md',
+  sketch: 'skills/dybs-discover/sketch-template.md',
+  decide: 'skills/dybs-discover/decide-template.md',
   prd: 'skills/dybs-prd/template.md',
   scope: 'skills/dybs-scope/template.md',
   domain: 'skills/dybs-domain/template.md',
   architecture: 'skills/dybs-architecture/template.md',
   ux: 'skills/dybs-ux/template.md',
   ui: 'skills/dybs-ui/template.md',
+  working: 'skills/dybs-working/template.md',
 };
 
 function copySample() {
@@ -181,7 +185,13 @@ const BREAK_PROJECT = {
   'doc-lists': (t) => t.replace(/^skip:.*$/m, 'skip:\nthorough: archtecture'),
   'checkins': (t) => t.replace('checkins: each-doc', 'checkins: en'),
 };
+const VALID_WORKING = readFileSync(join(SAMPLE, 'dybs/context/working.md'), 'utf8');
+// Rules that only apply to working.md are broken there.
+const BREAK_WORKING = {
+  'working-settings': (t) => t.replace('pull-requests: per-task', 'pull-requests: always'),
+};
 const BREAK = {
+  ...BREAK_WORKING,
   'frontmatter': (t) => t.replace(/^---[\s\S]*?---\n/, ''),
   'doc-name': (t) => t.replace('doc: prd', 'doc: scope'),
   'status': (t) => t.replace('status: accepted', 'status: done'),
@@ -202,7 +212,7 @@ test('every manual rule has a breaking fixture, and the fixtures cover nothing e
 
 for (const rule of MANUAL_RULES) {
   test(`validator enforces manual rule "${rule.id}"`, () => {
-    const [doc, valid] = rule.id in BREAK_PROJECT ? ['project', VALID_PROJECT] : ['prd', VALID_PRD];
+    const [doc, valid] = rule.id in BREAK_PROJECT ? ['project', VALID_PROJECT] : rule.id in BREAK_WORKING ? ['working', VALID_WORKING] : ['prd', VALID_PRD];
     assert.deepEqual(validateDoc(doc, valid).rules, [], 'baseline must be valid');
     const r = validateDoc(doc, BREAK[rule.id](valid));
     if (rule.id === 'frontmatter') assert.ok(r.rules.includes('frontmatter'));
@@ -860,7 +870,9 @@ test('checkins: none refuses any thorough doc', () => {
   assert.ok(!project('').rules.includes('checkins'), project('').errors.join('; '));
   assert.ok(project('\nthorough: prd').rules.includes('checkins'));
   assert.ok(project('\ndepth: thorough').rules.includes('checkins'));
-  assert.ok(!project('\ndepth: thorough\nquick: prd, scope, domain, architecture, ux, ui').rules.includes('checkins'));
+  assert.ok(!project('\ndepth: thorough\nquick: map, sketch, decide, prd, scope, domain, architecture, ux, ui, working').rules.includes('checkins'));
+  // The working doc counts like any other: left thorough, `none` is refused.
+  assert.ok(project('\ndepth: thorough\nquick: map, sketch, decide, prd, scope, domain, architecture, ux, ui').rules.includes('checkins'));
 });
 
 test('--doc and --accept may each appear once, and not together', () => {
@@ -3627,12 +3639,19 @@ test('acceptance: a folder that took the staging name stays at its private name'
 });
 
 test('every doc skill reads every doc earlier in the order', async () => {
-  const { ORDER } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { ORDER, SKILL_FOR } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   const docs = ORDER.filter((d) => d !== 'project');
   for (const [i, doc] of docs.entries()) {
-    const t = readFileSync(join(ROOT, `skills/dybs-${doc}/SKILL.md`), 'utf8');
+    const skill = SKILL_FOR[doc] || `dybs-${doc}`;
+    // A skill that writes several docs (dybs-discover) writes the earlier ones itself.
+    const own = docs.filter((d) => (SKILL_FOR[d] || `dybs-${d}`) === skill);
+    const t = readFileSync(join(ROOT, `skills/${skill}/SKILL.md`), 'utf8');
     const reads = t.split('**Reads:**')[1].split('**Writes:**')[0];
-    for (const earlier of docs.slice(0, i)) assert.ok(reads.includes(`context/${earlier}.md`), `${doc} reads ${earlier}`);
+    const writes = t.split('**Writes:**')[1].split('\n\n')[0];
+    for (const earlier of docs.slice(0, i)) {
+      const file = DOCS[earlier].file;
+      assert.ok(reads.includes(file) || (own.includes(earlier) && writes.includes(file)), `${doc} reads ${earlier}`);
+    }
   }
 });
 
@@ -3686,5 +3705,110 @@ test('--accept undoes the acceptance even when the look at the placed doc failed
     }), /changed while/);
   } finally { mod.testHooks.beforePlacedMeta = null; mod.fsOps.lstat = real; }
   assert.equal(readFileSync(path, 'utf8'), before, 'the doc is back as it was');
+  rmSync(dir, { recursive: true });
+});
+
+test('working is never skipped: the work loop reads it', () => {
+  const dir = copySample();
+  edit(dir, 'project.md', (t) => t.replace(/^skip:.*$/m, 'skip: working'));
+  const r = validateProject(dir).results.find((x) => x.name === 'project');
+  rmSync(dir, { recursive: true });
+  assert.ok(r.rules.includes('doc-lists'), r.errors.join('; '));
+  assert.ok(r.errors.some((e) => /working, which every project needs/.test(e)));
+});
+
+// --- Settings the app changes: --set (decision 0009, option B) ---
+
+const acceptedWorking = () => {
+  const dir = copySample();
+  // The sample's working.md was accepted without a fingerprint: accept it properly first.
+  assert.equal(acceptDoc(dir, 'working', '2026-11-01').ok, true);
+  return dir;
+};
+const working = (dir) => readFileSync(join(dir, 'dybs/context/working.md'), 'utf8');
+
+test('--set changes a setting in an accepted working.md and accepts it again', () => {
+  const dir = acceptedWorking();
+  const body = working(dir).split('\n---\n')[1];
+  const r = setSettings(dir, 'working', { 'pull-requests': 'none', runtime: 'herdr' }, '2026-11-15');
+  assert.equal(r.ok, true, r.errors.join('; '));
+  assert.deepEqual(r.changed, { 'pull-requests': 'none', runtime: 'herdr' });
+  assert.equal(r.accepted, true);
+  const after = working(dir);
+  assert.match(after, /^pull-requests: none$/m);
+  assert.match(after, /^runtime: herdr$/m);
+  assert.match(after, /^status: accepted$/m);
+  assert.match(after, /^accepted: 2026-11-15$/m);
+  assert.equal(after.split('\n---\n')[1], body, 'the prose is never touched');
+  const report = validateProject(dir);
+  assert.deepEqual(report.results.find((x) => x.name === 'working').errors, []);
+  rmSync(dir, { recursive: true });
+});
+
+test('--set on a draft leaves it a draft: the click accepts a setting, not the doc', () => {
+  const dir = copySample();
+  writeFileSync(join(dir, 'dybs/context/working.md'), working(dir).replace('status: accepted', 'status: draft').replace(/^accepted: .*\n/m, ''));
+  const r = setSettings(dir, 'working', { github: 'no' }, '2026-11-15');
+  assert.equal(r.ok, true, r.errors.join('; '));
+  assert.equal(r.accepted, false);
+  assert.match(working(dir), /^status: draft$/m);
+  assert.match(working(dir), /^github: no$/m);
+  rmSync(dir, { recursive: true });
+});
+
+test('every change is appended to the log, and an unchanged value changes nothing', () => {
+  const dir = acceptedWorking();
+  writeFileSync(join(dir, 'dybs/log.md'), '# Decision log\n\n- 2026-10-02 kickoff: started\n');
+  const before = working(dir);
+  assert.deepEqual(setSettings(dir, 'working', { github: 'yes' }, '2026-11-15').changed, {});
+  assert.equal(working(dir), before);
+  setSettings(dir, 'working', { github: 'no' }, '2026-11-15');
+  const log = readFileSync(join(dir, 'dybs/log.md'), 'utf8');
+  assert.ok(log.startsWith('# Decision log\n\n- 2026-10-02 kickoff: started\n'));
+  assert.match(log, /- 2026-11-15 working: github set to no in the app's settings \(was yes\)\n$/);
+  rmSync(dir, { recursive: true });
+});
+
+test('--set refuses an unknown setting, a wrong value and another doc, and changes nothing', () => {
+  const dir = acceptedWorking();
+  const before = working(dir);
+  for (const [doc, u, msg] of [
+    ['working', { 'pull-requests': 'always' }, /must be one of per-task\|none/],
+    ['working', { model: 'opus' }, /unknown setting "model"/],
+    ['working', { issues: 'see: https://x' }, /plain text on one line/],
+    ['prd', { github: 'no' }, /only working has settings/],
+    ['working', {}, /nothing to set/],
+  ]) {
+    const r = setSettings(dir, doc, u);
+    assert.equal(r.ok, false);
+    assert.match(r.errors.join(' '), msg);
+  }
+  assert.equal(working(dir), before);
+  assert.deepEqual(readdirSync(join(dir, 'dybs/context')).filter((f) => f.includes('.tmp')), []);
+  rmSync(dir, { recursive: true });
+});
+
+test('the CLI takes --set <doc> key=value pairs and reports in JSON', () => {
+  const dir = acceptedWorking();
+  const logs = [];
+  const l = console.log; console.log = (m) => logs.push(m);
+  let code;
+  try { code = main(['node', 'v', dir, '--set', 'working', 'pull-requests=none', 'issues=GitHub issues', '--json']); } finally { console.log = l; }
+  assert.equal(code, 0);
+  const out = JSON.parse(logs.join('\n'));
+  assert.deepEqual(out.changed, { 'pull-requests': 'none', issues: 'GitHub issues' });
+  assert.equal(out.accepted, true);
+  const quiet = (fn) => { const e = console.error; const lg = console.log; console.error = () => {}; console.log = () => {}; try { return fn(); } finally { console.error = e; console.log = lg; } };
+  assert.equal(quiet(() => main(['node', 'v', dir, '--set', 'working', 'pull-requests=none', '--accept', 'prd'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', dir, '--set'])), 2);
+  rmSync(dir, { recursive: true });
+});
+
+test('a pull request policy the loop cannot route is not offered', () => {
+  // Codex review of PR 10: per-idea was offered, and every task still got its own PR.
+  const dir = copySample();
+  const r = setSettings(dir, 'working', { 'pull-requests': 'per-idea' });
+  assert.equal(r.ok, false);
+  assert.ok(validateDoc('working', VALID_WORKING.replace('pull-requests: per-task', 'pull-requests: per-idea')).rules.includes('working-settings'));
   rmSync(dir, { recursive: true });
 });

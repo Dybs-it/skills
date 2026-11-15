@@ -18,6 +18,9 @@ This CLI adds what a package manager can't:
   dybs-skills validate [dir] [--doc <name>] [--json]   check a project's dybs/ context
   dybs-skills validate [dir] --accept <doc> [--json]   on your word: mark a doc accepted,
                        dated and fingerprinted (refuses one that does not validate)
+  dybs-skills validate [dir] --set working key=value... [--json]
+                       change a setting in working.md (github, issues,
+                       pull-requests, runtime); logged, and accepted again if it was
   dybs-skills update   [dir] [--global] [--force] [--dry-run] [--json]
                        update installed Dybs skills without overwriting your edits
   dybs-skills status   [dir] [--global] [--json]        where Dybs skills are installed

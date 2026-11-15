@@ -67,6 +67,12 @@ A doc listed under `skip:` in `project.md` is not read, even if a file is
 there. Work without it, and write what it would have answered as an open
 question in your doc.
 
+When Node is available, `dybs-start/scripts/dybs-probe.mjs` (in the folder
+that holds the skills) reports what the repository itself shows: source
+control and GitHub, the `gh` CLI, test tools and commands, CI, UI libraries,
+design tokens, a style guide, and the agents and runtime on this machine.
+Run it rather than ask.
+
 **Facts are your job, decisions are the human's.** Never ask something you
 can find in the code, the repo or the material you were given. Look it up,
 and cite where you found it.

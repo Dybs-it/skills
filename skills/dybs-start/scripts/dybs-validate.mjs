@@ -6,7 +6,7 @@
 // This file is the single home for the doc contract (required sections and
 // length caps). Templates and skills must agree with DOCS below.
 
-import { readFileSync, writeFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, fchownSync, constants as fsConstants } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, lstatSync, renameSync, rmSync, realpathSync, linkSync, copyFileSync, openSync, closeSync, fstatSync, fchmodSync, fchownSync, constants as fsConstants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { join, resolve, basename, dirname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,24 @@ export const DOCS = {
     file: 'project.md',
     maxWords: { quick: 250, thorough: 350 },
     sections: ['Why', 'Who', 'Now'],
+  },
+  // Discovery: understand the problem, explore solutions, choose a
+  // direction, before requirements are written. One skill, dybs-discover,
+  // writes all three.
+  map: {
+    file: 'discovery/map.md',
+    maxWords: { quick: 700, thorough: 1400 },
+    sections: ['Goal', 'Users', 'Journey', 'Questions', 'Target'],
+  },
+  sketch: {
+    file: 'discovery/sketch.md',
+    maxWords: { quick: 900, thorough: 1800 },
+    sections: ['Research', 'Concepts'],
+  },
+  decide: {
+    file: 'discovery/decide.md',
+    maxWords: { quick: 700, thorough: 1400 },
+    sections: ['Decision', 'Rejected', 'Storyboard', 'To validate', 'Prototype scope'],
   },
   prd: {
     file: 'context/prd.md',
@@ -47,9 +65,30 @@ export const DOCS = {
     maxWords: { quick: 700, thorough: 1400 },
     sections: ['Tone', 'Tokens', 'Components', 'Do and don\'t'],
   },
+  // How the work is done, not what is built: the answers the work loop and
+  // a launcher read (tests, GitHub, pull requests, agents and runtime).
+  working: {
+    file: 'context/working.md',
+    maxWords: { quick: 450, thorough: 900 },
+    sections: ['Testing', 'Source control', 'Pull requests', 'Agents and runtime'],
+  },
 };
 
-export const ORDER = ['project', 'prd', 'scope', 'domain', 'architecture', 'ux', 'ui'];
+export const ORDER = ['project', 'map', 'sketch', 'decide', 'prd', 'scope', 'domain', 'architecture', 'ux', 'ui', 'working'];
+// The skill that writes each doc, when it is not dybs-<doc>.
+export const SKILL_FOR = { map: 'dybs-discover', sketch: 'dybs-discover', decide: 'dybs-discover' };
+// Docs every project needs, whatever it is: the work loop reads them.
+export const NEVER_SKIP = ['working'];
+// The settings in working.md that scripts and the app act on, and the values
+// each may hold. `issues` names a place, so it is free text (see SETTING_TEXT).
+export const WORKING_SETTINGS = {
+  github: ['yes', 'no'],
+  // per-idea (one pull request for all of an idea's tasks) is not offered
+  // until the work loop can route it: an offered value must be honoured.
+  'pull-requests': ['per-task', 'none'],
+  runtime: ['none', 'herdr'],
+};
+export const SETTING_TEXT = { issues: /^[\p{L}\p{N}][^\n\r:#{}|`]{0,79}$/u };
 export const STATUSES = ['draft', 'accepted'];
 export const DEPTHS = ['quick', 'thorough'];
 export const CHECKINS = ['each-doc', 'end', 'none'];
@@ -66,7 +105,8 @@ export const MANUAL_RULES = [
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
   { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.' },
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
-  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux).' },
+  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (map, sketch, decide, prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (sketch needs map; decide needs sketch; scope, domain, architecture and ux need prd; ui needs ux). `working` is never skipped: every project says how its work is tested and merged.' },
+  { id: 'working-settings', text: 'In working.md, `github` is `yes` or `no`, `pull-requests` is `per-task` or `none`, and `runtime` is `none` or `herdr`, each when present. Scripts and the app act on these values, so nothing else is read.' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
   { id: 'html', text: 'No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.' },
@@ -731,7 +771,7 @@ function list(raw) {
 // What each doc cannot be written without. A doc that something still in
 // the route requires cannot be skipped; other inputs are optional (a skill
 // works without a skipped one and notes what it would have answered).
-export const REQUIRES = { scope: ['prd'], domain: ['prd'], architecture: ['prd'], ux: ['prd'], ui: ['ux'] };
+export const REQUIRES = { sketch: ['map'], decide: ['sketch'], scope: ['prd'], domain: ['prd'], architecture: ['prd'], ux: ['prd'], ui: ['ux'] };
 // Every doc a doc cannot be written without, its requirements' own
 // included (ui needs ux, and ux needs prd), deepest first.
 export function requiredBy(name, seen = new Set()) {
@@ -998,6 +1038,7 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
         if (unknown.length) fail('doc-lists', `"${key}:" names unknown doc(s) ${unknown.join(', ')}. Known: ${LISTABLE.join(', ')}`);
       }
       const skipList = list(data.skip);
+      for (const n of NEVER_SKIP) if (skipList.has(n)) fail('doc-lists', `"skip:" lists ${n}, which every project needs: the work loop reads it`);
       for (const [doc, needs] of Object.entries(REQUIRES)) {
         if (skipList.has(doc)) continue;
         for (const n of needs) if (skipList.has(n)) fail('doc-lists', `"skip:" lists ${n}, but ${doc} needs it; skip ${doc} too or keep ${n}`);
@@ -1011,6 +1052,14 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
       if (data.checkins === 'none') {
         const thorough = LISTABLE.filter((n) => !skipList.has(n) && depthFor(n, data) === 'thorough');
         if (thorough.length) fail('checkins', `"checkins: none" asks nothing, so every doc must be quick; thorough here: ${thorough.join(', ')}`);
+      }
+    }
+    if (name === 'working') {
+      for (const [key, allowed] of Object.entries(WORKING_SETTINGS)) {
+        const v = data[key];
+        // A template placeholder is the placeholder rule's to report.
+        if (v === undefined || v.includes('{{')) continue;
+        if (!allowed.includes(v)) fail('working-settings', `"${key}" must be one of ${allowed.join('|')} (found "${v}")`);
       }
     }
     // A draft keeps no trace of an earlier acceptance: that acceptance was
@@ -2177,6 +2226,72 @@ export function acceptDoc(root, name, today = localDate(), { beforeWrite, before
   return { ok: true, warnings: [...check.warnings, ...(tmpWarning ? [tmpWarning] : [])] };
 }
 
+// Changes settings in a doc's frontmatter for the app's settings screen:
+// today only working.md's github, issues, pull-requests and runtime. The
+// prose is never touched; dybs-working brings it in line on its next run.
+// A changed doc is a draft, as every doc is after a change. When it was
+// accepted before, the human's click is their word, so it is accepted again
+// through acceptDoc and its checks. Every change is appended to dybs/log.md.
+// Returns { ok, changed, accepted, errors, warnings }.
+export function setSettings(root, name, updates, today = localDate()) {
+  const out = { ok: false, changed: {}, accepted: false, errors: [], warnings: [] };
+  const refuse = (m) => { out.errors.push(m); return out; };
+  if (name !== 'working') return refuse(`only working has settings to change; ${name} is changed by its own skill`);
+  const entries = Object.entries(updates || {});
+  if (!entries.length) return refuse('nothing to set: give key=value, for example pull-requests=none');
+  for (const [k, v] of entries) {
+    if (WORKING_SETTINGS[k]) { if (!WORKING_SETTINGS[k].includes(v)) refuse(`"${k}" must be one of ${WORKING_SETTINGS[k].join('|')} (got "${v}")`); }
+    else if (SETTING_TEXT[k]) { if (!SETTING_TEXT[k].test(v)) refuse(`"${k}" must be plain text on one line, at most 80 characters`); }
+    else refuse(`unknown setting "${k}". Known: ${[...Object.keys(WORKING_SETTINGS), ...Object.keys(SETTING_TEXT)].join(', ')}`);
+  }
+  if (out.errors.length) return out;
+  const rel = `dybs/${DOCS[name].file}`;
+  const unsafe = unsafePath(root, rel);
+  if (unsafe) return refuse(`refusing to change settings: ${unsafe}`);
+  const path = join(root, rel);
+  if (!existsSync(path)) return refuse(`${rel} is missing: run dybs-working first`);
+  const text = readDoc(path, root);
+  const { data } = parseFrontmatter(text);
+  if (!data) return refuse(`${rel} has no frontmatter to change`);
+  const changed = Object.fromEntries(entries.filter(([k, v]) => data[k] !== v));
+  const wasAccepted = data.status === 'accepted';
+  if (!Object.keys(changed).length) return { ...out, ok: true, accepted: wasAccepted };
+  const next = setFrontmatter(text, { ...changed, status: 'draft', updated: today, accepted: null, 'accepted-hash': null });
+  const check = validateDoc(name, next);
+  if (check.errors.length) return refuse(`${rel} would not validate: ${check.errors.join('; ')}`);
+  // Written beside the doc and renamed into place, with its mode and owner.
+  // The doc is read again right before the rename: an edit saved meanwhile
+  // is never replaced.
+  const was = lstatSync(path);
+  const tmp = `${path}.dybs-${process.pid}-${randomUUID()}.tmp`;
+  try {
+    const fd = openSync(tmp, 'wx', was.mode & 0o7777);
+    try {
+      writeFileSync(fd, next);
+      fchmodSync(fd, was.mode & 0o7777);
+      try { fchownSync(fd, Number(was.uid), Number(was.gid)); } catch { /* not ours to give: keep the writer's */ }
+    } finally { closeSync(fd); }
+    if (unsafePath(root, rel) || readDoc(path, root) !== text) throw new Error(`${rel} changed while the setting was being written; nothing was changed, try again`);
+    renameSync(tmp, path);
+  } catch (e) {
+    try { rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    return refuse(e.message);
+  }
+  out.ok = true;
+  out.changed = changed;
+  const logRel = 'dybs/log.md';
+  if (existsSync(join(root, logRel)) && !unsafePath(root, logRel)) {
+    appendFileSync(join(root, logRel), Object.entries(changed).map(([k, v]) => `- ${today} ${name}: ${k} set to ${v} in the app's settings (was ${data[k] ?? 'unset'})\n`).join(''));
+  } else out.warnings.push('dybs/log.md is missing, so the change is not logged; dybs-start recovers the log');
+  if (wasAccepted) {
+    const r = acceptDoc(root, name, today);
+    if (r.ok) out.accepted = true;
+    else out.warnings.push(`saved, but not accepted again, so ${rel} is a draft: ${(r.errors || []).join('; ')}`);
+    out.warnings.push(...(r.warnings || []));
+  }
+  return out;
+}
+
 export function main(argv) {
   const args = argv.slice(2);
   // Unknown options and a second folder are refused: a misspelled
@@ -2186,20 +2301,22 @@ export function main(argv) {
     const seenFlags = new Set();
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
-      if (a === '--doc' || a === '--accept') {
+      if (a === '--doc' || a === '--accept' || a === '--set') {
         // Each at most once, and not together: a second one would be
         // silently ignored, and automation would believe it ran.
         if (seenFlags.has(a)) { console.error(`${a} given more than once; run one doc at a time`); return 2; }
         seenFlags.add(a);
         i++;
+        // --set takes key=value pairs after the doc name.
+        if (a === '--set') while (i + 1 < args.length && /^[a-z][a-z-]*=/.test(args[i + 1])) i++;
         continue;
       }
       if (a === '--json') continue;
-      if (a.startsWith('-') && a !== '-') { console.error(`unknown option ${a}. Options: --doc <name>, --accept <doc>, --json`); return 2; }
+      if (a.startsWith('-') && a !== '-') { console.error(`unknown option ${a}. Options: --doc <name>, --accept <doc>, --set <doc> key=value..., --json`); return 2; }
       positionals.push(a);
     }
     if (positionals.length > 1) { console.error(`one project folder at most, got: ${positionals.join(' ')}`); return 2; }
-    if (seenFlags.size > 1) { console.error('use --doc or --accept, not both'); return 2; }
+    if (seenFlags.size > 1) { console.error('use one of --doc, --accept and --set'); return 2; }
   }
   const json = args.includes('--json');
   // A flag that takes a doc name must get one: a bare `--accept` that
@@ -2212,7 +2329,8 @@ export function main(argv) {
   };
   const doc = operand('--doc');
   const acc = operand('--accept');
-  for (const [flag, o] of [['--doc', doc], ['--accept', acc]]) {
+  const set = operand('--set');
+  for (const [flag, o] of [['--doc', doc], ['--accept', acc], ['--set', set]]) {
     if (o.given && !o.value) { console.error(`${flag} needs a doc name. Known: ${ORDER.join(', ')}`); return 2; }
   }
   const only = doc.value;
@@ -2221,8 +2339,28 @@ export function main(argv) {
     return 2;
   }
   const accept = acc.value;
-  const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--doc' && args[i - 1] !== '--accept');
+  const setAt = args.indexOf('--set');
+  const pairs = [];
+  if (setAt >= 0) for (let j = setAt + 2; j < args.length && /^[a-z][a-z-]*=/.test(args[j]); j++) pairs.push(j);
+  const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--doc' && args[i - 1] !== '--accept' && args[i - 1] !== '--set' && !pairs.includes(i));
   const root = resolve(positional[0] || '.');
+  if (set.value) {
+    const updates = Object.fromEntries(pairs.map((j) => { const [k, ...v] = args[j].split('='); return [k, v.join('=')]; }));
+    let r;
+    try { r = setSettings(root, set.value, updates); } catch (err) {
+      if (!json) throw err;
+      r = { ok: false, changed: {}, accepted: false, errors: [err.message], warnings: [] };
+    }
+    if (json) {
+      console.log(JSON.stringify({ schema: 2, set: set.value, ...r }, null, 2));
+      return r.ok ? 0 : 1;
+    }
+    if (!r.ok) { console.error(`not changed:\n  ${r.errors.join('\n  ')}`); return 1; }
+    const what = Object.entries(r.changed).map(([k, v]) => `${k} set to ${v}`).join(', ');
+    console.log(what ? `${set.value}: ${what}${r.accepted ? '; accepted again.' : '; it is a draft.'}` : `${set.value}: nothing changed.`);
+    for (const w of r.warnings) console.log(`warn: ${w}`);
+    return 0;
+  }
   if (accept) {
     if (!ORDER.includes(accept)) { console.error(`unknown doc "${accept}". Known: ${ORDER.join(', ')}`); return 2; }
     let r;

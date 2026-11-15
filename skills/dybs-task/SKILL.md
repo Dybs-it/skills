@@ -33,8 +33,11 @@ it is waiting on from the human.
 
 ## 1. Take the ask
 
-From an issue link or number, read the issue with the tools you have (its
-title, body and comments). From a description, take the human's words. Copy
+From an issue link or number, read the issue (its title, body and
+comments): with `gh issue view <number> --comments` when
+`dybs/context/working.md` says `issues: github` (where the issues live,
+not where the code is) and `gh` is signed in,
+otherwise with the tools you have. From a description, take the human's words. Copy
 the ask into the task as it was said, in two to five lines. Do not improve
 it: what the human asked is the spec.
 
@@ -42,6 +45,13 @@ Pick the task name: the issue number and two or three words
 (`142-revoke-invite`), following the naming rule in `quality.md`. If
 `dybs/work/<task>/task.md` already exists, edit it in place; never start a
 second task for the same issue.
+
+### From the prototype scope
+
+When `dybs/discovery/decide.md` is accepted and no task cites it yet, its
+**Prototype scope** is the first work: split it the same way as an idea
+(below), one slice per step of the storyboard the scope needs, and write
+`source: discovery` in each task.
 
 ### From an accepted idea
 

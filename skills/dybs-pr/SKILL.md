@@ -76,7 +76,10 @@ Say plainly what was **not** verified.
 ## Check in
 
 Show the human the PR text before opening or updating the PR. Opening a PR
-is outward-facing: do it only on their word.
+is outward-facing: do it only on their word, or where
+`dybs/context/working.md` says under **Pull requests** that an agent may
+open one, and then exactly as it says (a draft, when it says a draft). With
+`pull-requests: none` there, write no PR text: say so and stop.
 
 Last, log the run (see "Model, effort and the run log" in `quality.md`).
 

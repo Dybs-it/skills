@@ -19,6 +19,11 @@ dybs/
   team.md              the personas agents speak as
   project.md           name, why, who, now, depth and check-in choices
   log.md               every decision from the interviews, append-only
+  discovery/
+    map.md             the goal, the users, their journey, the target
+    sketch.md          research and different solution concepts
+    decide.md          the chosen direction, the storyboard, the prototype scope
+    research/          interviews and notes the human brings
   context/
     prd.md             the problem and what success means
     scope.md           in, out, later, constraints
@@ -26,6 +31,7 @@ dybs/
     architecture.md    the shape of the system and the decisions that hold it
     ux.md              how the product behaves
     ui.md              how the product looks
+    working.md         how the work is done: tests, GitHub, pull requests, agents
     decisions/         one file per decision (NNNN-short-title.md)
 ```
 
@@ -37,7 +43,8 @@ task's status), then `test-plan.md`, `review.md`, `gate.md`, `pr.md` and
 
 ## Order
 
-project, prd, scope, domain, architecture, ux, ui, then a check.
+project, map, sketch, decide, prd, scope, domain, architecture, ux, ui, working,
+then a check.
 Each doc reads the ones before it. A doc that does not apply (no UI for a
 CLI, for example) is listed in `project.md` under `skip:` instead of being
 written empty.

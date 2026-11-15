@@ -70,6 +70,7 @@ they care about, what they always ask, what they won't accept.
 
 `dybs-start/scripts/dybs-validate.mjs` (doc contract, depths, acceptance),
 `dybs-gate/scripts/dybs-gate.mjs` (gate decision) and
+`dybs-start/scripts/dybs-probe.mjs` (what the repository shows, read-only),
 `dybs-task/scripts/dybs-route.mjs` (task complexity, model and effort
 per step, the run log).
 
@@ -87,6 +88,27 @@ through the docs.
 - **Our own:** the kickoff flow, the advice options, the route table by
   project type, the status and routing.
 - **Adapted:** the interview method via `interview.md` (see above).
+
+### `dybs-discover`
+
+Discovery before requirements: Map (goal, users, journey, the questions
+that could sink it, one target), Sketch (research and several different
+concepts) and Decide (critique, the human's choice, rejected alternatives,
+storyboard, prototype scope). Specialist briefs for market research,
+customer research and counsel.
+
+- **Our own:** the three docs and their contract, the origin tags on every
+  claim, the two kickoff answers (`exists`, `decides`) that adapt the
+  stages, "respect the decider", and the rule that a simulated customer is
+  never evidence.
+- **Adapted from the Design Sprint** by Jake Knapp, John Zeratsky and
+  Braden Kowitz, as described in *Sprint* (Simon & Schuster, 2016): the
+  first three days (Map, Sketch, Decide), the long-term goal, sprint
+  questions, the journey map and target, lightning demos, distinct solution
+  sketches, the decider and the storyboard. The method is followed; no text
+  is taken from the book.
+- **Questions in rounds** follow the shared `interview.md` (adapted from
+  Matt Pocock's `grilling`, see above).
 
 ### `dybs-prd`
 
@@ -139,6 +161,18 @@ Writes `context/ui.md`: tone, token roles, components, do and don't, pointing
 to tokens in code when they exist.
 
 - **Our own:** all of it.
+
+### `dybs-working`
+
+How the work is done on this project: what is tested and how, GitHub and
+where issues live, the pull request policy, and which agents and runtime do
+the work. The work loop reads it. Ships no script of its own; it uses
+`dybs-start/scripts/dybs-probe.mjs`.
+
+- **Our own:** the doc, its machine-readable frontmatter, and the rule that
+  facts are probed and only decisions are asked.
+- **Inspired by TEA** `testarch-framework` and `testarch-ci`: a project
+  states its test levels and what CI must show. No text taken.
 
 ### `dybs-check`
 

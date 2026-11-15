@@ -4,6 +4,10 @@
   `dybs-start/assets/` holds the files copied into a project's `dybs/`.
 - `skills/dybs-start/scripts/dybs-validate.mjs` (`DOCS`, `ORDER`) is the
   single home for the doc contract. Change a template and `DOCS` together.
+- Facts are looked up, decisions are asked.
+  `skills/dybs-start/scripts/dybs-probe.mjs` reports what a repository shows
+  (read-only, nothing run but `git` and `gh auth status`). A new question in
+  a checklist that a script could answer belongs in the probe instead.
 - Installing is the package manager's job (`npx skills add Dybs-it/skills`,
   Claude plugin marketplace). `bin/dybs-skills.mjs` only validates and
   safely updates; `src/update.mjs` owns the rule that a file the user

@@ -52,6 +52,30 @@ questions**, and **Learned** once it is done.
 | `done` | merged and closed | `dybs-done` |
 | `stopped` | stopped on purpose, with a line why | the human; only they clear it |
 
+## How this project works
+
+`dybs/context/working.md` (written by `dybs-working`) holds the project's
+own answers: which test levels are wanted and the commands that run them,
+whether the code and the issues live on GitHub, whether a change goes
+through a pull request and who opens and merges it, and what may run with
+nobody watching. Read it when it exists and follow it before any default in
+these skills:
+
+- **Testing** decides the levels a test plan may use and the behaviour that
+  always needs a test.
+- **Source control** says where a task's issue is read from. With
+  `issues: github` and the `gh` CLI signed in, read the issue with `gh`.
+  The code being on GitHub does not mean the issues are: `github: yes`
+  with issues elsewhere reads them from there.
+- **Pull requests:** `pull-requests: none` means no PR text is written and
+  the loop goes from the gate to the merge. Whatever the policy, opening a
+  pull request, pushing and commenting on an issue are outward actions: do
+  them only where this doc says an agent may, or on the human's word.
+- **Agents and runtime** says what may run unattended.
+
+Without the doc, work as these skills say, and say in the check-in that the
+project has not written down how it works (`dybs-working` does).
+
 ## Lanes
 
 Not every task needs every step. The lane is computed from `task.md` by
