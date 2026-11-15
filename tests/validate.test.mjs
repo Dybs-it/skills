@@ -14,6 +14,9 @@ const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
 // Where each doc's template lives. Keeps templates and the validator contract in step.
 const TEMPLATES = {
   project: 'skills/dybs-start/assets/project.md',
+  map: 'skills/dybs-discover/map-template.md',
+  sketch: 'skills/dybs-discover/sketch-template.md',
+  decide: 'skills/dybs-discover/decide-template.md',
   prd: 'skills/dybs-prd/template.md',
   scope: 'skills/dybs-scope/template.md',
   domain: 'skills/dybs-domain/template.md',
@@ -867,9 +870,9 @@ test('checkins: none refuses any thorough doc', () => {
   assert.ok(!project('').rules.includes('checkins'), project('').errors.join('; '));
   assert.ok(project('\nthorough: prd').rules.includes('checkins'));
   assert.ok(project('\ndepth: thorough').rules.includes('checkins'));
-  assert.ok(!project('\ndepth: thorough\nquick: prd, scope, domain, architecture, ux, ui, working').rules.includes('checkins'));
+  assert.ok(!project('\ndepth: thorough\nquick: map, sketch, decide, prd, scope, domain, architecture, ux, ui, working').rules.includes('checkins'));
   // The working doc counts like any other: left thorough, `none` is refused.
-  assert.ok(project('\ndepth: thorough\nquick: prd, scope, domain, architecture, ux, ui').rules.includes('checkins'));
+  assert.ok(project('\ndepth: thorough\nquick: map, sketch, decide, prd, scope, domain, architecture, ux, ui').rules.includes('checkins'));
 });
 
 test('--doc and --accept may each appear once, and not together', () => {
@@ -3636,12 +3639,19 @@ test('acceptance: a folder that took the staging name stays at its private name'
 });
 
 test('every doc skill reads every doc earlier in the order', async () => {
-  const { ORDER } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
+  const { ORDER, SKILL_FOR } = await import('../skills/dybs-start/scripts/dybs-validate.mjs');
   const docs = ORDER.filter((d) => d !== 'project');
   for (const [i, doc] of docs.entries()) {
-    const t = readFileSync(join(ROOT, `skills/dybs-${doc}/SKILL.md`), 'utf8');
+    const skill = SKILL_FOR[doc] || `dybs-${doc}`;
+    // A skill that writes several docs (dybs-discover) writes the earlier ones itself.
+    const own = docs.filter((d) => (SKILL_FOR[d] || `dybs-${d}`) === skill);
+    const t = readFileSync(join(ROOT, `skills/${skill}/SKILL.md`), 'utf8');
     const reads = t.split('**Reads:**')[1].split('**Writes:**')[0];
-    for (const earlier of docs.slice(0, i)) assert.ok(reads.includes(`context/${earlier}.md`), `${doc} reads ${earlier}`);
+    const writes = t.split('**Writes:**')[1].split('\n\n')[0];
+    for (const earlier of docs.slice(0, i)) {
+      const file = DOCS[earlier].file;
+      assert.ok(reads.includes(file) || (own.includes(earlier) && writes.includes(file)), `${doc} reads ${earlier}`);
+    }
   }
 });
 

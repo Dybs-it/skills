@@ -161,8 +161,12 @@ test('every doc skill points to interview.md and has core and thorough checklist
   for (const s of GETTING_STARTED.filter((n) => !['dybs-start', 'dybs-check'].includes(n))) {
     const t = readFileSync(join(SKILLS_SRC, s, SKILL), 'utf8');
     assert.match(t, /interview\.md/, s);
-    assert.match(t, /\*\*core\*\*\n- \[ \]/, `${s} core checklist`);
-    assert.match(t, /\*\*thorough\*\*\n- \[ \]/, `${s} thorough checklist`);
+    // dybs-discover keeps one checklist per stage, in the stage's own file.
+    const lists = s === 'dybs-discover' ? ['map', 'sketch', 'decide'].map((d) => readFileSync(join(SKILLS_SRC, s, `${d}.md`), 'utf8')) : [t];
+    for (const l of lists) {
+      assert.match(l, /\*\*core\*\*\n- \[ \]/, `${s} core checklist`);
+      assert.match(l, /\*\*thorough\*\*\n- \[ \]/, `${s} thorough checklist`);
+    }
   }
 });
 
@@ -193,7 +197,7 @@ test('CLI: status, update, validate', () => {
 test('kickoff choices have a home in the project.md template', () => {
   const tpl = readFileSync(join(SKILLS_SRC, 'dybs-start/assets/project.md'), 'utf8');
   const start = readFileSync(join(SKILLS_SRC, 'dybs-start', SKILL), 'utf8');
-  for (const field of ['type', 'stage', 'horizon', 'depth', 'quick', 'thorough', 'checkins', 'skip']) {
+  for (const field of ['type', 'stage', 'horizon', 'depth', 'quick', 'thorough', 'checkins', 'exists', 'decides', 'skip']) {
     assert.match(tpl, new RegExp(`^${field}:`, 'm'), `template lacks ${field}`);
     assert.match(start, new RegExp(`\`${field}:?\``), `dybs-start does not set ${field}`);
   }
@@ -312,10 +316,10 @@ test('dybs-check ships every readiness checklist, so it works installed alone', 
   cpSync(join(SKILLS_SRC, 'dybs-check'), join(root, 'dybs-check'), { recursive: true });
   const alone = readFileSync(join(root, 'dybs-check', SKILL), 'utf8');
   assert.ok(alone.includes(checklistsBlock()), 'run node scripts/sync-rules.mjs');
-  for (const s of GETTING_STARTED.filter((n) => !['dybs-start', 'dybs-check'].includes(n))) {
-    const items = checklistOf(s).split('\n').filter((l) => l.startsWith('- [ ]'));
-    assert.ok(items.length > 0, s);
-    for (const item of items) assert.ok(alone.includes(item), `${s}: ${item}`);
+  for (const doc of ORDER.filter((d) => d !== 'project')) {
+    const items = checklistOf(`dybs-${doc}`, doc).split('\n').filter((l) => l.startsWith('- [ ]'));
+    assert.ok(items.length > 0, doc);
+    for (const item of items) assert.ok(alone.includes(item), `${doc}: ${item}`);
   }
   rmSync(root, { recursive: true });
 });
@@ -4387,4 +4391,33 @@ test('issues are read with gh only when they live on GitHub, not because the cod
   const q = readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'quality.md'), 'utf8').replace(/\s+/g, ' ');
   assert.match(q, /With `issues: github` and the `gh` CLI signed in, read the issue with `gh`/);
   assert.doesNotMatch(q, /`github: yes` and the `gh` CLI signed in/);
+});
+
+// --- dybs-discover (decision 0010) ---
+
+test('discovery keeps the human as the decider and never counts a simulated customer as evidence', () => {
+  const read = (f) => readFileSync(join(SKILLS_SRC, 'dybs-discover', f), 'utf8').replace(/\s+/g, ' ');
+  const skill = read(SKILL);
+  for (const tag of ['*(heard)*', '*(read: source)*', '*(researched: link)*', '*(interview N)*', '*(assumption)*']) assert.ok(skill.includes(tag), tag);
+  assert.match(skill, /A simulated customer is not evidence/);
+  assert.match(skill, /say the strongest objection \*\*once\*\*/);
+  assert.match(read('decide.md'), /\*\*Never choose for them\.\*\*/);
+  assert.match(read('specialists.md'), /\*\*Never simulate customers as evidence\.\*\*/);
+  assert.match(read('specialists.md'), /\*\*This is not legal advice:\*\*/);
+  assert.match(read('decide.md'), /nothing is validated yet/);
+});
+
+test('the kickoff asks what exists and who decides, and routes discovery by the answers', () => {
+  const start = readFileSync(join(SKILLS_SRC, 'dybs-start', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(start, /\*\*What already exists\?\*\*/);
+  assert.match(start, /\*\*Who decides\?\*\*/);
+  assert.match(start, /\| `exists: code`, no new direction \| rebuilt from the code, for the human to confirm \| skip \|/);
+  const discover = readFileSync(join(SKILLS_SRC, 'dybs-discover', SKILL), 'utf8');
+  for (const v of ['`nothing`', '`research`', '`code`', '`one`', '`team`', '`client`']) assert.ok(discover.includes(v), v);
+});
+
+test('each discovery stage is read only when it runs', () => {
+  const skill = readFileSync(join(SKILLS_SRC, 'dybs-discover', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(skill, /Read only that stage's file in this folder/);
+  assert.doesNotMatch(skill, /## Readiness checklist/);
 });

@@ -11,6 +11,8 @@ depth: {{quick | thorough}}
 quick:
 thorough:
 checkins: each-doc
+exists: {{nothing | research | code}}
+decides: {{one | team | client}}
 skip:
 ---
 

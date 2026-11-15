@@ -46,6 +46,13 @@ Pick the task name: the issue number and two or three words
 `dybs/work/<task>/task.md` already exists, edit it in place; never start a
 second task for the same issue.
 
+### From the prototype scope
+
+When `dybs/discovery/decide.md` is accepted and no task cites it yet, its
+**Prototype scope** is the first work: split it the same way as an idea
+(below), one slice per step of the storyboard the scope needs, and write
+`source: discovery` in each task.
+
 ### From an accepted idea
 
 When the human points at an idea in `dybs/ideas/` (its `status` must be

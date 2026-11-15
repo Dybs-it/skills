@@ -36,12 +36,13 @@ should live), then advises how to continue and lets you choose: a quick
 start, a thorough kickoff, a custom mix, or park it for later.
 
 ```
-project → prd → scope → domain → architecture → ux → ui → working → check
+project → map → sketch → decide → prd → scope → domain → architecture → ux → ui → working → check
 ```
 
 | Skill | Writes | Lead persona |
 |---|---|---|
 | `dybs-start` | the kickoff: `dybs/project.md`, `log.md`, `README.md`, `team.md`; routes to the next step | Noor |
+| `dybs-discover` | `discovery/map.md`, `sketch.md`, `decide.md`: the problem and the target, several different concepts, the chosen direction and its storyboard | Noor, with Bas and specialists |
 | `dybs-prd` | `context/prd.md` | Noor |
 | `dybs-scope` | `context/scope.md` | Noor, with Bas |
 | `dybs-domain` | `context/domain.md` | Ezra |
@@ -50,6 +51,22 @@ project → prd → scope → domain → architecture → ux → ui → working 
 | `dybs-ui` | `context/ui.md` | Jun |
 | `dybs-working` | `context/working.md` (tests, GitHub and issues, pull requests, agents and runtime) | Tess, with Bas |
 | `dybs-check` | nothing; one check-in brief across all docs | Bas |
+
+### Discovery: think before you build
+
+Before requirements, `dybs-discover` runs the first three days of a Design
+Sprint as a conversation: **Map** the problem and pick a target, **Sketch**
+several genuinely different solutions after researching what exists, and
+**Decide** on a direction with a storyboard and a prototype scope. You are
+the decider; agents research, structure and challenge. Every claim carries
+where it came from (heard, read, researched with a link, an interview, or an
+assumption), and a simulated customer never counts as evidence. It ends
+with a chosen direction, not with proof that it works.
+
+Two kickoff answers adapt it: **what already exists** (nothing, research, or
+a running product, whose map is rebuilt from the code) and **who decides**
+(one person, a team, or a client). Market research, customer research and
+legal checks join only when the idea calls for them.
 
 ### Quick or thorough
 

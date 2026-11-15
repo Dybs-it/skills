@@ -17,6 +17,24 @@ export const DOCS = {
     maxWords: { quick: 250, thorough: 350 },
     sections: ['Why', 'Who', 'Now'],
   },
+  // Discovery: understand the problem, explore solutions, choose a
+  // direction, before requirements are written. One skill, dybs-discover,
+  // writes all three.
+  map: {
+    file: 'discovery/map.md',
+    maxWords: { quick: 700, thorough: 1400 },
+    sections: ['Goal', 'Users', 'Journey', 'Questions', 'Target'],
+  },
+  sketch: {
+    file: 'discovery/sketch.md',
+    maxWords: { quick: 900, thorough: 1800 },
+    sections: ['Research', 'Concepts'],
+  },
+  decide: {
+    file: 'discovery/decide.md',
+    maxWords: { quick: 700, thorough: 1400 },
+    sections: ['Decision', 'Rejected', 'Storyboard', 'To validate', 'Prototype scope'],
+  },
   prd: {
     file: 'context/prd.md',
     maxWords: { quick: 900, thorough: 1800 },
@@ -56,7 +74,9 @@ export const DOCS = {
   },
 };
 
-export const ORDER = ['project', 'prd', 'scope', 'domain', 'architecture', 'ux', 'ui', 'working'];
+export const ORDER = ['project', 'map', 'sketch', 'decide', 'prd', 'scope', 'domain', 'architecture', 'ux', 'ui', 'working'];
+// The skill that writes each doc, when it is not dybs-<doc>.
+export const SKILL_FOR = { map: 'dybs-discover', sketch: 'dybs-discover', decide: 'dybs-discover' };
 // Docs every project needs, whatever it is: the work loop reads them.
 export const NEVER_SKIP = ['working'];
 // The settings in working.md that scripts and the app act on, and the values
@@ -85,7 +105,7 @@ export const MANUAL_RULES = [
   { id: 'depth', text: 'Frontmatter `depth`, when present, is `quick` or `thorough`.' },
   { id: 'cap', text: 'The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.' },
   { id: 'accepted-hash', text: 'An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator\'s `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)' },
-  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux). `working` is never skipped: every project says how its work is tested and merged.' },
+  { id: 'doc-lists', text: 'In project.md, `quick:`, `thorough:` and `skip:` name only known docs (map, sketch, decide, prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (sketch needs map; decide needs sketch; scope, domain, architecture and ux need prd; ui needs ux). `working` is never skipped: every project says how its work is tested and merged.' },
   { id: 'working-settings', text: 'In working.md, `github` is `yes` or `no`, `pull-requests` is `per-task` or `none`, and `runtime` is `none` or `herdr`, each when present. Scripts and the app act on these values, so nothing else is read.' },
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
   { id: 'html', text: 'No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.' },
@@ -751,7 +771,7 @@ function list(raw) {
 // What each doc cannot be written without. A doc that something still in
 // the route requires cannot be skipped; other inputs are optional (a skill
 // works without a skipped one and notes what it would have answered).
-export const REQUIRES = { scope: ['prd'], domain: ['prd'], architecture: ['prd'], ux: ['prd'], ui: ['ux'] };
+export const REQUIRES = { sketch: ['map'], decide: ['sketch'], scope: ['prd'], domain: ['prd'], architecture: ['prd'], ux: ['prd'], ui: ['ux'] };
 // Every doc a doc cannot be written without, its requirements' own
 // included (ui needs ux, and ux needs prd), deepest first.
 export function requiredBy(name, seen = new Set()) {

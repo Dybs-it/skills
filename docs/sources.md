@@ -89,6 +89,27 @@ through the docs.
   project type, the status and routing.
 - **Adapted:** the interview method via `interview.md` (see above).
 
+### `dybs-discover`
+
+Discovery before requirements: Map (goal, users, journey, the questions
+that could sink it, one target), Sketch (research and several different
+concepts) and Decide (critique, the human's choice, rejected alternatives,
+storyboard, prototype scope). Specialist briefs for market research,
+customer research and counsel.
+
+- **Our own:** the three docs and their contract, the origin tags on every
+  claim, the two kickoff answers (`exists`, `decides`) that adapt the
+  stages, "respect the decider", and the rule that a simulated customer is
+  never evidence.
+- **Adapted from the Design Sprint** by Jake Knapp, John Zeratsky and
+  Braden Kowitz, as described in *Sprint* (Simon & Schuster, 2016): the
+  first three days (Map, Sketch, Decide), the long-term goal, sprint
+  questions, the journey map and target, lightning demos, distinct solution
+  sketches, the decider and the storyboard. The method is followed; no text
+  is taken from the book.
+- **Questions in rounds** follow the shared `interview.md` (adapted from
+  Matt Pocock's `grilling`, see above).
+
 ### `dybs-prd`
 
 Writes `context/prd.md`: problem, users, goals, numbered requirements,

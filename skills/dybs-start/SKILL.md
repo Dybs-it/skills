@@ -86,10 +86,20 @@ not open with the question above and do not wait:
 
 ## 2. A few sharp questions
 
-Ask **one round** of at most six questions, numbered, each with your
-recommended answer based on what you just heard (format in `interview.md`).
-Skip any question the brain dump already answered; say what you took from it
-instead. Pick from:
+Two questions come first, always, because they decide how the rest of the
+intake runs. Answer them from the probe and the brain dump where you can,
+and ask only what is left:
+
+- **What already exists?** Nothing yet (`exists: nothing`), research such
+  as interviews, notes or data (`exists: research`), or a product that
+  already runs (`exists: code`).
+- **Who decides?** One person (`decides: one`), a team (`decides: team`),
+  or a client you build for (`decides: client`).
+
+Then ask **one round** of at most six more questions, numbered, each with
+your recommended answer based on what you just heard (format in
+`interview.md`). Skip any question the brain dump already answered; say what
+you took from it instead. Pick from:
 
 1. **Type of project.** Web app, mobile app, desktop app, API or backend,
    library or CLI, website or content site, internal tool, AI agent or
@@ -134,6 +144,18 @@ Tailor the route to the type of project, and say what you would leave out:
 | Internal tool | ui is light | domain, scope |
 | AI agent or automation | ui unless it has screens | domain, architecture (failure, cost, safety) |
 
+**Discovery** (map, sketch, decide) follows the two kickoff answers:
+
+| | Map | Sketch and Decide |
+|---|---|---|
+| `exists: nothing` or `research` | run | run |
+| `exists: code`, no new direction | rebuilt from the code, for the human to confirm | skip |
+| `exists: code`, a new direction | rebuilt, then extended | run |
+| A weekend experiment or throwaway | skip | skip |
+
+Skipping is the human's call: recommend, and say what is lost (agents then
+build without knowing why).
+
 `working` is never skipped: every project has to say how changes are
 tested, whether they go through pull requests, and what may run with nobody
 watching.
@@ -154,7 +176,8 @@ Wait for their choice. Their word decides; do not start drafting before it.
    unless they already exist.
 3. Write `dybs/project.md` from `assets/project.md`: name, one line, Why, Who
    and Now from the kickoff, and the frontmatter from their choices (`type`,
-   `stage`, `horizon`, `depth`, `quick:`, `thorough:`, `checkins`, `skip`).
+   `stage`, `horizon`, `depth`, `quick:`, `thorough:`, `checkins`, `exists`,
+   `decides`, `skip`).
    For existing projects, Now describes what actually runs today, read from
    the code. Mark anything you inferred *(assumption)*.
 4. Start `dybs/log.md` with a `kickoff` line for every answer and choice,
@@ -174,8 +197,8 @@ step. A doc whose written depth is below the requested depth needs
 deepening (the validator reports `needs thorough`); offer it, and say that
 deepening makes an accepted doc a draft again.
 
-The order is fixed: project, prd, scope, domain, architecture, ux, ui,
-working, check.
+The order is fixed: project, map, sketch, decide, prd, scope, domain,
+architecture, ux, ui, working, check.
 The next step is the first doc that is missing, failing, still `draft`, or
 needing deepening (written below the requested depth, accepted or not).
 With `checkins: end` or `none`, a `draft` status does not stop the route:
@@ -189,7 +212,8 @@ report lists it.
   (it sets the status, the date and `accepted-hash`); never set those by
   hand, or a later edit to the accepted settings goes unseen. With `end`, project.md is reviewed with the rest in `dybs-check`; with
   `none`, it stays a draft in the final report.
-- Then hand off to the matching skill: `dybs-prd`, `dybs-scope`,
+- Then hand off to the matching skill: `dybs-discover` (for map, sketch
+  and decide), `dybs-prd`, `dybs-scope`,
   `dybs-domain`, `dybs-architecture`, `dybs-ux`, `dybs-ui`, `dybs-working`,
   `dybs-check`.
   Skills install one by one, so if the next one is not installed, say so and
@@ -216,7 +240,7 @@ caps) and the readiness checklist of each doc follow them.
 7. Frontmatter `depth`, when present, is `quick` or `thorough`.
 8. The doc is under the word cap for the depth it was written at (its own `depth`; quick when it has none), counting the text as it renders: HTML comments, code blocks, link destinations and titles, and reference definitions do not count.
 9. An accepted doc is not changed, neither its content nor its frontmatter settings (anything but `status`, `updated`, `accepted` and `accepted-hash`), not even for a typo. Any change sets `status: draft` and removes `accepted` and `accepted-hash`, and the human accepts again. (`accepted-hash` is written by the validator's `--accept` and lets it detect a change. Checking by hand cannot recompute it: report such a doc as accepted but not verified, and a doc accepted without `accepted-hash` the same way.)
-10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (scope, domain, architecture and ux need prd; ui needs ux). `working` is never skipped: every project says how its work is tested and merged.
+10. In project.md, `quick:`, `thorough:` and `skip:` name only known docs (map, sketch, decide, prd, scope, domain, architecture, ux, ui, working), no doc is both `quick` and `thorough`, and `skip:` keeps what a remaining doc needs (sketch needs map; decide needs sketch; scope, domain, architecture and ux need prd; ui needs ux). `working` is never skipped: every project says how its work is tested and merged.
 11. In working.md, `github` is `yes` or `no`, `pull-requests` is `per-task` or `none`, and `runtime` is `none` or `herdr`, each when present. Scripts and the app act on these values, so nothing else is read.
 12. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
 13. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
@@ -227,6 +251,9 @@ caps) and the readiness checklist of each doc follow them.
 | Doc | File | Required `##` sections | Word cap (quick / thorough) |
 |---|---|---|---|
 | `project` | `dybs/project.md` | Why, Who, Now | 250 / 350 |
+| `map` | `dybs/discovery/map.md` | Goal, Users, Journey, Questions, Target | 700 / 1400 |
+| `sketch` | `dybs/discovery/sketch.md` | Research, Concepts | 900 / 1800 |
+| `decide` | `dybs/discovery/decide.md` | Decision, Rejected, Storyboard, To validate, Prototype scope | 700 / 1400 |
 | `prd` | `dybs/context/prd.md` | Problem, Users, Goals, Requirements, Success measures, Open questions | 900 / 1800 |
 | `scope` | `dybs/context/scope.md` | In, Out, Later, Constraints | 450 / 800 |
 | `domain` | `dybs/context/domain.md` | Glossary, Rules | 700 / 1500 |
@@ -237,6 +264,52 @@ caps) and the readiness checklist of each doc follow them.
 <!-- contract:end -->
 
 <!-- checklists:start (generated by scripts/sync-rules.mjs, do not edit) -->
+
+### map
+
+*core*
+- [ ] The long-term goal in one sentence
+- [ ] The primary user, and the people around them who matter
+- [ ] The journey as it happens today, with where it hurts
+- [ ] At least three questions that could sink the idea
+- [ ] One target in the journey, chosen by the human, with the reason
+
+*thorough*
+- [ ] What the user does today instead, and why that is not good enough, with evidence
+- [ ] Every stakeholder: who pays, who approves, who is affected
+- [ ] Every step of the journey marked as fact or assumption
+- [ ] Which question is the riskiest, and what answer would stop the project
+- [ ] Existing research read and cited, or the decision to do none
+- [ ] Concerns from the concern scan (privacy, money, compliance, safety) placed on the journey
+
+### sketch
+
+*core*
+- [ ] At least two research finds, each with a link, or the reason there are none
+- [ ] At least two concepts that differ in kind, not only in features
+- [ ] Each concept's experience through the target moment, step by step
+- [ ] Each concept's benefits, limits and assumptions
+
+*thorough*
+- [ ] Three or four concepts, including the smallest one that could work
+- [ ] Research outside the obvious competitors (another field, an analogue process)
+- [ ] For each concept, what it would take to build, roughly
+- [ ] The human's own ideas included and written up like the others
+
+### decide
+
+*core*
+- [ ] The chosen direction, in the human's words, with the reason
+- [ ] Every rejected concept, with why
+- [ ] A storyboard of 6 to 12 frames through the target moment
+- [ ] The assumptions the prototype must test, riskiest first
+- [ ] The prototype scope: in, and left out on purpose
+
+*thorough*
+- [ ] What result in testing would change the decision
+- [ ] Each question from the map: answered, or carried into the prototype
+- [ ] Risks of the chosen direction, each with an owner
+- [ ] Legal or compliance points checked, or marked not applicable with the reason
 
 ### prd
 

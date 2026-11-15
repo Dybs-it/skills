@@ -60,6 +60,12 @@ each. Edit in place; never rewrite the file from memory.
 
 ## 3. Advise
 
+An idea big enough to change the product's direction (a new audience, a
+new problem, a pivot) deserves more than a grilling: recommend a new round
+of `dybs-discover`, which reopens the map and explores concepts before
+anyone decides.
+
+
 Each persona the idea touches gives one line of advice: **go**, **change**
 (to what), **park** (until what) or **drop**, with the reason and what would
 change their mind. Bas always speaks. Leave out a persona with nothing to
