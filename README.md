@@ -167,6 +167,7 @@ For what a package manager can't do. Until it is on npm, run it from GitHub:
 npx github:Dybs-it/skills validate                # check the project's dybs/ context
 npx github:Dybs-it/skills validate --doc prd --json
 npx github:Dybs-it/skills validate . --accept prd      # on your word: accepted, dated, fingerprinted
+npx github:Dybs-it/skills validate . --set working pull-requests=none   # what the app's settings call
 npx github:Dybs-it/skills update --dry-run        # what a safe update would change
 npx github:Dybs-it/skills update                  # update installed Dybs skills
 npx github:Dybs-it/skills status                  # where they are installed

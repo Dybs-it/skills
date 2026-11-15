@@ -38,6 +38,15 @@ workflows.
 - **Thorough is the kickoff's recommendation,** quick the exception. Agents
   build from these docs many times; a gap left at intake is a guess repeated
   in every task.
+- **The app changes the settings in place** (option B of three the owner
+  was offered): its settings screen shows each tool, from the probe, and
+  each choice, from the frontmatter. A toggle calls `dybs-validate.mjs
+  --set working <key>=<value>`, which changes only the frontmatter, logs
+  the change, and accepts the doc again when it was accepted, because the
+  click is the human's word. The prose catches up on the next
+  `dybs-working` run; `dybs-check` reports the gap until then. Rejected:
+  read-only settings (a toggle becomes a conversation) and splitting the
+  settings between the repo and the app (two places to look).
 - **Tools are the human's to install.** With GitHub wanted and `gh` missing
   or signed out, the skill gives the commands and lists it under Needs you.
   It installs nothing and signs in nowhere.
