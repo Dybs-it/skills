@@ -5,7 +5,7 @@ depth: {{quick | thorough}}
 updated: {{YYYY-MM-DD}}
 github: {{yes | no}}
 issues: {{github | none | where else}}
-pull-requests: {{per-task | per-idea | none}}
+pull-requests: {{per-task | none}}
 runtime: {{none | herdr}}
 ---
 
@@ -28,7 +28,7 @@ runtime: {{none | herdr}}
 ## Pull requests
 
 <!-- Whether a change goes through a pull request, who opens it, who merges. -->
-- **Policy:** {{a pull request per task, per idea, or none}}
+- **Policy:** {{a pull request per task, or none}}
 - **Opens:** {{the human, or an agent as a draft}}
 - **Merges:** {{who, and which checks must be green}}
 

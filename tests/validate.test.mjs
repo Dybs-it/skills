@@ -3763,7 +3763,7 @@ test('--set refuses an unknown setting, a wrong value and another doc, and chang
   const dir = acceptedWorking();
   const before = working(dir);
   for (const [doc, u, msg] of [
-    ['working', { 'pull-requests': 'always' }, /must be one of per-task\|per-idea\|none/],
+    ['working', { 'pull-requests': 'always' }, /must be one of per-task\|none/],
     ['working', { model: 'opus' }, /unknown setting "model"/],
     ['working', { issues: 'see: https://x' }, /plain text on one line/],
     ['prd', { github: 'no' }, /only working has settings/],
@@ -3783,13 +3783,22 @@ test('the CLI takes --set <doc> key=value pairs and reports in JSON', () => {
   const logs = [];
   const l = console.log; console.log = (m) => logs.push(m);
   let code;
-  try { code = main(['node', 'v', dir, '--set', 'working', 'pull-requests=per-idea', 'issues=GitHub issues', '--json']); } finally { console.log = l; }
+  try { code = main(['node', 'v', dir, '--set', 'working', 'pull-requests=none', 'issues=GitHub issues', '--json']); } finally { console.log = l; }
   assert.equal(code, 0);
   const out = JSON.parse(logs.join('\n'));
-  assert.deepEqual(out.changed, { 'pull-requests': 'per-idea', issues: 'GitHub issues' });
+  assert.deepEqual(out.changed, { 'pull-requests': 'none', issues: 'GitHub issues' });
   assert.equal(out.accepted, true);
   const quiet = (fn) => { const e = console.error; const lg = console.log; console.error = () => {}; console.log = () => {}; try { return fn(); } finally { console.error = e; console.log = lg; } };
-  assert.equal(quiet(() => main(['node', 'v', dir, '--set', 'working', 'pull-requests=per-idea', '--accept', 'prd'])), 2);
+  assert.equal(quiet(() => main(['node', 'v', dir, '--set', 'working', 'pull-requests=none', '--accept', 'prd'])), 2);
   assert.equal(quiet(() => main(['node', 'v', dir, '--set'])), 2);
+  rmSync(dir, { recursive: true });
+});
+
+test('a pull request policy the loop cannot route is not offered', () => {
+  // Codex review of PR 10: per-idea was offered, and every task still got its own PR.
+  const dir = copySample();
+  const r = setSettings(dir, 'working', { 'pull-requests': 'per-idea' });
+  assert.equal(r.ok, false);
+  assert.ok(validateDoc('working', VALID_WORKING.replace('pull-requests: per-task', 'pull-requests: per-idea')).rules.includes('working-settings'));
   rmSync(dir, { recursive: true });
 });

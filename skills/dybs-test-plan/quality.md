@@ -64,7 +64,9 @@ these skills:
 - **Testing** decides the levels a test plan may use and the behaviour that
   always needs a test.
 - **Source control** says where a task's issue is read from. With
-  `github: yes` and the `gh` CLI signed in, read the issue with `gh`.
+  `issues: github` and the `gh` CLI signed in, read the issue with `gh`.
+  The code being on GitHub does not mean the issues are: `github: yes`
+  with issues elsewhere reads them from there.
 - **Pull requests:** `pull-requests: none` means no PR text is written and
   the loop goes from the gate to the merge. Whatever the policy, opening a
   pull request, pushing and commenting on an issue are outward actions: do

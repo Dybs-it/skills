@@ -4380,3 +4380,11 @@ test('dybs-check compares working with architecture', () => {
   const t = readFileSync(join(SKILLS_SRC, 'dybs-check', SKILL), 'utf8').replace(/\s+/g, ' ');
   assert.match(t, /the test commands and quality bars in architecture versus Testing in working/);
 });
+
+test('issues are read with gh only when they live on GitHub, not because the code does', () => {
+  const task = readFileSync(join(SKILLS_SRC, 'dybs-task', SKILL), 'utf8').replace(/\s+/g, ' ');
+  assert.match(task, /says `issues: github` \(where the issues live, not where the code is\)/);
+  const q = readFileSync(join(SKILLS_SRC, 'dybs-test-plan', 'quality.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(q, /With `issues: github` and the `gh` CLI signed in, read the issue with `gh`/);
+  assert.doesNotMatch(q, /`github: yes` and the `gh` CLI signed in/);
+});
