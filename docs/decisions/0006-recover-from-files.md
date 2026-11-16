@@ -10,8 +10,9 @@ date: 2026-10-04
 
 A human can close the terminal while a skill is running. The agent dies
 with it, and the next session does not know where the work stopped. The
-same gap shows in the Dybs app: it guesses agent state from terminal
-output, and quitting the app kills every agent.
+same gap shows in any app that launches agents in a terminal: it has to
+guess agent state from terminal output, and quitting the app kills every
+agent.
 
 Herdr (herdr.dev) is a terminal multiplexer for coding agents. We read its
 source at v0.9.3 (commit `5da0a01`) to see whether it could be the engine

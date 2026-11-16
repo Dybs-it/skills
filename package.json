@@ -6,6 +6,7 @@
     "type": "git",
     "url": "git+https://github.com/Dybs-it/skills.git"
   },
+  "license": "MIT",
   "homepage": "https://github.com/Dybs-it/skills#readme",
   "bugs": {
     "url": "https://github.com/Dybs-it/skills/issues"
@@ -18,7 +19,8 @@
     "bin/",
     "src/",
     "skills/",
-    "NOTICE.md"
+    "NOTICE.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node --test tests/*.test.mjs",

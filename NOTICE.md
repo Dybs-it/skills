@@ -31,13 +31,15 @@ This project is original work inspired by:
   questions, the concern scan, journeys with a named person, and a decision
   log.
 
-Adapted text is rewritten, not copied verbatim. Both upstream licenses are
-reproduced in full below, as MIT asks of copies and substantial portions;
-the adapted files (`interview.md`, `dybs-domain`, `dybs-architecture`) name
-their sources too. Check the license of any other source before adapting
-its text.
+Adapted text is rewritten, not copied verbatim. All three upstream MIT
+licenses (BMad Method, the BMad Test Architect module and Matt Pocock's
+skills) are reproduced in full below, as MIT asks of copies and substantial
+portions; the adapted files (`interview.md`, `dybs-domain`,
+`dybs-architecture`) name their sources too. Check the license of any other
+source before adapting its text.
 
-This repository's own license is not chosen yet.
+This repository is licensed under the MIT License, Copyright (c) 2026 Jos
+Koomen. See `LICENSE`.
 
 ## Upstream licenses
 
@@ -104,4 +106,39 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### BMad Test Architect module
+
+From https://github.com/bmad-code-org/bmad-method-test-architecture-enterprise
+(v4.0.1), verbatim. Same holder as the BMad Method, but the text differs (no
+contributors line, a shorter trademark notice), so it is reproduced as well:
+
+```text
+MIT License
+
+Copyright (c) 2025 BMad Code, LLC
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+TRADEMARK NOTICE:
+BMad™ , BMAD-CORE™ and BMAD-METHOD™ are trademarks of BMad Code, LLC. The use of these 
+trademarks in this software does not grant any rights to use the trademarks 
+for any other purpose.
 ```

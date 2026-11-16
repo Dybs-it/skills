@@ -2971,16 +2971,30 @@ test('--accept stops when the moved-aside original was replaced', async () => {
   rmSync(dir, { recursive: true });
 });
 
-test('NOTICE.md carries both upstream MIT licenses in full', () => {
+test('NOTICE.md carries every upstream MIT license in full', () => {
   const notice = readFileSync(join(ROOT, 'NOTICE.md'), 'utf8');
-  for (const holder of ['Copyright (c) 2025 BMad Code, LLC', 'Copyright (c) 2026 Matt Pocock']) {
-    const at = notice.indexOf(`MIT License\n\n${holder}`);
+  const sections = [
+    ['### BMad Method', 'Copyright (c) 2025 BMad Code, LLC'],
+    ['### Matt Pocock\'s skills', 'Copyright (c) 2026 Matt Pocock'],
+    ['### BMad Test Architect module', 'Copyright (c) 2025 BMad Code, LLC'],
+  ];
+  for (const [heading, holder] of sections) {
+    const section = notice.indexOf(heading);
+    assert.ok(section >= 0, `${heading}: section present`);
+    const at = notice.indexOf(`MIT License\n\n${holder}`, section);
     assert.ok(at >= 0, `${holder}: license text present`);
     const text = notice.slice(at, notice.indexOf('```', at));
     assert.match(text, /Permission is hereby granted, free of charge/);
     assert.match(text, /The above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software\./);
     assert.match(text, /THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND/);
   }
+});
+
+test('the repository is MIT-licensed and says so', () => {
+  const license = readFileSync(join(ROOT, 'LICENSE'), 'utf8');
+  assert.match(license, /^MIT License\n\nCopyright \(c\) 2026 Jos Koomen\n/);
+  assert.equal(JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).license, 'MIT');
+  assert.doesNotMatch(readFileSync(join(ROOT, 'NOTICE.md'), 'utf8'), /not chosen yet/);
 });
 
 test('a placeholder behind entity labels, multi-line labels or overlapping runs is found', () => {
