@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Validates a project's dybs/ folder against the Getting Started contract.
-// Usage: node dybs-validate.mjs [projectRoot] [--doc <name>] [--json]
+// Usage: node dybs-validate.mjs [projectRoot] [--doc <name>] [--json] [--save]
 // Exit code 0 = no errors (warnings allowed), 1 = errors, 2 = usage problem.
 //
 // This file is the single home for the doc contract (required sections and
@@ -1274,6 +1274,8 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   return {
     name, file: spec.file, status: data?.status ?? null,
     requestedDepth, documentDepth, needsDeepening,
+    // Accepted through --accept: a later edit is detectable (and then fails).
+    fingerprinted: data?.status === 'accepted' && !!data['accepted-hash'],
     words, errors, warnings, rules: [...rules],
   };
 }
@@ -1313,7 +1315,9 @@ function readmeProblem(root, snapshot = {}) {
 // the read: O_NOFOLLOW guards only the name, so a folder swapped for a link
 // for the whole call would otherwise have its outside file read in full
 // (however large) before the check after the read refuses it.
-function readRegular(p, root) {
+// With `out`, `out.sha256` is the hash of the very bytes the text came from,
+// so a saved verdict is never paired with bytes it did not see.
+function readRegular(p, root, out) {
   let fd;
   try { fd = fsOps.open(p); } catch (e) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') return null;
@@ -1329,7 +1333,8 @@ function readRegular(p, root) {
       if (unsafe) throw Object.assign(new Error(unsafe), { code: 'EUNSAFE' });
     }
     validateHooks.beforeBytes?.(p);
-    const text = readFileSync(fd, 'utf8');
+    const bytes = readFileSync(fd);
+    const text = bytes.toString('utf8');
     // A save that replaced the file while it was read leaves these bytes
     // describing a file the name no longer holds: never pass on them.
     let now = null;
@@ -1337,6 +1342,7 @@ function readRegular(p, root) {
     if (!now || now.isSymbolicLink() || now.dev !== st.dev || now.ino !== st.ino) {
       throw Object.assign(new Error(`${p} changed while it was read; run the check again`), { code: 'ECHANGED' });
     }
+    if (out) out.sha256 = createHash('sha256').update(bytes).digest('hex');
     return text;
   } finally { closeSync(fd); }
 }
@@ -1376,7 +1382,8 @@ export function validateProject(root, only) {
   let projectText = null;
   // A project.md replaced while it was read gives no settings to trust.
   let projectChanged = null;
-  try { projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath, root) : null; } catch (e) {
+  const projectRead = {};
+  try { projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath, root, projectRead) : null; } catch (e) {
     if (e.code === 'ECHANGED') projectChanged = e.message;
     else if (e.code !== 'EUNSAFE') throw e;
   }
@@ -1426,9 +1433,10 @@ export function validateProject(root, only) {
     if (!(name === 'project' && projectText !== null)) validateHooks.beforeRead?.(path);
     let text;
     let swapped = null;
+    const read = name === 'project' && projectText !== null ? projectRead : {};
     try {
       if (name === 'project' && projectChanged) throw Object.assign(new Error(projectChanged), { code: 'ECHANGED' });
-      text = name === 'project' && projectText !== null ? projectText : readRegular(path, root);
+      text = name === 'project' && projectText !== null ? projectText : readRegular(path, root, read);
     } catch (e) {
       if (e.code === 'ECHANGED') {
         results.push({ name, file: spec.file, status: null, words: 0, errors: [e.message], warnings: [] });
@@ -1449,7 +1457,8 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });
       continue;
     }
-    results.push(validateDoc(name, text, depthFor(name, projectData), projectData?.checkins));
+    // The hash of the bytes this verdict is about, for --save.
+    results.push({ ...validateDoc(name, text, depthFor(name, projectData), projectData?.checkins), sha256: read.sha256 || null });
   }
   // ok: no rule is broken (missing and draft docs are allowed).
   // complete: every doc that is not skipped exists and is ok.
@@ -1467,6 +1476,163 @@ export function validateProject(root, only) {
   // route: nothing is routed until they choose (dybs-start, step 3).
   const parked = projectData?.kickoff === 'parked';
   return { ok, complete, atRequestedDepth, accepted, deepen, checkins, parked, results };
+}
+
+/**
+ * The file a saved validation lives in, relative to the project root. Apps (the
+ * Dybs app) read it instead of running this script, because a project's own
+ * scripts must not run just because the project was opened.
+ */
+export const VALIDATION_FILE = 'dybs/.validation.json';
+const VALIDATION_NAME = '.validation.json';
+
+// Test seams for the save: after dybs/ was opened and before the process
+// enters it, before the temporary file is created, before it is written and
+// before it is renamed into place.
+export const saveHooks = { afterOpenDir: null, beforeCreate: null, beforeWrite: null, beforeRename: null };
+
+/** sha256 of this script, so a reader can tell which validator wrote a report. */
+function validatorSha256() {
+  try { return createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex'); } catch { return null; }
+}
+
+/** The next step for the whole project, as both the save and --json give it. */
+function printRefresh(refreshed) {
+  if (refreshed.saved) console.log(`Updated ${refreshed.saved}.`);
+  if (refreshed.saveError) console.log(`warn: ${VALIDATION_FILE} was not updated (${refreshed.saveError}); run the validator with --save`);
+}
+
+export function projectNext(report) {
+  if (report.parked) return 'kickoff';
+  const next = nextStep(report.results, report.checkins);
+  if (next) return next;
+  return report.accepted && report.atRequestedDepth ? null : 'check';
+}
+
+/**
+ * Write the result of a whole-project validation to dybs/.validation.json,
+ * with the sha256 of every doc as it was validated, so a reader can tell
+ * which verdicts still hold (the bytes still match) and which are stale.
+ *
+ * Every verdict also depends on project.md (depth, check-ins) and on the
+ * validator itself: `basis` records both, and a reader treats the whole
+ * report as stale when either differs.
+ *
+ * The write happens INSIDE dybs/: the folder is opened without following a
+ * link, the process enters it, and that it entered the very folder it opened
+ * is checked by device and inode. From then on every name is relative to
+ * that folder, so swapping dybs/ for a link to somewhere else changes
+ * nothing about where the file lands. A fresh temporary file is renamed into
+ * place, and removed again whenever the write or the rename fails.
+ * @returns {string} the path written, relative to the project root
+ */
+export function saveValidationReport(root, report, next) {
+  const dir = join(root, 'dybs');
+  let dirId;
+  let dirFd = null;
+  try {
+    const st = lstatSync(dir);
+    if (st.isSymbolicLink() || !st.isDirectory()) throw new Error('dybs/ is not a plain folder; the report was not saved');
+  } catch (err) {
+    if (err.code) throw new Error('no dybs/ folder to save the report in');
+    throw err;
+  }
+  try {
+    dirFd = openSync(dir, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY || 0) | (fsConstants.O_NOFOLLOW || 0));
+    const st = fstatSync(dirFd);
+    if (!st.isDirectory()) throw new Error('dybs/ is not a plain folder; the report was not saved');
+    dirId = { dev: st.dev, ino: st.ino };
+  } catch (err) {
+    if (dirFd !== null) closeSync(dirFd);
+    dirFd = null;
+    // A folder cannot be opened on Windows: there the identity comes from the
+    // check above, taken again right here.
+    if (process.platform !== 'win32' || !err.code) throw err.code ? new Error(`dybs/ could not be opened (${err.code}); the report was not saved`) : err;
+    const st = lstatSync(dir);
+    if (st.isSymbolicLink() || !st.isDirectory()) throw new Error('dybs/ is not a plain folder; the report was not saved');
+    dirId = { dev: st.dev, ino: st.ino };
+  }
+  const docs = report.results.map((r) => ({
+    name: r.name,
+    file: `dybs/${r.file}`,
+    status: r.status,
+    valid: r.errors.length === 0,
+    errors: r.errors.length,
+    warnings: r.warnings.length,
+    needsDeepening: !!r.needsDeepening,
+    // Accepted through --accept and unchanged since: the fingerprint it
+    // recorded still matches. This is not proof that a person accepted it
+    // (anyone can write a fingerprint), and a hand-written acceptance has
+    // none (method rule accepted-hash: "accepted but not verified").
+    acceptedUnchanged: r.status === 'accepted' && r.errors.length === 0 && !!r.fingerprinted,
+    // Never a second read: a doc edited after it was validated would get
+    // the new bytes' hash next to the old verdict (Codex review, PR 11).
+    sha256: r.status === 'missing' ? null : (r.sha256 || null),
+  }));
+  const project = docs.find((d) => d.name === 'project');
+  const body = {
+    kind: 'dybs-validation',
+    schema: 1,
+    generatedAt: new Date().toISOString(),
+    basis: { 'dybs/project.md': project ? project.sha256 : null, validator: validatorSha256() },
+    ok: report.ok,
+    complete: report.complete,
+    accepted: report.accepted,
+    atRequestedDepth: report.atRequestedDepth,
+    next: next || null,
+    docs,
+  };
+  const back = process.cwd();
+  try {
+    saveHooks.afterOpenDir?.(dir);
+    process.chdir(dir);
+    const here = statSync('.');
+    if (here.dev !== dirId.dev || here.ino !== dirId.ino) throw new Error('dybs/ changed while the report was being saved; nothing was saved, run it again');
+    try {
+      const t = lstatSync(VALIDATION_NAME);
+      if (!t.isFile()) throw new Error(`${VALIDATION_FILE} exists and is not a regular file; the report was not saved`);
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+    saveHooks.beforeCreate?.(dir);
+    const tmp = `.validation.${randomUUID()}.tmp`;
+    const fd = openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW || 0), 0o644);
+    try {
+      try {
+        saveHooks.beforeWrite?.(dir);
+        writeFileSync(fd, JSON.stringify(body, null, 2) + '\n');
+      } finally {
+        closeSync(fd);
+      }
+      saveHooks.beforeRename?.(dir);
+      renameSync(tmp, VALIDATION_NAME);
+    } catch (err) {
+      try { rmSync(tmp); } catch { /* best effort */ }
+      throw err;
+    }
+  } finally {
+    process.chdir(back);
+    if (dirFd !== null) closeSync(dirFd);
+  }
+  return VALIDATION_FILE;
+}
+
+/**
+ * Refresh an existing saved report after --accept or --set changed a doc, so
+ * the doc just accepted is not shown as stale. Creates nothing when there is
+ * no saved report yet. Returns {saved} or {saveError} or {}.
+ */
+export function refreshSavedReport(root) {
+  try {
+    if (!lstatSync(join(root, VALIDATION_FILE)).isFile()) return {};
+  } catch { return {}; }
+  try {
+    const report = validateProject(root);
+    if (report.fatal) return { saveError: report.fatal };
+    return { saved: saveValidationReport(root, report, projectNext(report)) };
+  } catch (err) {
+    return { saveError: err.message };
+  }
 }
 
 // With `checkins: end` or `none` a draft waits for the review point the
@@ -2311,12 +2477,15 @@ export function main(argv) {
         if (a === '--set') while (i + 1 < args.length && /^[a-z][a-z-]*=/.test(args[i + 1])) i++;
         continue;
       }
-      if (a === '--json') continue;
-      if (a.startsWith('-') && a !== '-') { console.error(`unknown option ${a}. Options: --doc <name>, --accept <doc>, --set <doc> key=value..., --json`); return 2; }
+      if (a === '--json' || a === '--save') continue;
+      if (a.startsWith('-') && a !== '-') { console.error(`unknown option ${a}. Options: --doc <name>, --accept <doc>, --set <doc> key=value..., --json, --save`); return 2; }
       positionals.push(a);
     }
     if (positionals.length > 1) { console.error(`one project folder at most, got: ${positionals.join(' ')}`); return 2; }
     if (seenFlags.size > 1) { console.error('use one of --doc, --accept and --set'); return 2; }
+    // --save records a whole-project validation; a one-doc check, an accept or
+    // a setting change is not one, and a report saying otherwise would lie.
+    if (args.includes('--save') && seenFlags.size) { console.error('--save goes with a plain validation of the whole project, not with --doc, --accept or --set'); return 2; }
   }
   const json = args.includes('--json');
   // A flag that takes a doc name must get one: a bare `--accept` that
@@ -2351,14 +2520,17 @@ export function main(argv) {
       if (!json) throw err;
       r = { ok: false, changed: {}, accepted: false, errors: [err.message], warnings: [] };
     }
+    // The doc changed, so a saved report would show it as stale: refresh it.
+    const refreshed = r.ok ? refreshSavedReport(root) : {};
     if (json) {
-      console.log(JSON.stringify({ schema: 2, set: set.value, ...r }, null, 2));
+      console.log(JSON.stringify({ schema: 2, set: set.value, ...r, ...refreshed }, null, 2));
       return r.ok ? 0 : 1;
     }
     if (!r.ok) { console.error(`not changed:\n  ${r.errors.join('\n  ')}`); return 1; }
     const what = Object.entries(r.changed).map(([k, v]) => `${k} set to ${v}`).join(', ');
     console.log(what ? `${set.value}: ${what}${r.accepted ? '; accepted again.' : '; it is a draft.'}` : `${set.value}: nothing changed.`);
     for (const w of r.warnings) console.log(`warn: ${w}`);
+    printRefresh(refreshed);
     return 0;
   }
   if (accept) {
@@ -2372,13 +2544,16 @@ export function main(argv) {
       if (!json) throw err;
       r = { ok: false, errors: [err.message] };
     }
+    // Accepting rewrites the doc, so a saved report would show it as stale.
+    const refreshed = r.ok ? refreshSavedReport(root) : {};
     if (json) {
-      console.log(JSON.stringify({ schema: 2, accept, ok: r.ok, errors: r.errors || [], warnings: r.warnings || [] }, null, 2));
+      console.log(JSON.stringify({ schema: 2, accept, ok: r.ok, errors: r.errors || [], warnings: r.warnings || [], ...refreshed }, null, 2));
       return r.ok ? 0 : 1;
     }
     if (!r.ok) { console.error(`not accepted, fix first:\n  ${r.errors.join('\n  ')}`); return 1; }
     console.log(`${accept} accepted.`);
     for (const w of r.warnings || []) console.log(`warn: ${w}`);
+    printRefresh(refreshed);
     return 0;
   }
   let report;
@@ -2391,15 +2566,26 @@ export function main(argv) {
     report = { ok: false, complete: false, accepted: false, fatal: `could not read the project: ${err.message}`, results: [] };
   }
 
+  // With --doc only that doc (and project.md) was read, so there is no
+  // project-wide next step to give. Once every doc is written but not all
+  // are accepted at the requested depth, the next step is the check.
+  const projectWideNext = only || report.fatal ? null : projectNext(report);
+  let saved = null;
+  let saveError = null;
+  if (args.includes('--save') && !report.fatal) {
+    try {
+      saved = saveValidationReport(root, report, projectWideNext);
+    } catch (err) {
+      saveError = err.message;
+      report = { ...report, ok: false, saveError };
+    }
+  }
+
   if (json) {
     // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
-    // With --doc only that doc (and project.md) was read, so there is no
-    // project-wide next step to give.
-    // Same next step as the text output: once every doc is written but not
-    // all are accepted at the requested depth, the next step is the check.
-    let next = only ? null : report.parked ? 'kickoff' : nextStep(report.results, report.checkins);
-    if (!only && !report.parked && !report.fatal && !next && !(report.accepted && report.atRequestedDepth)) next = 'check';
-    console.log(JSON.stringify({ schema: 2, ...report, next }, null, 2));
+    // The per-doc hash and fingerprint flag are for the saved report only.
+    const results = report.results.map(({ sha256, fingerprinted, ...rest }) => rest);
+    console.log(JSON.stringify({ schema: 2, ...report, results, next: projectWideNext, ...(saved ? { saved } : {}) }, null, 2));
     return report.ok ? 0 : 1;
   }
   if (report.fatal) {
@@ -2432,6 +2618,9 @@ export function main(argv) {
     if (report.deepen.length) console.log(`Needs thorough depth: ${report.deepen.join(', ')}`);
     console.log('Next: check (dybs-check reviews them with you).');
   }
+  if (saved) console.log(`Saved ${saved}.`);
+  // The verdict above is shown first, so a failed save never hides it.
+  if (saveError) console.error(`not saved: ${saveError}`);
   return report.ok ? 0 : 1;
 }
 
