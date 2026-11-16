@@ -28,14 +28,14 @@ conversation and a headless session cannot hold one.
   20 `needs-you` lines in `dybs/log.md` for the human, 17 statements marked
   *(assumption)*.
 - **Accuracy, spot-checked on `architecture.md`** against what this session
-  read in the Dybs code: Electron with CommonJS, one IPC module per domain,
-  `ok`/`fail` results, `path-access.js` as the single gate, the Git flag
-  enforced in the main process, `userData` for observations. No false claim
-  found in that doc. The other six were not checked line by line.
+  read in the code of the target (a separate desktop app, private): the
+  runtime, the module layout, the result convention, the single access gate
+  and where local state lives all matched. No false claim found in that doc.
+  The other six were not checked line by line.
 - **It found what the docs hide.** The PRD it derived says "no upload, no
-  account"; the architecture pass then listed Linear, Notion and Obsidian
-  sync, a licence check, a companion server and an MCP server in the code,
-  and `dybs-check` reported the contradiction as its second finding.
+  account"; the architecture pass then listed several networked integrations
+  in the code that contradict it, and `dybs-check` reported the
+  contradiction as its second finding.
 - **`dybs-check` did its job:** seven findings, each with the smallest fix,
   including one against the skills themselves (below).
 
@@ -68,11 +68,11 @@ quick depth, `checkins: none`.
 |---|---|---|---|---|---|
 | working | 6 | 310k | $0.22 | draft, valid, near the cap | 418 |
 
-- **The probe's facts were right** on this repository: GitHub remote
-  `joskoomen/Dybs`, Vitest and Playwright, the five CI workflows, `gh`
+- **The probe's facts were right** on this repository: its GitHub remote
+  (a private repository), Vitest and Playwright, its CI workflows, `gh`
   installed but not signed in, Claude Code as the only agent present, no
   Herdr. Two misreads on its first try were fixed before this run: it missed
-  `styles/jk-tokens.css`, and it took an agent command file in a hidden
+  a design-token stylesheet, and it took an agent command file in a hidden
   folder for a style guide. Both are tests now.
 - **The doc asked nothing it could look up** and marked the rest: one pull
   request per task and what may run unattended are *(assumption)*, and it

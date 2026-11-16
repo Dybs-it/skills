@@ -14,8 +14,8 @@ agents) and the Claude Code plugin marketplace. The `dybs-skills` CLI adds
 only `validate` and a safe `update` that never overwrites user edits. Every
 later phase ships as more skills in the same repo. See decision 0002.
 
-Later: make the repo public with a license, publish the CLI to npm, list it
-on skills.sh.
+The repo is public under the MIT License. Later: publish the CLI to npm,
+list it on skills.sh.
 
 ## 1. Getting Started (v0.3, built)
 

@@ -32,7 +32,8 @@ second installer writing both folders would touch the same files twice.
 
 ## Consequences
 
-- The repo stays private for now; installs need GitHub read access.
-- Going public needs a license, then npm publish and a skills.sh listing.
+- The repo was private at first. It is now public under the MIT License,
+  so installs need no GitHub access. Still to do: npm publish and a
+  skills.sh listing.
 - Every change under `skills/` must be followed by `npm run record-hashes`
   (enforced by a test).

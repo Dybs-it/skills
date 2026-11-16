@@ -24,8 +24,8 @@ In Claude Code, as a plugin:
 /plugin install dybs@dybs-it
 ```
 
-While this repo is private, both work for anyone with read access to it on
-GitHub (they clone with your git credentials).
+Both work for anyone: the repository is public, so no GitHub account or
+credentials are needed to install.
 
 ## Use
 
