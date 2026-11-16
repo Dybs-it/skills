@@ -95,7 +95,8 @@ so do not assume the others are present.
   and say the acceptance is not fingerprinted.
 - **Validating:** if `dybs-start/scripts/dybs-validate.mjs` exists in the
   same skills folder as this skill and Node is available, run it from the
-  project root (`node <path> .`, plus `--doc <name>` for one doc). Otherwise
+  project root: `node <path> . --save` for the whole project (it also saves
+  the result for the Dybs app), or `--doc <name>` for one doc. Otherwise
   check every rule below by hand. Say in the check-in which way you
   validated.
 

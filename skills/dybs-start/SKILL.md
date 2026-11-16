@@ -189,7 +189,8 @@ Wait for their choice. Their word decides; do not start drafting before it.
 
 ## 5. Status and route
 
-Validate (`node <this skill's folder>/scripts/dybs-validate.mjs .`; without
+Validate (`node <this skill's folder>/scripts/dybs-validate.mjs . --save`,
+which also saves the result in `dybs/.validation.json` for the Dybs app; without
 Node, check every doc against **Checking by hand** below and say that you
 did). Show a compact table: doc,
 depth, status (missing / draft / accepted / skipped / failing), and the next

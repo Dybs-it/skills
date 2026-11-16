@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Validates a project's dybs/ folder against the Getting Started contract.
-// Usage: node dybs-validate.mjs [projectRoot] [--doc <name>] [--json]
+// Usage: node dybs-validate.mjs [projectRoot] [--doc <name>] [--json] [--save]
 // Exit code 0 = no errors (warnings allowed), 1 = errors, 2 = usage problem.
 //
 // This file is the single home for the doc contract (required sections and
@@ -1472,6 +1472,82 @@ export function validateProject(root, only) {
 // With `checkins: end` or `none` a draft waits for the review point the
 // human chose, so it does not stop the route. With `none` nothing is asked,
 // so a doc that needs deepening waits too; the final report lists it.
+/**
+ * The file a saved validation lives in, relative to the project root. Apps (the
+ * Dybs app) read it instead of running this script, because a project's own
+ * scripts must not run just because the project was opened.
+ */
+export const VALIDATION_FILE = 'dybs/.validation.json';
+
+/** sha256 of a file's exact bytes, or null when it is not a regular file. */
+function fileSha256(path) {
+  try {
+    const st = lstatSync(path);
+    if (!st.isFile()) return null;
+    return createHash('sha256').update(readFileSync(path)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the result of a whole-project validation to dybs/.validation.json,
+ * with the sha256 of every doc as it was validated, so a reader can tell
+ * which verdicts still hold (the bytes still match) and which are stale.
+ * Written to a fresh temporary file and renamed into place; refuses to write
+ * through a symlink or over anything that is not a regular file.
+ * @returns {string} the path written, relative to the project root
+ */
+export function saveValidationReport(root, report, next) {
+  const dir = join(root, 'dybs');
+  const dst = st => st.isDirectory();
+  let dstat;
+  try { dstat = lstatSync(dir); } catch { throw new Error('no dybs/ folder to save the report in'); }
+  if (!dst(dstat)) throw new Error('dybs/ is not a plain folder; the report was not saved');
+  const target = join(root, VALIDATION_FILE);
+  try {
+    const t = lstatSync(target);
+    if (!t.isFile()) throw new Error(`${VALIDATION_FILE} exists and is not a regular file; the report was not saved`);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  const docs = report.results.map((r) => ({
+    name: r.name,
+    file: `dybs/${r.file}`,
+    status: r.status,
+    valid: r.errors.length === 0,
+    errors: r.errors.length,
+    warnings: r.warnings.length,
+    needsDeepening: !!r.needsDeepening,
+    sha256: r.status === 'missing' ? null : fileSha256(join(dir, r.file)),
+  }));
+  const body = {
+    kind: 'dybs-validation',
+    schema: 1,
+    generatedAt: new Date().toISOString(),
+    ok: report.ok,
+    complete: report.complete,
+    accepted: report.accepted,
+    atRequestedDepth: report.atRequestedDepth,
+    next: next || null,
+    docs,
+  };
+  const tmp = join(dir, `.validation.${randomUUID()}.tmp`);
+  const fd = openSync(tmp, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o644);
+  try {
+    writeFileSync(fd, JSON.stringify(body, null, 2) + '\n');
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    renameSync(tmp, target);
+  } catch (err) {
+    try { rmSync(tmp); } catch { /* best effort */ }
+    throw err;
+  }
+  return VALIDATION_FILE;
+}
+
 export function nextStep(results, checkins = 'each-doc') {
   const draftsWait = checkins === 'end' || checkins === 'none';
   const deepeningWaits = checkins === 'none';
@@ -2311,12 +2387,15 @@ export function main(argv) {
         if (a === '--set') while (i + 1 < args.length && /^[a-z][a-z-]*=/.test(args[i + 1])) i++;
         continue;
       }
-      if (a === '--json') continue;
-      if (a.startsWith('-') && a !== '-') { console.error(`unknown option ${a}. Options: --doc <name>, --accept <doc>, --set <doc> key=value..., --json`); return 2; }
+      if (a === '--json' || a === '--save') continue;
+      if (a.startsWith('-') && a !== '-') { console.error(`unknown option ${a}. Options: --doc <name>, --accept <doc>, --set <doc> key=value..., --json, --save`); return 2; }
       positionals.push(a);
     }
     if (positionals.length > 1) { console.error(`one project folder at most, got: ${positionals.join(' ')}`); return 2; }
     if (seenFlags.size > 1) { console.error('use one of --doc, --accept and --set'); return 2; }
+    // --save records a whole-project validation; a one-doc check, an accept or
+    // a setting change is not one, and a report saying otherwise would lie.
+    if (args.includes('--save') && seenFlags.size) { console.error('--save goes with a plain validation of the whole project, not with --doc, --accept or --set'); return 2; }
   }
   const json = args.includes('--json');
   // A flag that takes a doc name must get one: a bare `--accept` that
@@ -2391,6 +2470,18 @@ export function main(argv) {
     report = { ok: false, complete: false, accepted: false, fatal: `could not read the project: ${err.message}`, results: [] };
   }
 
+  let saved = null;
+  if (args.includes('--save') && !report.fatal) {
+    let next = report.parked ? 'kickoff' : nextStep(report.results, report.checkins);
+    if (!report.parked && !next && !(report.accepted && report.atRequestedDepth)) next = 'check';
+    try {
+      saved = saveValidationReport(root, report, next);
+    } catch (err) {
+      if (!json) { console.error(`not saved: ${err.message}`); return 1; }
+      report = { ...report, ok: false, saveError: err.message };
+    }
+  }
+
   if (json) {
     // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
     // With --doc only that doc (and project.md) was read, so there is no
@@ -2399,7 +2490,7 @@ export function main(argv) {
     // all are accepted at the requested depth, the next step is the check.
     let next = only ? null : report.parked ? 'kickoff' : nextStep(report.results, report.checkins);
     if (!only && !report.parked && !report.fatal && !next && !(report.accepted && report.atRequestedDepth)) next = 'check';
-    console.log(JSON.stringify({ schema: 2, ...report, next }, null, 2));
+    console.log(JSON.stringify({ schema: 2, ...report, next, ...(saved ? { saved } : {}) }, null, 2));
     return report.ok ? 0 : 1;
   }
   if (report.fatal) {
@@ -2432,6 +2523,7 @@ export function main(argv) {
     if (report.deepen.length) console.log(`Needs thorough depth: ${report.deepen.join(', ')}`);
     console.log('Next: check (dybs-check reviews them with you).');
   }
+  if (saved) console.log(`Saved ${saved}.`);
   return report.ok ? 0 : 1;
 }
 

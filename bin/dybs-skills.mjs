@@ -16,6 +16,8 @@ Install the skills with a skills package manager:
 
 This CLI adds what a package manager can't:
   dybs-skills validate [dir] [--doc <name>] [--json]   check a project's dybs/ context
+  dybs-skills validate [dir] --save [--json]           check the whole project and save the
+                       result in dybs/.validation.json (the Dybs app reads it)
   dybs-skills validate [dir] --accept <doc> [--json]   on your word: mark a doc accepted,
                        dated and fingerprinted (refuses one that does not validate)
   dybs-skills validate [dir] --set working key=value... [--json]
