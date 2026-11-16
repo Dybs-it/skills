@@ -1274,6 +1274,8 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
   return {
     name, file: spec.file, status: data?.status ?? null,
     requestedDepth, documentDepth, needsDeepening,
+    // Accepted through --accept: a later edit is detectable (and then fails).
+    fingerprinted: data?.status === 'accepted' && !!data['accepted-hash'],
     words, errors, warnings, rules: [...rules],
   };
 }
@@ -1313,7 +1315,9 @@ function readmeProblem(root, snapshot = {}) {
 // the read: O_NOFOLLOW guards only the name, so a folder swapped for a link
 // for the whole call would otherwise have its outside file read in full
 // (however large) before the check after the read refuses it.
-function readRegular(p, root) {
+// With `out`, `out.sha256` is the hash of the very bytes the text came from,
+// so a saved verdict is never paired with bytes it did not see.
+function readRegular(p, root, out) {
   let fd;
   try { fd = fsOps.open(p); } catch (e) {
     if (e.code === 'ELOOP' || e.code === 'EMLINK') return null;
@@ -1329,7 +1333,8 @@ function readRegular(p, root) {
       if (unsafe) throw Object.assign(new Error(unsafe), { code: 'EUNSAFE' });
     }
     validateHooks.beforeBytes?.(p);
-    const text = readFileSync(fd, 'utf8');
+    const bytes = readFileSync(fd);
+    const text = bytes.toString('utf8');
     // A save that replaced the file while it was read leaves these bytes
     // describing a file the name no longer holds: never pass on them.
     let now = null;
@@ -1337,6 +1342,7 @@ function readRegular(p, root) {
     if (!now || now.isSymbolicLink() || now.dev !== st.dev || now.ino !== st.ino) {
       throw Object.assign(new Error(`${p} changed while it was read; run the check again`), { code: 'ECHANGED' });
     }
+    if (out) out.sha256 = createHash('sha256').update(bytes).digest('hex');
     return text;
   } finally { closeSync(fd); }
 }
@@ -1376,7 +1382,8 @@ export function validateProject(root, only) {
   let projectText = null;
   // A project.md replaced while it was read gives no settings to trust.
   let projectChanged = null;
-  try { projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath, root) : null; } catch (e) {
+  const projectRead = {};
+  try { projectText = lookup(projectPath) === 'present' && !unsafePath(root, `dybs/${DOCS.project.file}`) ? readRegular(projectPath, root, projectRead) : null; } catch (e) {
     if (e.code === 'ECHANGED') projectChanged = e.message;
     else if (e.code !== 'EUNSAFE') throw e;
   }
@@ -1426,9 +1433,10 @@ export function validateProject(root, only) {
     if (!(name === 'project' && projectText !== null)) validateHooks.beforeRead?.(path);
     let text;
     let swapped = null;
+    const read = name === 'project' && projectText !== null ? projectRead : {};
     try {
       if (name === 'project' && projectChanged) throw Object.assign(new Error(projectChanged), { code: 'ECHANGED' });
-      text = name === 'project' && projectText !== null ? projectText : readRegular(path, root);
+      text = name === 'project' && projectText !== null ? projectText : readRegular(path, root, read);
     } catch (e) {
       if (e.code === 'ECHANGED') {
         results.push({ name, file: spec.file, status: null, words: 0, errors: [e.message], warnings: [] });
@@ -1449,7 +1457,8 @@ export function validateProject(root, only) {
       results.push({ name, file: spec.file, status: null, words: 0, errors: [`${spec.file} is not a regular file, so it cannot be read`], warnings: [] });
       continue;
     }
-    results.push(validateDoc(name, text, depthFor(name, projectData), projectData?.checkins));
+    // The hash of the bytes this verdict is about, for --save.
+    results.push({ ...validateDoc(name, text, depthFor(name, projectData), projectData?.checkins), sha256: read.sha256 || null });
   }
   // ok: no rule is broken (missing and draft docs are allowed).
   // complete: every doc that is not skipped exists and is ok.
@@ -1478,17 +1487,6 @@ export function validateProject(root, only) {
  * scripts must not run just because the project was opened.
  */
 export const VALIDATION_FILE = 'dybs/.validation.json';
-
-/** sha256 of a file's exact bytes, or null when it is not a regular file. */
-function fileSha256(path) {
-  try {
-    const st = lstatSync(path);
-    if (!st.isFile()) return null;
-    return createHash('sha256').update(readFileSync(path)).digest('hex');
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Write the result of a whole-project validation to dybs/.validation.json,
@@ -1519,7 +1517,12 @@ export function saveValidationReport(root, report, next) {
     errors: r.errors.length,
     warnings: r.warnings.length,
     needsDeepening: !!r.needsDeepening,
-    sha256: r.status === 'missing' ? null : fileSha256(join(dir, r.file)),
+    // Accepted, fingerprinted and unchanged since. An acceptance written by
+    // hand is "accepted but not verified" (method rule accepted-hash).
+    acceptanceVerified: r.status === 'accepted' && r.errors.length === 0 && !!r.fingerprinted,
+    // Never a second read: a doc edited after it was validated would get
+    // the new bytes' hash next to the old verdict (Codex review, PR 11).
+    sha256: r.status === 'missing' ? null : (r.sha256 || null),
   }));
   const body = {
     kind: 'dybs-validation',

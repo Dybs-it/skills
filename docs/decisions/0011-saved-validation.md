@@ -22,7 +22,11 @@ result.
 
 - **`dybs-validate.mjs . --save`** validates the whole project and writes
   `dybs/.validation.json`: every doc's status, whether it is valid, its error
-  and warning counts, and the **sha256 of its exact bytes** as validated.
+  and warning counts, and the **sha256 of its exact bytes** as validated:
+  hashed from the same read the verdict came from, never a second read.
+- **`acceptanceVerified`** is true only for a doc accepted through `--accept`
+  (it has an `accepted-hash`) and unchanged since. An acceptance written by
+  hand is shown as accepted but not verified, as the method rule says.
 - **A reader trusts a verdict only while the bytes still match.** A doc
   changed after the run is stale, not valid, whatever the file says.
 - **`--save` only with a whole-project run.** With `--doc`, `--accept` or

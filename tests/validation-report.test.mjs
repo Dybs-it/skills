@@ -79,3 +79,47 @@ test('without --save nothing is written', () => {
   execFileSync('node', [SCRIPT, dir], { encoding: 'utf8' });
   assert.equal(existsSync(join(dir, 'dybs/.validation.json')), false);
 });
+
+test('a doc edited between validating and saving keeps the hash of the bytes that were validated (Codex review, PR 11)', async () => {
+  const { validateProject, validateHooks, saveValidationReport } = await import(SCRIPT);
+  const dir = copySample();
+  const project = join(dir, 'dybs/project.md');
+  const map = join(dir, 'dybs/discovery/map.md');
+  const validatedProject = sha(project);
+  const validatedMap = sha(map);
+  // project.md replaced right after its settings were read: it is validated
+  // from the bytes read before, so the saved hash must be of those bytes.
+  validateHooks.afterSettings = () => writeFileSync(project, '---\ndoc: project\nstatus: accepted\n---\nbroken\n');
+  let report;
+  try { report = validateProject(dir); } finally { validateHooks.afterSettings = null; }
+  // And a doc saved by an editor after the whole check, before the save.
+  writeFileSync(map, readFileSync(map, 'utf8') + '\nEdited later.\n');
+  saveValidationReport(dir, report, null);
+  const rep = JSON.parse(readFileSync(join(dir, 'dybs/.validation.json'), 'utf8'));
+  const byName = Object.fromEntries(rep.docs.map((d) => [d.name, d]));
+  assert.equal(byName.project.valid, true);
+  assert.equal(byName.project.sha256, validatedProject);
+  assert.notEqual(byName.project.sha256, sha(project));
+  assert.equal(byName.map.sha256, validatedMap);
+  assert.notEqual(byName.map.sha256, sha(map));
+});
+
+test('an acceptance is verified only when --accept fingerprinted it (field run, PR 11)', () => {
+  const dir = copySample();
+  // The sample's docs were accepted by hand: no accepted-hash.
+  let r = run([dir, '--save']);
+  let rep = JSON.parse(readFileSync(join(dir, 'dybs/.validation.json'), 'utf8'));
+  const map = () => rep.docs.find((d) => d.name === 'map');
+  assert.equal(map().status, 'accepted');
+  assert.equal(map().acceptanceVerified, false);
+  // Back to draft, then accepted through the validator.
+  const p = join(dir, 'dybs/discovery/map.md');
+  writeFileSync(p, readFileSync(p, 'utf8').replace('status: accepted', 'status: draft').replace(/^accepted: .*\n/m, ''));
+  r = run([dir, '--accept', 'map']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  run([dir, '--save']);
+  rep = JSON.parse(readFileSync(join(dir, 'dybs/.validation.json'), 'utf8'));
+  assert.equal(map().acceptanceVerified, true);
+  // A draft is never a verified acceptance.
+  assert.equal(rep.docs.find((d) => d.name === 'ui').acceptanceVerified, false);
+});
