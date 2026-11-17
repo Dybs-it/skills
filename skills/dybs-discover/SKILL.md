@@ -23,7 +23,10 @@ to `dybs/log.md`.
 
 Run the interview in `interview.md` (in this folder) at the depth
 `dybs/project.md` sets for each doc. Follow the rules in `dybs/README.md`.
-A stage listed under `skip:` in `project.md` is not run.
+A stage listed under `skip:` in `project.md` is not run. Every round of
+questions, in every stage, also goes to `dybs/.round.json` as
+`interview.md` says under **Ask in rounds**, with `stage: Discovery` and
+`doc:` the stage's doc (`map`, `sketch` or `decide`).
 
 ## Which stage
 

@@ -106,7 +106,49 @@ recommended answer:
 ```
 
 The human can answer briefly: "all yes", "Q2: no, it's the admin",
-"park Q4: later". After each round:
+"park Q4: later".
+
+**The round file.** Before asking a round in the session, write it to
+`dybs/.round.json` as well, replacing the round before it, so the Dybs app
+can show it on screen. Asking in the session stays exactly as it is, and
+answers may come from either. After reading the human's answers, set its
+`status` to `answered`.
+
+```json
+{
+  "version": 1,
+  "id": "discovery-map-2",
+  "stage": "Discovery", "doc": "map", "round": 2,
+  "title": "Who has this problem, exactly?",
+  "asker": "Noor", "skeptic": { "name": "Bas", "remark": "Everyone is not a user." },
+  "intro": "Most of the map is settled. A round or two to go.",
+  "questions": [
+    { "n": 1, "title": "The first user", "question": "Who feels this first?", "recommended": "The household admin.", "why": "They set the house up." }
+  ],
+  "settled": [ { "text": "Chores are shared weekly.", "tag": "heard" } ],
+  "status": "open",
+  "next": "round"
+}
+```
+
+- `id` is new for every round and never reused: `<stage>-<doc>-<round>`
+  in lowercase, with hyphens for spaces (`getting-started-prd-1`), plus
+  the date when a doc is interviewed again. `stage` is `Kickoff`,
+  `Discovery` or `Getting Started`; `doc` is the doc being written.
+- `questions` are the questions of the session, numbered the same.
+- `asker` is your lead persona; `skeptic` only when the skeptic has a
+  remark; `intro` says in a line or two where the interview stands.
+- `settled` is what is settled so far, each tagged with where it came
+  from: `heard`, `read`, `researched`, `interview` or `assumption`.
+  Leave out the names and personal details of the people you heard from:
+  the file is kept in `dybs/` with the docs.
+- `next` is `summary` when this is the last round before the summary,
+  otherwise `round`.
+- When Node is available and `dybs-start/scripts/dybs-validate.mjs`
+  exists, run it on the project and fix only what it reports under
+  `.round.json`: the rest of its report is about the docs, not this round.
+
+After each round:
 
 1. Append every decision to `dybs/log.md` (see below).
 2. Recompute the frontier: settled answers unblock new questions.

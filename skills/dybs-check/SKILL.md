@@ -18,7 +18,10 @@ items they answer, and the acceptance of the docs they name (see
 Validate every doc (see *If something is not installed* below for how).
 Every error is listed first in the brief. Missing docs
 that are not under `skip:` are errors here, even though the validator treats
-them as a next step.
+them as a next step. A `FAIL` on `.round.json` is not a doc error: it is
+the last question round an interview left behind. List it apart from the
+docs; the interview writes it again on its next round, or the human deletes
+it.
 
 ## 2. Read across
 
