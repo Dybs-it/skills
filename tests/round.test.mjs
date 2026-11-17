@@ -2,7 +2,7 @@
 // Dybs app to show (decision 0012). The validator checks it when it is there.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, cpSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -94,6 +94,24 @@ test('a missing or empty field is refused, by name', () => {
   assert.deepEqual(errorsOf({ ...GOOD(), asker: 3 }), ['asker must be a non-empty text when given']);
 });
 
+test('the optional fields are checked when given', () => {
+  assert.deepEqual(errorsOf({ ...GOOD(), intro: '' }), ['intro must be a non-empty text when given']);
+  assert.deepEqual(errorsOf({ ...GOOD(), settled: 'heard' }), ['settled must be a list when given']);
+  for (const skeptic of [null, 'Bas', ['Bas']]) {
+    assert.deepEqual(errorsOf({ ...GOOD(), skeptic }), ['skeptic must be an object with name and remark when given'], JSON.stringify(skeptic));
+  }
+});
+
+test('a round file that is not a regular file is refused', () => {
+  const dir = project();
+  mkdirSync(join(dir, 'dybs/.round.json'));
+  try {
+    const r = validateProject(dir);
+    assert.equal(r.ok, false);
+    assert.deepEqual(r.round.errors, ['dybs/.round.json is not a regular file: keep dybs/.round.json a real file in dybs/']);
+  } finally { rmSync(dir, { recursive: true }); }
+});
+
 const ask = (n) => ({ n, title: `T${n}`, question: `Q${n}?`, recommended: 'Yes.', why: 'Because.' });
 
 test('a round asks 1 to 7 questions', () => {
@@ -146,6 +164,21 @@ test('a good round file is shown as OK, and no round file is not shown', () => {
   } finally { rmSync(dir, { recursive: true }); }
   const none = project();
   try { assert.doesNotMatch(run([none]).stdout, /round\.json/); } finally { rmSync(none, { recursive: true }); }
+});
+
+test('the CLI never prints control characters taken from the round file', () => {
+  // A committed round file must not be able to retitle or rewrite the terminal
+  // of whoever validates the project.
+  const esc = '\u001b]0;PWNED\u0007';
+  for (const round of [`{"x": ${esc} }`, { ...GOOD(), questions: [ask(1), { ...ask(2), n: esc }, { ...ask(3), n: esc }] }]) {
+    const dir = project(round);
+    try {
+      const r = run([dir]);
+      assert.equal(r.status, 1, r.stdout);
+      assert.match(r.stdout, /^FAIL {6}\.round\.json$/m);
+      assert.doesNotMatch(r.stdout, /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    } finally { rmSync(dir, { recursive: true }); }
+  }
 });
 
 test('a round in progress never blocks a one-doc check', () => {
@@ -206,8 +239,20 @@ test('the interview writes each round to the round file before asking, and marks
   assert.deepEqual(validateRound(example), []);
   assert.deepEqual(Object.keys(example), ['version', 'id', 'stage', 'doc', 'round', 'title', 'asker', 'skeptic', 'intro', 'questions', 'settled', 'status', 'next']);
   for (const tag of SOURCE_TAGS) assert.ok(f.includes(`\`${tag}\``), tag);
+  // The id is one lowercase word per part, so "Getting Started" cannot be guessed two ways.
+  assert.match(f, /`<stage>-<doc>-<round>` in lowercase, with hyphens for spaces \(`getting-started-prd-1`\)/);
+  assert.match(example.id, /^[a-z0-9]+(-[a-z0-9]+)*$/);
+  // The file is kept with the docs: no interviewee's name or personal details go in it.
+  assert.match(f, /Leave out the names and personal details of the people you heard from/);
+  // The check works when this skill is installed alone, and looks at the round only:
+  // mid-interview the rest of the report is about docs not written yet.
+  assert.match(f, /When Node is available and `dybs-start\/scripts\/dybs-validate\.mjs` exists, run it on the project and fix only what it reports under `\.round\.json`/);
   // Asking itself is unchanged.
   assert.match(rounds, /\*\*Q1\. <short title>\*\*\n<the question, with options where that helps>\n→ Recommended: <your answer, and why in one line>/);
+});
+
+test('dybs-check tells a broken round file apart from the docs', () => {
+  assert.match(flat('dybs-check/SKILL.md'), /A `FAIL` on `\.round\.json` is not a doc error: it is the last question round an interview left behind\. List it apart from the docs; the interview writes it again on its next round, or the human deletes it\./);
 });
 
 test('discovery and the kickoff write their rounds to the round file too', () => {

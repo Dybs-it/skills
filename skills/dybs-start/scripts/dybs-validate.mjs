@@ -1487,6 +1487,7 @@ export function validateProject(root, only) {
 export const ROUND_FILE = 'dybs/.round.json';
 export const ROUND_STATUSES = ['open', 'answered'];
 export const ROUND_NEXT = ['round', 'summary'];
+export const ROUND_MAX_QUESTIONS = 7;
 // Where a statement came from, as the skills tag it: *(heard)*,
 // *(read: source)*, *(researched: link)*, *(interview N)*, *(assumption)*.
 // The one list of them; a test keeps dybs-discover's text in step.
@@ -1507,7 +1508,10 @@ function checkRoundFile(root) {
   if (text === null) return done([`${ROUND_FILE} is not a regular file, so it cannot be read`]);
   let data;
   try { data = JSON.parse(text); } catch (e) {
-    return done([`${ROUND_FILE} is not valid JSON (${e.message}); write the whole round again`]);
+    // The parser quotes the input it choked on: never pass the file's control
+    // characters on to the terminal of whoever runs this.
+    const why = e.message.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+    return done([`${ROUND_FILE} is not valid JSON (${why}); write the whole round again`]);
   }
   return done(validateRound(data));
 }
@@ -1524,17 +1528,20 @@ export function validateRound(data) {
   if (!Number.isInteger(data.round) || data.round < 1) errors.push(`round must be a whole number from 1, got ${'round' in data ? JSON.stringify(data.round) : 'nothing'}`);
   if ('asker' in data && !text(data.asker)) errors.push('asker must be a non-empty text when given');
   if ('intro' in data && !text(data.intro)) errors.push('intro must be a non-empty text when given');
-  if ('skeptic' in data) for (const f of ['name', 'remark']) need(data.skeptic, f, 'skeptic.');
-  if (!Array.isArray(data.questions)) errors.push('questions is missing; it must be a list of 1 to 7 questions');
+  if ('skeptic' in data) {
+    if (!data.skeptic || typeof data.skeptic !== 'object' || Array.isArray(data.skeptic)) errors.push('skeptic must be an object with name and remark when given');
+    else for (const f of ['name', 'remark']) need(data.skeptic, f, 'skeptic.');
+  }
+  if (!Array.isArray(data.questions)) errors.push(`questions is missing; it must be a list of 1 to ${ROUND_MAX_QUESTIONS} questions`);
   else if (data.questions.length === 0) errors.push('questions is empty; a round asks at least one question');
-  else if (data.questions.length > 7) errors.push(`questions has ${data.questions.length} questions; a round asks at most 7`);
+  else if (data.questions.length > ROUND_MAX_QUESTIONS) errors.push(`questions has ${data.questions.length} questions; a round asks at most ${ROUND_MAX_QUESTIONS}`);
   else {
     const k = data.questions.length;
     const seen = new Set();
     data.questions.forEach((q, i) => {
       const n = q?.n;
       const order = `number the questions 1 to ${k} in order`;
-      if (seen.has(n)) errors.push(`Q${i + 1}: n is ${n} more than once; ${order}`);
+      if (seen.has(n)) errors.push(`Q${i + 1}: n is ${JSON.stringify(n)} more than once; ${order}`);
       else if (n !== i + 1) errors.push(`Q${i + 1}: n must be ${i + 1}, got ${n === undefined ? 'nothing' : JSON.stringify(n)}; ${order}`);
       seen.add(n);
       for (const f of ['title', 'question', 'recommended', 'why']) need(q, f, `Q${i + 1}: `);

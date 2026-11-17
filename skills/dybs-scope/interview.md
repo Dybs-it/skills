@@ -131,18 +131,22 @@ answers may come from either. After reading the human's answers, set its
 }
 ```
 
-- `id` is new for every round and never reused: `<stage>-<doc>-<round>`,
-  plus the date when a doc is interviewed again. `stage` is `Kickoff`,
+- `id` is new for every round and never reused: `<stage>-<doc>-<round>`
+  in lowercase, with hyphens for spaces (`getting-started-prd-1`), plus
+  the date when a doc is interviewed again. `stage` is `Kickoff`,
   `Discovery` or `Getting Started`; `doc` is the doc being written.
 - `questions` are the questions of the session, numbered the same.
 - `asker` is your lead persona; `skeptic` only when the skeptic has a
   remark; `intro` says in a line or two where the interview stands.
 - `settled` is what is settled so far, each tagged with where it came
   from: `heard`, `read`, `researched`, `interview` or `assumption`.
+  Leave out the names and personal details of the people you heard from:
+  the file is kept in `dybs/` with the docs.
 - `next` is `summary` when this is the last round before the summary,
   otherwise `round`.
-- When Node is available, check the file with
-  `dybs-start/scripts/dybs-validate.mjs` and fix what it reports.
+- When Node is available and `dybs-start/scripts/dybs-validate.mjs`
+  exists, run it on the project and fix only what it reports under
+  `.round.json`: the rest of its report is about the docs, not this round.
 
 After each round:
 
