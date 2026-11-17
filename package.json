@@ -1,6 +1,6 @@
 {
   "name": "dybs-skills",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "The Dybs method as agent skills. Install with `npx skills add Dybs-it/skills`; this CLI validates the context and updates skills without overwriting your edits.",
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 ---
 method: dybs
-method-version: 0.5.0
+method-version: 0.6.0
 ---
 
 # dybs/
