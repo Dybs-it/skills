@@ -1475,7 +1475,84 @@ export function validateProject(root, only) {
   // `kickoff: parked` means the human parked the kickoff before choosing a
   // route: nothing is routed until they choose (dybs-start, step 3).
   const parked = projectData?.kickoff === 'parked';
-  return { ok, complete, atRequestedDepth, accepted, deepen, checkins, parked, results };
+  // The question round is checked with the whole project, never with one
+  // doc: it is not a doc, and a round in progress must not block --doc.
+  const round = only ? null : checkRoundFile(root);
+  const out = { ok: ok && !round?.errors.length, complete, atRequestedDepth, accepted, deepen, checkins, parked, results };
+  if (round) out.round = round;
+  return out;
+}
+
+/** The question round a skill is asking, for the Dybs app (decision 0012). */
+export const ROUND_FILE = 'dybs/.round.json';
+export const ROUND_STATUSES = ['open', 'answered'];
+export const ROUND_NEXT = ['round', 'summary'];
+// Where a statement came from, as the skills tag it: *(heard)*,
+// *(read: source)*, *(researched: link)*, *(interview N)*, *(assumption)*.
+// The one list of them; a test keeps dybs-discover's text in step.
+export const SOURCE_TAGS = ['heard', 'read', 'researched', 'interview', 'assumption'];
+
+function checkRoundFile(root) {
+  const p = join(root, ROUND_FILE);
+  if (lookup(p) === 'missing') return { file: ROUND_FILE, present: false, errors: [] };
+  const done = (errors) => ({ file: ROUND_FILE, present: true, errors });
+  // Read by the rules the docs are read by: a real file in dybs/, never
+  // through a link.
+  const unsafe = unsafePath(root, ROUND_FILE);
+  if (unsafe) return done([`${unsafe}: keep ${ROUND_FILE} a real file in dybs/`]);
+  let text;
+  try { text = readRegular(p, root); } catch (e) {
+    return done([e.code === 'EUNSAFE' ? `${e.message}: keep ${ROUND_FILE} a real file in dybs/` : `${ROUND_FILE} cannot be read (${e.code || e.message})`]);
+  }
+  if (text === null) return done([`${ROUND_FILE} is not a regular file, so it cannot be read`]);
+  let data;
+  try { data = JSON.parse(text); } catch (e) {
+    return done([`${ROUND_FILE} is not valid JSON (${e.message}); write the whole round again`]);
+  }
+  return done(validateRound(data));
+}
+
+/** The rule violations of one parsed round, as messages naming the field. */
+export function validateRound(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return ['the round must be one JSON object'];
+  const errors = [];
+  if (!('version' in data)) errors.push('version is missing; it must be 1');
+  else if (data.version !== 1) errors.push(`version must be 1, got ${JSON.stringify(data.version)}`);
+  const text = (v) => typeof v === 'string' && v.trim() !== '';
+  const need = (obj, f, where = '') => { if (!text(obj?.[f])) errors.push(`${where}${f} is missing; it must be a non-empty text`); };
+  for (const f of ['id', 'stage', 'doc', 'title']) need(data, f);
+  if (!Number.isInteger(data.round) || data.round < 1) errors.push(`round must be a whole number from 1, got ${'round' in data ? JSON.stringify(data.round) : 'nothing'}`);
+  if ('asker' in data && !text(data.asker)) errors.push('asker must be a non-empty text when given');
+  if ('intro' in data && !text(data.intro)) errors.push('intro must be a non-empty text when given');
+  if ('skeptic' in data) for (const f of ['name', 'remark']) need(data.skeptic, f, 'skeptic.');
+  if (!Array.isArray(data.questions)) errors.push('questions is missing; it must be a list of 1 to 7 questions');
+  else if (data.questions.length === 0) errors.push('questions is empty; a round asks at least one question');
+  else if (data.questions.length > 7) errors.push(`questions has ${data.questions.length} questions; a round asks at most 7`);
+  else {
+    const k = data.questions.length;
+    const seen = new Set();
+    data.questions.forEach((q, i) => {
+      const n = q?.n;
+      const order = `number the questions 1 to ${k} in order`;
+      if (seen.has(n)) errors.push(`Q${i + 1}: n is ${n} more than once; ${order}`);
+      else if (n !== i + 1) errors.push(`Q${i + 1}: n must be ${i + 1}, got ${n === undefined ? 'nothing' : JSON.stringify(n)}; ${order}`);
+      seen.add(n);
+      for (const f of ['title', 'question', 'recommended', 'why']) need(q, f, `Q${i + 1}: `);
+    });
+  }
+  if ('settled' in data) {
+    if (!Array.isArray(data.settled)) errors.push('settled must be a list when given');
+    else data.settled.forEach((s, i) => {
+      need(s, 'text', `settled ${i + 1}: `);
+      const use = `use ${SOURCE_TAGS.slice(0, -1).join(', ')} or ${SOURCE_TAGS.at(-1)}`;
+      if (s?.tag === undefined) errors.push(`settled ${i + 1}: tag is missing; ${use}`);
+      else if (!SOURCE_TAGS.includes(s.tag)) errors.push(`settled ${i + 1}: tag ${JSON.stringify(s.tag)} is not a source tag; ${use}`);
+    });
+  }
+  const got = (f) => (f in data ? JSON.stringify(data[f]) : 'nothing');
+  if (!ROUND_STATUSES.includes(data.status)) errors.push(`status must be ${ROUND_STATUSES.join(' or ')}, got ${got('status')}`);
+  if (!ROUND_NEXT.includes(data.next)) errors.push(`next must be ${ROUND_NEXT.join(' or ')}, got ${got('next')}`);
+  return errors;
 }
 
 /**
@@ -1575,7 +1652,9 @@ export function saveValidationReport(root, report, next) {
     schema: 1,
     generatedAt: new Date().toISOString(),
     basis: { 'dybs/project.md': project ? project.sha256 : null, validator: validatorSha256() },
-    ok: report.ok,
+    // About the docs only: the round file changes between runs, so a saved
+    // verdict on it would be stale at once; the app checks it itself.
+    ok: docs.every((d) => d.valid),
     complete: report.complete,
     accepted: report.accepted,
     atRequestedDepth: report.atRequestedDepth,
@@ -2600,6 +2679,10 @@ export function main(argv) {
     console.log(`${tag.padEnd(9)} ${r.file}${r.words ? `  (${r.words} words${depthNote})` : ''}`);
     for (const e of r.errors) console.log(`          error: ${e}`);
     for (const w of r.warnings) console.log(`          warn:  ${w}`);
+  }
+  if (report.round?.present) {
+    console.log(`${(report.round.errors.length ? 'FAIL' : 'OK').padEnd(9)} ${report.round.file.replace(/^dybs\//, '')}`);
+    for (const e of report.round.errors) console.log(`          error: ${e}`);
   }
   // `--doc` checks one doc (and project.md): it says nothing about the rest.
   if (only) {
