@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { validateProject, SOURCE_TAGS } from '../skills/dybs-start/scripts/dybs-validate.mjs';
+import { validateProject, validateRound, SOURCE_TAGS } from '../skills/dybs-start/scripts/dybs-validate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SAMPLE = join(ROOT, 'tests/fixtures/sample-project');
@@ -187,4 +187,30 @@ test('the round tags are the source tags dybs-discover defines, one list', () =>
   const section = skill.match(/^## Facts and assumptions\n([\s\S]*?)(?=^## )/m)[1];
   const tags = [...section.matchAll(/^- \*\(([a-z]+)/gm)].map((m) => m[1]);
   assert.deepEqual(tags, SOURCE_TAGS);
+});
+
+// --- the rule in the skills ---
+
+const flat = (rel) => readFileSync(join(ROOT, 'skills', rel), 'utf8').replace(/\s+/g, ' ');
+
+test('the interview writes each round to the round file before asking, and marks it answered', () => {
+  const t = readFileSync(join(ROOT, 'skills/dybs-start/interview.md'), 'utf8');
+  const rounds = t.match(/^## 3\. Ask in rounds\n([\s\S]*?)(?=^## )/m)[1];
+  const f = rounds.replace(/\s+/g, ' ');
+  assert.match(f, /Before asking a round in the session, write it to `dybs\/\.round\.json`/);
+  assert.match(f, /Asking in the session stays exactly as it is/);
+  assert.match(f, /After reading the human's answers, set its `status` to `answered`/);
+  assert.match(f, /`id` is new for every round/);
+  // The example in the rule is itself a good round, in the agreed shape.
+  const example = JSON.parse(rounds.match(/```json\n([\s\S]*?)```/)[1]);
+  assert.deepEqual(validateRound(example), []);
+  assert.deepEqual(Object.keys(example), ['version', 'id', 'stage', 'doc', 'round', 'title', 'asker', 'skeptic', 'intro', 'questions', 'settled', 'status', 'next']);
+  for (const tag of SOURCE_TAGS) assert.ok(f.includes(`\`${tag}\``), tag);
+  // Asking itself is unchanged.
+  assert.match(rounds, /\*\*Q1\. <short title>\*\*\n<the question, with options where that helps>\n→ Recommended: <your answer, and why in one line>/);
+});
+
+test('discovery and the kickoff write their rounds to the round file too', () => {
+  assert.match(flat('dybs-discover/SKILL.md'), /Every round of questions, in every stage, also goes to `dybs\/\.round\.json` as `interview\.md` says under \*\*Ask in rounds\*\*, with `stage: Discovery` and `doc:` the stage's doc \(`map`, `sketch` or `decide`\)/);
+  assert.match(flat('dybs-start/SKILL.md'), /This round goes to `dybs\/\.round\.json` too, as `interview\.md` says under \*\*Ask in rounds\*\*, with `stage: Kickoff` and `doc: project`/);
 });

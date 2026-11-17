@@ -99,7 +99,11 @@ and ask only what is left:
 Then ask **one round** of at most six more questions, numbered, each with
 your recommended answer based on what you just heard (format in
 `interview.md`). Skip any question the brain dump already answered; say what
-you took from it instead. Pick from:
+you took from it instead. This round goes to `dybs/.round.json` too, as
+`interview.md` says under **Ask in rounds**, with `stage: Kickoff` and
+`doc: project` (make the `dybs/` folder for it; step 4 keeps it), and with
+the two questions above when you ask them in the same round (seven at
+most in all). Pick from:
 
 1. **Type of project.** Web app, mobile app, desktop app, API or backend,
    library or CLI, website or content site, internal tool, AI agent or

@@ -32,7 +32,8 @@ deepen later, re-accept after a change.
 
 - **Our own:** quick and thorough depth with requested versus written depth,
   the depth and check-ins table, the decision log format, the rule that a
-  changed accepted doc becomes a draft.
+  changed accepted doc becomes a draft, the round file (`dybs/.round.json`)
+  each round is written to for the Dybs app.
 - **Adapted from Matt** `skills/productivity/grilling/SKILL.md`: rounds over
   a frontier of open questions, a recommended answer per question, facts
   looked up rather than asked.
