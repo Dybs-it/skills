@@ -1,6 +1,6 @@
 ---
 method: dybs
-method-version: 0.6.0
+method-version: 0.6.1
 ---
 
 # dybs/
@@ -60,7 +60,10 @@ written empty.
    `status: accepted` only when the human says so in their own words, and
    records the date in `accepted:` (the validator's `--accept` also records
    `accepted-hash`). Silence is not acceptance. Changing an accepted doc makes
-   it a draft again: the acceptance was for the old version.
+   it a draft again: the acceptance was for the old version. A doc with a
+   question waiting on someone is not accepted until they answer: it is
+   written as `- **Waiting on <who>** (since YYYY-MM-DD): <question> Ask:
+   <what to ask>`, and any skill run on the doc asks about it first.
 4. **Edit in place.** Change the section you mean to change. Never rewrite a
    whole doc from memory; another session may have edited it since.
 5. **No invented facts.** Anything the agent assumed rather than heard or

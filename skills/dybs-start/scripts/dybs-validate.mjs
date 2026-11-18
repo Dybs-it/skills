@@ -110,6 +110,7 @@ export const MANUAL_RULES = [
   { id: 'checkins', text: 'In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.' },
   { id: 'html', text: 'No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.' },
   { id: 'placeholder', text: 'No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.' },
+  { id: 'waiting', text: 'A question the human sent to someone else is written in the doc\'s open questions as one list item, exactly `- **Waiting on <who>** (since YYYY-MM-DD): <question> Ask: <what to ask>`, with a real date; any other line that starts `**Waiting on` is an error. A doc with such a line is not accepted: it stays a draft until the question is answered and the line removed. The agent\'s own *(assumption)* items do not block acceptance.' },
 ];
 
 // Bounded by letters and digits, not by \b: `_TODO_` renders as an
@@ -1004,6 +1005,55 @@ function definitions(lines) {
   return defs;
 }
 
+// "Anna (1 question), Bas (2 questions)", in the order they appear.
+export function waitingSummary(waiting) {
+  const by = new Map();
+  for (const w of waiting) by.set(w.who, (by.get(w.who) || 0) + 1);
+  return [...by].map(([who, n]) => `${who} (${n} question${n === 1 ? '' : 's'})`).join(', ');
+}
+export const WAITING_FORM = '- **Waiting on <who>** (since YYYY-MM-DD): <question> Ask: <what to ask>';
+const WAITING_LINE = /^\*\*Waiting on ([^*\n]*[^*\s])\*\* \(since (\S+)\):\s+(.+?)\s+Ask:\s+(.+)$/;
+const LIST_ITEM = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
+// What ends a wrapped list item besides a blank line: a new item, a heading,
+// a quote or a thematic break. Any other line (`#42`, a lone `|` row) is
+// lazy continuation text, as Markdown renders it.
+const ITEM_END = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]|^ {0,3}(?:#{1,6}(?:[ \t]|$)|>)|^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+
+// A question the human sent to someone else ("ask Q4: Anna: ..."), as the
+// interview writes it in the doc's open questions:
+//   - **Waiting on Anna** (since 2026-11-18): <question> Ask: <what to ask>
+// Read from the text as it renders (comments and code do not count). A list
+// item may wrap, and may be nested: its continuation lines are read with it.
+// Anything else that starts with bold "Waiting on" (any case, `__` too, in a
+// checkbox, a quote or a plain line) is reported as malformed, so a reader
+// (the app) never silently misses a waiting question.
+export function parseWaiting(text) {
+  const { data, body } = parseFrontmatter(text);
+  const lines = visibleText(data ? body : text).split('\n');
+  const waiting = [];
+  const malformed = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const unquoted = line.replace(/^(?:\s*>)+/, '');
+    const item = LIST_ITEM.test(unquoted);
+    const unlisted = unquoted.replace(LIST_ITEM, '');
+    const isCheckbox = /^\s*\[[ xX]\]\s+/.test(unlisted);
+    const content = unlisted.replace(/^\s*\[[ xX]\]\s+/, '').trim();
+    if (!/^(?:\*\*|__)[*_]?\s*waiting on/i.test(content)) continue;
+    // The exact form: a list item, not quoted, not a checkbox.
+    const exact = item && unquoted === line && !isCheckbox;
+    let whole = content;
+    while (i + 1 < lines.length && lines[i + 1].trim() && !ITEM_END.test(lines[i + 1])) {
+      whole += ` ${lines[++i].trim()}`;
+    }
+    whole = whole.replace(/\s+/g, ' ');
+    const m = exact && whole.match(WAITING_LINE);
+    if (m && isDate(m[2])) waiting.push({ who: m[1].trim(), question: m[3].trim(), since: m[2], ask: m[4].trim() });
+    else malformed.push(whole);
+  }
+  return { waiting, malformed };
+}
+
 // requestedDepth is what project.md asks for this doc; documentDepth is what
 // the doc says it was written at. The cap follows the doc. A doc written at
 // quick depth where thorough is requested needs deepening; it is never
@@ -1271,9 +1321,18 @@ export function validateDoc(name, text, requestedDepth = 'quick', checkins = und
     else warnings.push(msg);
   }
 
+  // A question waiting on someone is not answered yet, so the doc is not
+  // done: it is completed in the flow, never accepted around it.
+  const { waiting, malformed } = parseWaiting(text);
+  for (const w of malformed) fail('waiting', `a waiting question must read exactly "${WAITING_FORM}", with a real date (found: ${w.slice(0, 60)})`);
+  if (data?.status === 'accepted' && waiting.length) {
+    fail('waiting', `not accepted while a question waits on someone: ${waitingSummary(waiting)}. Set status: draft and remove accepted and accepted-hash; accept once they answered`);
+  }
+
   return {
     name, file: spec.file, status: data?.status ?? null,
     requestedDepth, documentDepth, needsDeepening,
+    waiting,
     // Accepted through --accept: a later edit is detectable (and then fails).
     fingerprinted: data?.status === 'accepted' && !!data['accepted-hash'],
     words, errors, warnings, rules: [...rules],
@@ -1644,6 +1703,9 @@ export function saveValidationReport(root, report, next) {
     errors: r.errors.length,
     warnings: r.warnings.length,
     needsDeepening: !!r.needsDeepening,
+    // Questions the human sent to someone else, still unanswered: the app
+    // shows "Waiting for an answer from Anna (1 question)".
+    waiting: r.waiting || [],
     // Accepted through --accept and unchanged since: the fingerprint it
     // recorded still matches. This is not proof that a person accepted it
     // (anyone can write a fingerprint), and a hand-written acceptance has
@@ -2670,7 +2732,8 @@ export function main(argv) {
   if (json) {
     // schema 2: depth split into requestedDepth/documentDepth/needsDeepening.
     // The per-doc hash and fingerprint flag are for the saved report only.
-    const results = report.results.map(({ sha256, fingerprinted, ...rest }) => rest);
+    // Every doc has `waiting` ([] when none), also one that is missing or skipped.
+    const results = report.results.map(({ sha256, fingerprinted, ...rest }) => ({ ...rest, waiting: rest.waiting || [] }));
     console.log(JSON.stringify({ schema: 2, ...report, results, next: projectWideNext, ...(saved ? { saved } : {}) }, null, 2));
     return report.ok ? 0 : 1;
   }
@@ -2686,6 +2749,7 @@ export function main(argv) {
     console.log(`${tag.padEnd(9)} ${r.file}${r.words ? `  (${r.words} words${depthNote})` : ''}`);
     for (const e of r.errors) console.log(`          error: ${e}`);
     for (const w of r.warnings) console.log(`          warn:  ${w}`);
+    for (const w of r.waiting || []) console.log(`          waiting: ${w.who} (since ${w.since}): ${w.question} Ask: ${w.ask}`);
   }
   if (report.round?.present) {
     console.log(`${(report.round.errors.length ? 'FAIL' : 'OK').padEnd(9)} ${report.round.file.replace(/^dybs\//, '')}`);
@@ -2708,6 +2772,8 @@ export function main(argv) {
     if (report.deepen.length) console.log(`Needs thorough depth: ${report.deepen.join(', ')}`);
     console.log('Next: check (dybs-check reviews them with you).');
   }
+  const onSomeone = docs.filter((r) => r.waiting?.length);
+  if (onSomeone.length) console.log(`Waiting on someone: ${onSomeone.map((r) => `${r.name}: ${waitingSummary(r.waiting)}`).join('; ')}. Not accepted until answered.`);
   if (saved) console.log(`Saved ${saved}.`);
   // The verdict above is shown first, so a failed save never hides it.
   if (saveError) console.error(`not saved: ${saveError}`);

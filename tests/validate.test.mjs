@@ -203,6 +203,7 @@ const BREAK = {
   'accepted-hash': (t) => t.replace('status: accepted', 'status: accepted\naccepted-hash: 000000000000'),
   'html': (t) => t + '\n<div>\nhidden\n</div>\n',
   'placeholder': (t) => t + '\nTODO\n',
+  'waiting': (t) => t + '\n- **Waiting on Anna** (since 2026-11-18): May we keep salaries? Ask: does finance allow it?\n',
   ...BREAK_PROJECT,
 };
 

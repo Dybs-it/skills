@@ -79,7 +79,7 @@ every task. You choose:
 | For | side projects, experiments, a first try | long-term products |
 | Time | about 5 to 10 minutes per doc | about 10 to 20 minutes per doc (1 to 2 hours in total) |
 | Interview | core questions, at most two rounds | every question, until nothing is open |
-| Gaps | marked *(assumption)* with an open question | answered, or parked by you with a reason |
+| Gaps | marked *(assumption)* with an open question | answered, or waiting on someone you named |
 | Check | consistency across docs | plus an agent-ready test by fresh sub-agents |
 
 Both write the same docs, so agents and tools never care which you chose.
@@ -190,6 +190,11 @@ npx github:Dybs-it/skills update --dry-run        # what a safe update would cha
 npx github:Dybs-it/skills update                  # update installed Dybs skills
 npx github:Dybs-it/skills status                  # where they are installed
 ```
+
+With `--json` (and in the saved `dybs/.validation.json`), every doc has a
+`waiting` list: the questions the human sent to someone else, each
+`{ who, question, since, ask }`, empty when none. A doc with one is not
+accepted until it is answered (decision 0013).
 
 `update` finds Dybs skills in every `.<agent>/skills/` folder (and your home
 folder with `--global`), follows the link a package manager makes for a
