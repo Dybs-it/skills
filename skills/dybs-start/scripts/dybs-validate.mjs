@@ -1013,10 +1013,11 @@ export function waitingSummary(waiting) {
 }
 export const WAITING_FORM = '- **Waiting on <who>** (since YYYY-MM-DD): <question> Ask: <what to ask>';
 const WAITING_LINE = /^\*\*Waiting on ([^*\n]*[^*\s])\*\* \(since (\S+)\):\s+(.+?)\s+Ask:\s+(.+)$/;
-const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])\s+/;
+const LIST_ITEM = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+/;
 // What ends a wrapped list item besides a blank line: a new item, a heading,
-// a thematic break, a table row or a quote.
-const ITEM_END = /^\s*(?:(?:[-*+]|\d{1,9}[.)])\s|#|\||>)|^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
+// a quote or a thematic break. Any other line (`#42`, a lone `|` row) is
+// lazy continuation text, as Markdown renders it.
+const ITEM_END = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]|^ {0,3}(?:#{1,6}(?:[ \t]|$)|>)|^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 
 // A question the human sent to someone else ("ask Q4: Anna: ..."), as the
 // interview writes it in the doc's open questions:
@@ -1036,10 +1037,11 @@ export function parseWaiting(text) {
     const unquoted = line.replace(/^(?:\s*>)+/, '');
     const item = LIST_ITEM.test(unquoted);
     const unlisted = unquoted.replace(LIST_ITEM, '');
+    const isCheckbox = /^\s*\[[ xX]\]\s+/.test(unlisted);
     const content = unlisted.replace(/^\s*\[[ xX]\]\s+/, '').trim();
-    if (!/^(?:\*\*|__)\s*waiting on/i.test(content)) continue;
+    if (!/^(?:\*\*|__)[*_]?\s*waiting on/i.test(content)) continue;
     // The exact form: a list item, not quoted, not a checkbox.
-    const exact = item && unquoted === line && unlisted.trim() === content;
+    const exact = item && unquoted === line && !isCheckbox;
     let whole = content;
     while (i + 1 < lines.length && lines[i + 1].trim() && !ITEM_END.test(lines[i + 1])) {
       whole += ` ${lines[++i].trim()}`;
