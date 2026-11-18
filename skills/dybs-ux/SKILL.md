@@ -34,7 +34,8 @@ messages, exit codes and timeouts; destructive actions are calls that delete
 or overwrite; the accessibility target is about docs, error text and
 terminal output (meaning never in colour alone, a machine-readable mode).
 An item with no developer equivalent (first-run screens, for example) is
-parked with the reason "no screens". The sections stay the same.
+settled as not applicable, with the reason "no screens". The sections
+stay the same.
 
 ## Readiness checklist
 
@@ -115,4 +116,5 @@ so do not assume the others are present.
 12. In project.md, `checkins`, when present, is `each-doc`, `end` or `none`. With `none`, every doc that is not skipped is quick (no `depth: thorough` that applies, nothing under `thorough:`): thorough needs answers.
 13. No raw HTML outside code: no HTML tag such as `<pre>`, `<div>` or `<details>` anywhere in the text as it renders, and nothing starting with `<?`, `<!` or `<![CDATA[`. It changes what renders in ways a reader of the source cannot see. HTML comments, autolinks (`<https://…>`), and link destinations and titles and reference definitions (`[docs](<details>)`, `[docs]: <details>`) are fine.
 14. No `{{...}}`, TODO or TBD in the text as it renders: HTML comments, link destinations and titles, and reference definitions do not count (a URL that holds TODO is fine). In a draft this is a warning; in an accepted doc it is an error.
+15. A question the human sent to someone else is written in the doc's open questions as one list item, exactly `- **Waiting on <who>** (since YYYY-MM-DD): <question> Ask: <what to ask>`, with a real date; any other line that starts `**Waiting on` is an error. A doc with such a line is not accepted: it stays a draft until the question is answered and the line removed. The agent's own *(assumption)* items do not block acceptance.
 <!-- rules:end -->

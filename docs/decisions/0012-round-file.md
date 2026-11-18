@@ -40,7 +40,10 @@ reads it.
 - **The app reads, never writes.** It reads the file through its read-only
   bridge, writes nothing in `dybs/`, and sends the person's answers back as
   one message in the session, in the short form the rules already accept
-  ("Q1: accept", "Q2: <answer>", "park Q3: <reason>").
+  ("Q1: accept", "Q2: <answer>", "unclear Q3: <what is unclear>",
+  "ask Q4: <who>: <what to ask>", under the header
+  `Answers to round <id> (from Dybs):`). "park Q3: <reason>" was replaced
+  by these on 2026-11-18 (decision 0013) and is read as "unclear".
 - **Asking in the session is unchanged.** A person in a terminal answers as
   before; the file only adds a view.
 

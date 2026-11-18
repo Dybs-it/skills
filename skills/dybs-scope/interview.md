@@ -30,7 +30,7 @@ the same:
 | Time | about 5 to 10 minutes per doc | about 10 to 20 minutes per doc |
 | Covers | checklist items marked **core** | every checklist item |
 | Rounds | at most two | until nothing is open |
-| Gaps | written as *(assumption)* plus an open question | each answered, or parked by the human with a reason |
+| Gaps | written as *(assumption)* plus an open question | each answered, or waiting on someone the human named |
 | Before drafting | summary folded into the check-in | summary confirmed by the human (with `checkins: each-doc`) |
 
 Both depths write the same doc with the same sections. Thorough allows a
@@ -105,8 +105,42 @@ recommended answer:
 → Recommended: <your answer, and why in one line>
 ```
 
-The human can answer briefly: "all yes", "Q2: no, it's the admin",
-"park Q4: later".
+**Answers.** For each question the human has four answers, and may give
+them briefly, one line per question:
+
+- **Accept** the recommendation: `Q1: accept` (or "all yes", "yes to all
+  but Q3").
+- **Their own answer:** `Q2: <answer>`, such as "Q2: no, it's the admin".
+- **Not clear:** `unclear Q3` or `unclear Q3: <what is unclear>`. The
+  question stays open: explain it or reword it in the next round. Never
+  take the recommendation for it.
+- **Ask someone else:** `ask Q4: <who>: <what to ask>`. The human has no
+  answer yet and names who has. The question now waits on that person (see
+  **Waiting on someone** below).
+
+There is no "later": a question is set aside only while someone has no
+answer yet, and then it waits on a named person. The Dybs app sends the
+answers as one message headed `Answers to round <id> (from Dybs):`, with
+one line per question in these forms; read it as if the human typed it. A
+`park Q3: <reason>` line (from an older app) is read as `unclear`: the
+question stays open and is asked again next round. Say so in one line.
+
+**Waiting on someone.** Write each `ask` answer into the doc's open
+questions (its **Open questions** section; a doc without one gets a short
+`## Open questions` at the end) as one list item, exactly:
+
+```
+- **Waiting on Anna** (since 2026-11-18): May we keep salaries? Ask: does finance allow storing them?
+```
+
+The name as the human gave it, `since` the date of the answer, then the
+question, then `Ask:` and what to ask. The validator reads this form (rule
+`waiting`, and `waiting` per doc in its JSON) and reports any other line
+that starts `**Waiting on`. A doc with a waiting question is **not
+accepted**: the validator refuses `--accept` and fails an accepted one. It
+is completed in the flow, when the answer comes (see **Questions waiting on
+someone**). The agent's own *(assumption)* items at quick depth are not
+waiting on anyone and do not block acceptance.
 
 **The round file.** Before asking a round in the session, write it to
 `dybs/.round.json` as well, replacing the round before it, so the Dybs app
@@ -168,8 +202,9 @@ While asking, **sharpen**:
 - **quick:** when every core item is settled, or after two rounds. Every
   core item still open becomes an *(assumption)* in the doc and an open
   question.
-- **thorough:** when nothing is open. An item the human parks needs a reason
-  and goes to the doc's open questions.
+- **thorough:** when nothing is open. An item the human sends to someone
+  else (`ask`) goes to the doc's open questions as waiting on them; an item
+  that is not clear is asked again, reworded, never taken as recommended.
 
 ## 4. Confirm, then draft
 
@@ -182,7 +217,8 @@ Summarise what you understood in at most ten bullets.
 
 Record the depth the interview really reached in the doc's frontmatter
 (`depth: quick` or `depth: thorough`). Write `thorough` only when every
-checklist item is answered or parked by the human.
+checklist item is answered or waiting on someone the human named; a waiting
+item still keeps the doc from acceptance.
 
 ## 5. Check in
 
@@ -221,9 +257,23 @@ to confirm or correct the lines now; `end` lists them in `dybs-check`;
 
 ```
 - 2026-10-02 prd Q3: The first user is the household admin, not every flatmate. (human)
-- 2026-10-02 prd: Payments are out; other apps do this well. (human, parked R5)
+- 2026-10-02 prd Q5: Waiting on Anna: are payments in? Ask: does finance want them? (human, ask R2)
+- 2026-10-09 prd Q5: Payments are out; other apps do this well. (Anna, via human)
 - 2026-10-02 architecture: Postgres, because the data is relational. (read from package.json)
 ```
+
+## Questions waiting on someone
+
+When any skill runs on a doc that has a waiting question, ask about those
+first, before anything else, one per waiting line: "Did Anna answer? May we
+keep salaries?"
+
+- **Answered:** write the answer into the doc where it belongs, remove the
+  waiting line, and log it with who answered (`(Anna, via human)`).
+- **Not yet:** the line stays and the doc stays a draft. Go on with the
+  rest of the work.
+- The human may also answer it now themselves, or send it to someone else
+  (the line then names the new person, with a new `since`).
 
 ## Going deeper later
 
