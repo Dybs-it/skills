@@ -55,6 +55,9 @@ Thorough needs the human's answers, so it does not combine with `none`. If
 
 ## 1. Collect first
 
+If the doc already has questions waiting on someone, start there, as
+**Questions waiting on someone** below says.
+
 Read `dybs/project.md` and the `kickoff` lines in `dybs/log.md` first: the
 kickoff already collected the idea and the sources. Ask only for what is new
 for this doc: "Anything else I should read for this part?" Without a
@@ -201,7 +204,8 @@ While asking, **sharpen**:
 
 - **quick:** when every core item is settled, or after two rounds. Every
   core item still open becomes an *(assumption)* in the doc and an open
-  question.
+  question. An item the human marked not clear is never an *(assumption)*:
+  ask it again, reworded, until it is answered or sent to someone.
 - **thorough:** when nothing is open. An item the human sends to someone
   else (`ask`) goes to the doc's open questions as waiting on them; an item
   that is not clear is asked again, reworded, never taken as recommended.
@@ -274,6 +278,7 @@ keep salaries?"
   rest of the work.
 - The human may also answer it now themselves, or send it to someone else
   (the line then names the new person, with a new `since`).
+- With `checkins: none`, ask nothing: list them in the final report.
 
 ## Going deeper later
 

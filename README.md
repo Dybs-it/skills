@@ -79,7 +79,7 @@ every task. You choose:
 | For | side projects, experiments, a first try | long-term products |
 | Time | about 5 to 10 minutes per doc | about 10 to 20 minutes per doc (1 to 2 hours in total) |
 | Interview | core questions, at most two rounds | every question, until nothing is open |
-| Gaps | marked *(assumption)* with an open question | answered, or parked by you with a reason |
+| Gaps | marked *(assumption)* with an open question | answered, or waiting on someone you named |
 | Check | consistency across docs | plus an agent-ready test by fresh sub-agents |
 
 Both write the same docs, so agents and tools never care which you chose.

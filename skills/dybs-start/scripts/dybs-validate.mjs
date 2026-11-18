@@ -1005,13 +1005,6 @@ function definitions(lines) {
   return defs;
 }
 
-// A question the human sent to someone else ("ask Q4: Anna: ..."), as the
-// interview writes it in the doc's open questions:
-//   - **Waiting on Anna** (since 2026-11-18): <question> Ask: <what to ask>
-// Read from the text as it renders (comments and code do not count). A list
-// item may wrap: its continuation lines are read with it. A line that starts
-// `**Waiting on` in any other form is reported as malformed, so a reader
-// (the app) never silently misses a waiting question.
 // "Anna (1 question), Bas (2 questions)", in the order they appear.
 export function waitingSummary(waiting) {
   const by = new Map();
@@ -1020,23 +1013,39 @@ export function waitingSummary(waiting) {
 }
 export const WAITING_FORM = '- **Waiting on <who>** (since YYYY-MM-DD): <question> Ask: <what to ask>';
 const WAITING_LINE = /^\*\*Waiting on ([^*\n]*[^*\s])\*\* \(since (\S+)\):\s+(.+?)\s+Ask:\s+(.+)$/;
+const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])\s+/;
+// What ends a wrapped list item besides a blank line: a new item, a heading,
+// a thematic break, a table row or a quote.
+const ITEM_END = /^\s*(?:(?:[-*+]|\d{1,9}[.)])\s|#|\||>)|^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
+
+// A question the human sent to someone else ("ask Q4: Anna: ..."), as the
+// interview writes it in the doc's open questions:
+//   - **Waiting on Anna** (since 2026-11-18): <question> Ask: <what to ask>
+// Read from the text as it renders (comments and code do not count). A list
+// item may wrap, and may be nested: its continuation lines are read with it.
+// Anything else that starts with bold "Waiting on" (any case, `__` too, in a
+// checkbox, a quote or a plain line) is reported as malformed, so a reader
+// (the app) never silently misses a waiting question.
 export function parseWaiting(text) {
   const { data, body } = parseFrontmatter(text);
   const lines = visibleText(data ? body : text).split('\n');
   const waiting = [];
   const malformed = [];
-  const ITEM = /^\s{0,3}(?:[-*+]|\d{1,9}[.)])\s+/;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const content = line.replace(ITEM, '').trim();
-    if (!/^\*\*\s*waiting on/i.test(content)) continue;
+    const unquoted = line.replace(/^(?:\s*>)+/, '');
+    const item = LIST_ITEM.test(unquoted);
+    const unlisted = unquoted.replace(LIST_ITEM, '');
+    const content = unlisted.replace(/^\s*\[[ xX]\]\s+/, '').trim();
+    if (!/^(?:\*\*|__)\s*waiting on/i.test(content)) continue;
+    // The exact form: a list item, not quoted, not a checkbox.
+    const exact = item && unquoted === line && unlisted.trim() === content;
     let whole = content;
-    // Continuation lines: up to a blank line, a new list item or a heading.
-    while (i + 1 < lines.length && lines[i + 1].trim() && !ITEM.test(lines[i + 1]) && !/^\s{0,3}#/.test(lines[i + 1])) {
+    while (i + 1 < lines.length && lines[i + 1].trim() && !ITEM_END.test(lines[i + 1])) {
       whole += ` ${lines[++i].trim()}`;
     }
     whole = whole.replace(/\s+/g, ' ');
-    const m = ITEM.test(line) && whole.match(WAITING_LINE);
+    const m = exact && whole.match(WAITING_LINE);
     if (m && isDate(m[2])) waiting.push({ who: m[1].trim(), question: m[3].trim(), since: m[2], ask: m[4].trim() });
     else malformed.push(whole);
   }

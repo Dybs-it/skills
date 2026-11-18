@@ -206,3 +206,47 @@ test('dybs-check lists waiting questions and never asks to accept a doc that has
 test('the method rules in dybs/ say a waiting question blocks acceptance', () => {
   assert.match(flat('dybs-start/assets/README.md'), /A doc with a question waiting on someone is not accepted until they answer/);
 });
+
+// --- review round 1 ---
+
+test('a waiting line hidden in a checkbox, a blockquote or another bold form is reported, never missed', () => {
+  for (const bad of [
+    '- [ ] **Waiting on Anna** (since 2026-11-18): May we keep salaries? Ask: finance',
+    '> - **Waiting on Anna** (since 2026-11-18): May we keep salaries? Ask: finance',
+    '- __Waiting on Anna__ (since 2026-11-18): May we keep salaries? Ask: finance',
+  ]) {
+    const r = validateDoc('prd', withLine(draft(PRD), bad));
+    assert.deepEqual(r.rules, ['waiting'], bad);
+  }
+});
+
+test('a waiting item nested four spaces deep is still read', () => {
+  const nested = `1. Money\n    ${LINE}`;
+  assert.deepEqual(parseWaiting(withLine(draft(PRD), nested)).waiting.map((w) => w.who), ['Anna']);
+});
+
+test('a waiting item ends at a thematic break, a table row or a quote', () => {
+  for (const after of ['---', '| a | b |', '> quoted']) {
+    const [w] = parseWaiting(withLine(draft(PRD), `${LINE}\n${after}`)).waiting;
+    assert.equal(w.ask, 'does finance allow storing them?', after);
+  }
+});
+
+test('an unclear answer is asked again even at quick depth, never turned into an assumption', () => {
+  const f = flat('dybs-start/interview.md');
+  assert.match(f, /An item the human marked not clear is never an \*\(assumption\)\*/);
+});
+
+test('every skill asks about waiting questions before anything else, from step 1', () => {
+  const f = flat('dybs-start/interview.md');
+  const step1 = f.slice(f.indexOf('## 1. Collect first'), f.indexOf('## 2. Map what is open'));
+  assert.match(step1, /\*\*Questions waiting on someone\*\*/);
+  const section = f.slice(f.indexOf('## Questions waiting on someone'));
+  assert.match(section, /With `checkins: none`, ask nothing: list them in the final report/);
+});
+
+test('the README no longer offers parking a question', () => {
+  const t = readFileSync(join(ROOT, 'README.md'), 'utf8');
+  assert.doesNotMatch(t, /parked by you with a reason/);
+  assert.match(t, /answered, or waiting on someone you named/);
+});

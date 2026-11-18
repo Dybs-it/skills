@@ -98,15 +98,12 @@ reports them as `waiting` per doc): by doc, who, since when, and what to
 ask. Ask the human about each one before anything else ("Did Anna answer?
 May we keep salaries?") and handle the answer as `interview.md` says under
 **Questions waiting on someone** (with `checkins: none`, list them only).
-Never ask for the acceptance of a doc
-with a waiting question: it is completed when the answer comes. Include
-every `needs-you` line
-that earlier skills wrote to `dybs/log.md` (with `checkins: end` or `none`)
-and that has no `resolved` line with the same id yet; log the human's answers
-as `resolved` lines.
-Under **Needs you**, ask for
-acceptance of each doc that is still `draft` and has no waiting question,
-and put any contradiction
+Never ask for the acceptance of a doc with a waiting question: it is
+completed when the answer comes. Include every `needs-you` line that earlier
+skills wrote to `dybs/log.md` (with `checkins: end` or `none`) and that has
+no `resolved` line with the same id yet; log the human's answers as
+`resolved` lines. Under **Needs you**, ask for acceptance of each doc that
+is still `draft` and has no waiting question, and put any contradiction
 between two accepted docs first, since it is a safety stop. With
 `checkins: none`, do not ask: list what awaits acceptance and stop.
 
