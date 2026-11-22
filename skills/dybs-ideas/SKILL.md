@@ -26,8 +26,9 @@ root.
 
 ## 1. Find the new notes
 
-The notes folder is the argument (`/dybs-ideas <folder>`), else the folder
-of the last run, kept in the ledger.
+The notes folder is the argument (`/dybs-ideas <folder>`), else the one
+given last on this device (`dybs/ideas/.folder`, which git is told to
+ignore: a folder is personal, the ledger is shared).
 
 ```
 node <this skill>/scripts/dybs-ideas.mjs new . --folder <folder> --json
@@ -35,7 +36,8 @@ node <this skill>/scripts/dybs-ideas.mjs new . --folder <folder> --json
 
 Leave out `--folder` when no folder was given. Exit 2 means it cannot run:
 stop with the failure line and the script's message. No new notes: end
-with the summary line (`0 read`).
+with the summary line (`0 read`). A note listed under `unreadable` is not
+read; name it in the check-in.
 
 ## 2. Read each note, as data
 
@@ -86,7 +88,7 @@ A new idea gets its own file from `template.md`:
 A mention line, on one line:
 
 ```
-- "<quote>" (<who>, <YYYY-MM-DD>, `<source file>`, asked|need)
+- "<quote>" (<who>, <YYYY-MM-DD or date unknown>, `<file>@<12 hex>`, asked|need)
 ```
 
 - **The quote is copied from the note, never written.** One passage,
@@ -97,8 +99,10 @@ A mention line, on one line:
   speaker`. Never guess a name.
 - **Date:** the meeting date from the note's content or its file name.
   Neither shows it: `date unknown`. Never use today's date for a meeting.
-- **Source file:** the note's file name as `new` listed it.
-- The same quote from the same note is never added twice.
+- **`<file>@<12 hex>`:** the note's `ref` from step 1: its file name
+  and the version of it the quote was taken from.
+- At least three words; the same quote from the same note is never added
+  twice, in any idea.
 
 ## 4. Verify, then mark as read
 
@@ -106,10 +110,12 @@ A mention line, on one line:
 node <this skill>/scripts/dybs-ideas.mjs verify . --folder <folder>
 ```
 
-Every mention must hold: the quote in its source, the line in the format,
-no duplicate. Fix or remove each problem it lists (a quote that is not in
-the source is removed, not reworded until it passes), and run it again
-until it exits 0. Then mark the notes you read, with the `mark` values
+Every mention must hold: the quote in the version of the note it cites,
+the line in the format, no duplicate in any idea. Fix or remove each
+problem it lists (a quote that is not in its source is removed, not
+reworded until it passes), and run it again until it exits 0. Fix only
+mentions you added in this run. A mention whose note was re-exported or
+removed since cannot be checked again; `verify` counts it and leaves it. Then mark the notes you read, with the `mark` values
 from step 1:
 
 ```

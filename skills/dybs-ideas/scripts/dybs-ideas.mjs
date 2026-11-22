@@ -8,40 +8,56 @@
 //   node dybs-ideas.mjs verify [project] [--folder <dir>] [--json]
 //   node dybs-ideas.mjs mark   [project] <file[@sha256]>... [--folder <dir>] [--json]
 //
-// The notes folder is --folder, else the folder of the last run, kept in the
-// ledger dybs/ideas/.read.json. Only .txt, .md, .srt and .vtt files directly
-// in that folder count; links and subfolders are skipped. The script reads
-// the notes and never changes them. It writes only the ledger, and only on
-// `mark`.
+// The notes folder is --folder, else the one given last on this device, kept
+// in dybs/ideas/.folder (never committed: the script lists it in
+// dybs/ideas/.gitignore). The ledger of read notes, dybs/ideas/.read.json,
+// holds content hashes and names only, so it can be shared. Only .txt, .md,
+// .srt and .vtt files directly in the folder count; links and subfolders are
+// skipped. The script never changes a note. It writes the ledger on `mark`,
+// and the folder file whenever --folder is given.
 // Exit code 0 = done; 1 = verify found a mention that does not hold;
 // 2 = it could not run (no folder, unreadable ledger, bad arguments).
 
-import { readFileSync, writeFileSync, readdirSync, lstatSync, mkdirSync, renameSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, lstatSync, statSync, mkdirSync, renameSync, rmSync, existsSync, appendFileSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export const LEDGER = 'dybs/ideas/.read.json';
+export const FOLDER = 'dybs/ideas/.folder';
 export const PROMPT = 'dybs/transcript-prompt.txt';
 export const SUPPORTED = /\.(txt|md|srt|vtt)$/i;
-// - "<quote>" (<who>, <YYYY-MM-DD or date unknown>, `<file>`, asked|need)
-export const MENTION = /^- "(.+)" \((.+?), (\d{4}-\d{2}-\d{2}|date unknown), `([^`]+)`, (asked|need)\)$/;
+// The version of a note a mention cites: the first 12 hex of its sha256.
+export const REF = 12;
+// - "<quote>" (<who>, <YYYY-MM-DD or date unknown>, `<file>@<ref>`, asked|need)
+export const MENTION = /^- "(.+)" \((.+?), (\d{4}-\d{2}-\d{2}|date unknown), `([^`]+)@([0-9a-f]{12})`, (asked|need)\)$/;
+// A quote this short would be found in almost any note, so it proves nothing.
+export const MIN_WORDS = 3;
 
 export class Stop extends Error {}
 
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
 const today = () => new Date().toISOString().slice(0, 10);
 
-// Text as a reader sees it: no subtitle numbering, timings or voice tags,
-// straight quotes, single spaces. Quotes are compared on this form, so a
-// passage that wraps across lines or cues still matches; a changed word does not.
+// Text as a reader sees it: no subtitle numbering, timings, notes or voice
+// tags, no Markdown quote marks at line starts, straight quotes, single
+// spaces. Quotes are compared on this form, so a passage that wraps across
+// lines or cues still matches; a changed word does not.
 export function fold(text, name = '') {
   let t = String(text).replace(/^﻿/, '');
   if (/\.(srt|vtt)$/i.test(name)) {
-    t = t.split(/\r?\n/)
-      .filter((l) => !/^\s*\d+\s*$/.test(l) && !/-->/.test(l) && !/^WEBVTT\b/.test(l) && !/^(NOTE|STYLE|REGION)\b/.test(l))
-      .join('\n')
-      .replace(/<[^>]+>/g, ' ');
+    const keep = [];
+    let skipping = false;
+    for (const l of t.split(/\r?\n/)) {
+      if (!l.trim()) { skipping = false; keep.push(''); continue; }
+      if (skipping) continue;
+      if (/^(NOTE|STYLE|REGION)\b/.test(l)) { skipping = true; continue; }
+      if (/^\s*\d+\s*$/.test(l) || /-->/.test(l) || /^WEBVTT\b/.test(l)) continue;
+      keep.push(l);
+    }
+    t = keep.join('\n').replace(/<[^>]+>/g, ' ');
+  } else if (/\.md$/i.test(name)) {
+    t = t.replace(/^[ \t]*(>[ \t]?)+/gm, '');
   }
   return t.replace(/[‘’‛′]/g, "'").replace(/[“”‟″]/g, '"')
     .replace(/…/g, '...').replace(/\s+/g, ' ').trim();
@@ -49,41 +65,63 @@ export function fold(text, name = '') {
 
 export function readLedger(root) {
   const p = join(root, LEDGER);
-  if (!existsSync(p)) return { version: 1, folder: null, read: [] };
+  if (!existsSync(p)) return { version: 1, read: [] };
   let l;
   try { l = JSON.parse(readFileSync(p, 'utf8')); } catch {
     throw new Stop(`${LEDGER} is not valid JSON. Fix it or delete it (every note is then read again); it was not changed.`);
   }
   if (!l || l.version !== 1 || !Array.isArray(l.read)) throw new Stop(`${LEDGER} is not a version 1 ledger. It was not changed.`);
-  return l;
+  return { version: 1, read: l.read };
 }
 
-function writeLedger(root, ledger) {
+// dybs/ideas as a plain folder inside the project, made when missing.
+function ideasDir(root) {
   const dir = join(root, 'dybs/ideas');
   mkdirSync(dir, { recursive: true });
   for (const d of [join(root, 'dybs'), dir]) {
-    if (lstatSync(d).isSymbolicLink() || !lstatSync(d).isDirectory()) throw new Stop(`${d} is not a plain folder; the ledger was not written.`);
+    if (lstatSync(d).isSymbolicLink() || !lstatSync(d).isDirectory()) throw new Stop(`${d} is not a plain folder; nothing was written.`);
   }
-  const p = join(root, LEDGER);
-  if (existsSync(p) && lstatSync(p).isSymbolicLink()) throw new Stop(`${LEDGER} is a link; it was not written.`);
-  const tmp = join(dir, `.read.${randomUUID()}.tmp`);
+  return dir;
+}
+
+// Replace one file in dybs/ideas whole, or not at all.
+function publish(root, rel, body) {
+  const dir = ideasDir(root);
+  const p = join(root, rel);
+  if (existsSync(p) && lstatSync(p).isSymbolicLink()) throw new Stop(`${rel} is a link; it was not written.`);
+  const tmp = join(dir, `.${randomUUID()}.tmp`);
   try {
-    writeFileSync(tmp, JSON.stringify(ledger, null, 2) + '\n', { flag: 'wx' });
+    writeFileSync(tmp, body, { flag: 'wx' });
     renameSync(tmp, p);
   } finally { rmSync(tmp, { force: true }); }
 }
 
+// The folder is per device: remembered in a file git is told to ignore.
+function rememberFolder(root, dir) {
+  publish(root, FOLDER, dir + '\n');
+  const ignore = join(root, 'dybs/ideas/.gitignore');
+  if (existsSync(ignore) && lstatSync(ignore).isSymbolicLink()) return;
+  const cur = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
+  if (!cur.split(/\r?\n/).some((l) => l.trim() === '.folder')) appendFileSync(ignore, (cur && !cur.endsWith('\n') ? '\n' : '') + '.folder\n');
+}
+
 export function folderOf(root, given) {
-  const f = given || readLedger(root).folder;
-  if (!f) throw new Stop('No notes folder. Pass it: /dybs-ideas <folder> (it is remembered in dybs/ideas/.read.json).');
+  let f = given;
+  if (!f) {
+    const p = join(root, FOLDER);
+    try { if (!lstatSync(p).isSymbolicLink()) f = readFileSync(p, 'utf8').trim(); } catch { /* none yet */ }
+  }
+  if (!f) throw new Stop('No notes folder. Pass it: /dybs-ideas <folder> (it is remembered on this device in dybs/ideas/.folder).');
   const dir = resolve(root, f);
   let st;
-  try { st = lstatSync(dir); } catch { throw new Stop(`The notes folder ${dir} does not exist or cannot be read.`); }
+  try { st = statSync(dir); } catch { throw new Stop(`The notes folder ${dir} does not exist or cannot be read.`); }
   if (!st.isDirectory()) throw new Stop(`The notes folder ${dir} is not a folder.`);
+  if (given) rememberFolder(root, dir);
   return dir;
 }
 
 // The notes in a folder: regular files with a supported extension, by name.
+// A note that cannot be read is listed, never skipped in silence.
 export function notes(dir) {
   let names;
   try { names = readdirSync(dir); } catch { throw new Stop(`The notes folder ${dir} cannot be read.`); }
@@ -94,31 +132,33 @@ export function notes(dir) {
     let st;
     try { st = lstatSync(p); } catch { continue; }
     if (!st.isFile()) continue;
-    const buf = readFileSync(p);
-    out.push({ name, sha256: sha(buf), bytes: buf.length, empty: !buf.toString('utf8').trim() });
+    let buf;
+    try { buf = readFileSync(p); } catch { out.push({ name, unreadable: true }); continue; }
+    out.push({ name, sha256: sha(buf), bytes: buf.length, empty: !buf.toString('utf8').trim(), text: buf.toString('utf8') });
   }
   return out;
 }
 
 export function findNew(root, given) {
   const folder = folderOf(root, given);
-  const ledger = readLedger(root);
-  const known = new Set(ledger.read.map((r) => r.sha256));
+  const known = new Set(readLedger(root).read.map((r) => r.sha256));
   const all = notes(folder);
-  const fresh = all.filter((n) => !known.has(n.sha256));
+  const readable = all.filter((n) => !n.unreadable);
+  const fresh = readable.filter((n) => !known.has(n.sha256));
   return {
     folder,
     prompt: existsSync(join(root, PROMPT)) ? PROMPT : null,
-    new: fresh.filter((n) => !n.empty).map(({ name, sha256, bytes }) => ({ name, sha256, bytes, mark: `${name}@${sha256}` })),
+    new: fresh.filter((n) => !n.empty).map(({ name, sha256, bytes }) => ({ name, sha256, bytes, ref: `${name}@${sha256.slice(0, REF)}`, mark: `${name}@${sha256}` })),
     empty: fresh.filter((n) => n.empty).map((n) => n.name),
-    alreadyRead: all.length - fresh.length,
+    unreadable: all.filter((n) => n.unreadable).map((n) => n.name),
+    alreadyRead: readable.length - fresh.length,
   };
 }
 
 export function mark(root, args, given) {
   const folder = folderOf(root, given);
   const ledger = readLedger(root);
-  const here = new Map(notes(folder).map((n) => [n.name, n.sha256]));
+  const here = new Map(notes(folder).filter((n) => !n.unreadable).map((n) => [n.name, n.sha256]));
   const known = new Set(ledger.read.map((r) => r.sha256));
   const added = [];
   for (const a of args) {
@@ -130,52 +170,49 @@ export function mark(root, args, given) {
     known.add(hash);
     added.push({ name, sha256: hash, read: today() });
   }
-  writeLedger(root, { version: 1, folder, read: [...ledger.read, ...added] });
+  publish(root, LEDGER, JSON.stringify({ version: 1, read: [...ledger.read, ...added] }, null, 2) + '\n');
   return { folder, marked: added.map((a) => a.name), alreadyRead: args.length - added.length };
 }
 
-// Every mention in dybs/ideas/*.md, with the problems found.
+// Every mention in dybs/ideas/*.md, with the problems found. A mention cites
+// one version of a note; it is checked against that version when it is in the
+// folder, under any name. A version that was read and is gone since (the note
+// was re-exported or removed) cannot be checked again, and is counted, not
+// failed, so evidence on an idea is never lost to a later export.
 export function verify(root, given) {
   const folder = folderOf(root, given);
-  const ledger = readLedger(root);
-  const readNames = new Set(ledger.read.map((r) => r.name));
+  const readRefs = new Set(readLedger(root).read.map((r) => r.sha256.slice(0, REF)));
+  const byRef = new Map();
+  for (const n of notes(folder)) if (!n.unreadable) byRef.set(n.sha256.slice(0, REF), fold(n.text, n.name));
   const dir = join(root, 'dybs/ideas');
   const files = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.md')).sort() : [];
-  const sources = new Map();
-  const source = (name) => {
-    if (!sources.has(name)) {
-      const p = join(folder, name);
-      let text = null;
-      try { if (basename(name) === name && SUPPORTED.test(name) && lstatSync(p).isFile()) text = fold(readFileSync(p, 'utf8'), name); } catch { /* gone */ }
-      sources.set(name, text);
-    }
-    return sources.get(name);
-  };
   const problems = [];
+  const seen = new Map();
   let checked = 0, unchecked = 0;
   for (const f of files) {
     const text = readFileSync(join(dir, f), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
     const section = text.split(/^## Mentions[ \t]*$/m)[1];
     if (section === undefined) continue;
-    const seen = new Set();
-    for (const line of section.split(/^## /m)[0].split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      const m = line.trim().match(MENTION);
-      if (!m) { problems.push({ idea: f, problem: 'malformed', line: line.trim() }); continue; }
-      const [, quote, , , name] = m;
-      const key = `${name}\n${fold(quote)}`;
-      if (seen.has(key)) { problems.push({ idea: f, problem: 'duplicate', line: line.trim() }); continue; }
-      seen.add(key);
-      const src = source(name);
-      if (src === null) {
-        // A source that was read and later removed cannot be checked again;
-        // one that was never read is not a source.
-        if (readNames.has(name)) unchecked++;
-        else problems.push({ idea: f, problem: 'unknown source', line: line.trim() });
+    for (const raw of section.split(/^## /m)[0].split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      const m = line.match(MENTION);
+      if (!m) { problems.push({ idea: f, problem: 'malformed', line }); continue; }
+      const [, quote, , , name, ref] = m;
+      const q = fold(quote);
+      if (q.split(' ').length < MIN_WORDS) { problems.push({ idea: f, problem: 'too short', line }); continue; }
+      // The same quote from the same note belongs in one idea, once.
+      const key = `${ref}\n${q}`;
+      if (seen.has(key)) { problems.push({ idea: f, problem: `duplicate of ${seen.get(key)}`, line }); continue; }
+      seen.set(key, f);
+      const src = byRef.get(ref);
+      if (src === undefined) {
+        if (readRefs.has(ref)) unchecked++;
+        else problems.push({ idea: f, problem: 'unknown source', line });
         continue;
       }
       checked++;
-      if (!src.includes(fold(quote))) problems.push({ idea: f, problem: 'quote not in source', line: line.trim() });
+      if (!src.includes(q)) problems.push({ idea: f, problem: 'quote not in source', line });
     }
   }
   return { folder, ideas: files.length, checked, unchecked, problems };
@@ -199,14 +236,15 @@ export function main(argv, out = console.log) {
     if (!['new', 'verify', 'mark'].includes(cmd)) throw new Stop('Usage: dybs-ideas.mjs new|verify|mark [project] [files...] [--folder <dir>] [--json]');
     const o = parse(more);
     const root = resolve(o.rest.shift() || '.');
-    if (!existsSync(root) || !lstatSync(root).isDirectory()) throw new Stop(`${root} is not a folder.`);
+    if (!existsSync(root) || !statSync(root).isDirectory()) throw new Stop(`${root} is not a folder.`);
     if (cmd === 'new') {
       const r = findNew(root, o.folder);
       if (o.json) out(JSON.stringify(r, null, 2));
       else {
         out(`Notes folder: ${r.folder}`);
-        out(`New: ${r.new.length}, already read: ${r.alreadyRead}${r.empty.length ? `, empty: ${r.empty.length}` : ''}`);
+        out(`New: ${r.new.length}, already read: ${r.alreadyRead}${r.empty.length ? `, empty: ${r.empty.length}` : ''}${r.unreadable.length ? `, unreadable: ${r.unreadable.length}` : ''}`);
         for (const n of r.new) out(`- ${n.mark}`);
+        for (const n of r.unreadable) out(`- cannot be read: ${n}`);
         if (r.prompt) out(`Project prompt: ${r.prompt}`);
       }
       return 0;
@@ -220,7 +258,7 @@ export function main(argv, out = console.log) {
     const r = verify(root, o.folder);
     if (o.json) out(JSON.stringify(r, null, 2));
     else {
-      out(`Mentions checked: ${r.checked}, source gone: ${r.unchecked}, problems: ${r.problems.length}`);
+      out(`Mentions checked: ${r.checked}, source changed or gone: ${r.unchecked}, problems: ${r.problems.length}`);
       for (const p of r.problems) out(`- ${p.idea}: ${p.problem}: ${p.line}`);
     }
     return r.problems.length ? 1 : 0;

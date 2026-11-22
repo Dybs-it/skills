@@ -15,7 +15,7 @@ updated: {{YYYY-MM-DD}}
 ## Mentions
 
 <!-- One line each, the quote copied from the source exactly:
-- "<quote>" (<who>, <YYYY-MM-DD or date unknown>, `<source file>`, asked|need) -->
+- "<quote>" (<who>, <YYYY-MM-DD or date unknown>, `<file>@<12 hex>`, asked|need) -->
 
 ## Grilling
 

@@ -119,10 +119,13 @@ which one to add; without the validator, it checks the doc by hand.
 needed. By hand, or from a schedule (cron, launchd) in the project folder:
 
 ```
-claude -p "/dybs-ideas ~/Notes/meetings"
+claude -p "/dybs-ideas ~/Notes/meetings" --allowedTools "Read,Write,Edit,Bash(node:*)"
 ```
 
-The folder is remembered, so later runs can leave it out. Each run reads
+A headless run cannot answer a permission prompt, so allow it to read and
+write files and to run `node` (the skill's script). The folder is
+remembered on this device (`dybs/ideas/.folder`, kept out of git), so later
+runs can leave it out. Each run reads
 only notes it has not read before (`dybs/ideas/.read.json`), so running it
 twice is safe. Every quote is checked against its source by a script; a
 quote that is not there is removed. The last line says what happened:
