@@ -5,7 +5,7 @@
 //
 // Usage:
 //   node dybs-ideas.mjs new    [project] [--folder <dir>] [--json]
-//   node dybs-ideas.mjs verify [project] [--folder <dir>] [--json]
+//   node dybs-ideas.mjs verify [project] [<file@ref>...] [--folder <dir>] [--json]
 //   node dybs-ideas.mjs mark   [project] <file[@sha256]>... [--folder <dir>] [--json]
 //
 // The notes folder is --folder, else the one given last on this device, kept
@@ -18,7 +18,7 @@
 // Exit code 0 = done; 1 = verify found a mention that does not hold;
 // 2 = it could not run (no folder, unreadable ledger, bad arguments).
 
-import { readFileSync, writeFileSync, readdirSync, lstatSync, statSync, mkdirSync, renameSync, rmSync, existsSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, lstatSync, statSync, mkdirSync, renameSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -68,7 +68,7 @@ export function readLedger(root) {
   if (!existsSync(p)) return { version: 1, read: [] };
   let l;
   try { l = JSON.parse(readFileSync(p, 'utf8')); } catch {
-    throw new Stop(`${LEDGER} is not valid JSON. Fix it or delete it (every note is then read again); it was not changed.`);
+    throw new Stop(`${LEDGER} is not valid JSON. Fix it, or move it aside: every note is then read again. It was not changed.`);
   }
   if (!l || l.version !== 1 || !Array.isArray(l.read)) throw new Stop(`${LEDGER} is not a version 1 ledger. It was not changed.`);
   return { version: 1, read: l.read };
@@ -97,12 +97,18 @@ function publish(root, rel, body) {
 }
 
 // The folder is per device: remembered in a file git is told to ignore.
+// Git is told first, so a path is never written where it could be committed.
 function rememberFolder(root, dir) {
-  publish(root, FOLDER, dir + '\n');
+  ideasDir(root);
   const ignore = join(root, 'dybs/ideas/.gitignore');
-  if (existsSync(ignore) && lstatSync(ignore).isSymbolicLink()) return;
-  const cur = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
-  if (!cur.split(/\r?\n/).some((l) => l.trim() === '.folder')) appendFileSync(ignore, (cur && !cur.endsWith('\n') ? '\n' : '') + '.folder\n');
+  let st = null;
+  try { st = lstatSync(ignore); } catch { /* none yet */ }
+  if (st && !st.isFile()) throw new Stop('dybs/ideas/.gitignore is not a plain file, so the folder was not remembered. Pass the folder on every run, or make it a plain file.');
+  const cur = st ? readFileSync(ignore, 'utf8') : '';
+  if (!cur.split(/\r?\n/).some((l) => l.trim() === '.folder')) {
+    writeFileSync(ignore, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + '.folder\n', { flag: st ? 'r+' : 'wx' });
+  }
+  publish(root, FOLDER, dir + '\n');
 }
 
 export function folderOf(root, given) {
@@ -122,7 +128,7 @@ export function folderOf(root, given) {
 
 // The notes in a folder: regular files with a supported extension, by name.
 // A note that cannot be read is listed, never skipped in silence.
-export function notes(dir) {
+export function notes(dir, { text = false } = {}) {
   let names;
   try { names = readdirSync(dir); } catch { throw new Stop(`The notes folder ${dir} cannot be read.`); }
   const out = [];
@@ -134,7 +140,7 @@ export function notes(dir) {
     if (!st.isFile()) continue;
     let buf;
     try { buf = readFileSync(p); } catch { out.push({ name, unreadable: true }); continue; }
-    out.push({ name, sha256: sha(buf), bytes: buf.length, empty: !buf.toString('utf8').trim(), text: buf.toString('utf8') });
+    out.push({ name, sha256: sha(buf), bytes: buf.length, empty: !buf.toString('utf8').trim(), ...(text ? { text: buf.toString('utf8') } : {}) });
   }
   return out;
 }
@@ -179,14 +185,20 @@ export function mark(root, args, given) {
 // folder, under any name. A version that was read and is gone since (the note
 // was re-exported or removed) cannot be checked again, and is counted, not
 // failed, so evidence on an idea is never lost to a later export.
-export function verify(root, given) {
+// Given the refs of the notes read in this run, only problems in mentions of
+// those notes fail; the others are listed under `earlier`, so an old line
+// nobody can fix now never blocks a run. Without refs, every problem fails.
+export function verify(root, given, runRefs = []) {
+  const run = runRefs.map((r) => { const m = r.match(/^(.+)@([0-9a-f]{12})[0-9a-f]*$/); if (!m) throw new Stop(`${r} is not a ref from \`new\`.`); return `${m[1]}@${m[2]}`; });
+  const ours = (...lines) => !run.length || lines.some((l) => run.some((r) => l.includes(r)));
   const folder = folderOf(root, given);
   const readRefs = new Set(readLedger(root).read.map((r) => r.sha256.slice(0, REF)));
   const byRef = new Map();
-  for (const n of notes(folder)) if (!n.unreadable) byRef.set(n.sha256.slice(0, REF), fold(n.text, n.name));
+  for (const n of notes(folder, { text: true })) if (!n.unreadable) byRef.set(n.sha256.slice(0, REF), fold(n.text, n.name));
   const dir = join(root, 'dybs/ideas');
   const files = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.md')).sort() : [];
-  const problems = [];
+  const problems = [], earlier = [];
+  const report = (p, ...also) => (ours(p.line, ...also) ? problems : earlier).push(p);
   const seen = new Map();
   let checked = 0, unchecked = 0;
   for (const f of files) {
@@ -197,25 +209,26 @@ export function verify(root, given) {
       const line = raw.trim();
       if (!line) continue;
       const m = line.match(MENTION);
-      if (!m) { problems.push({ idea: f, problem: 'malformed', line }); continue; }
+      if (!m) { report({ idea: f, problem: 'malformed', line }); continue; }
       const [, quote, , , name, ref] = m;
       const q = fold(quote);
-      if (q.split(' ').length < MIN_WORDS) { problems.push({ idea: f, problem: 'too short', line }); continue; }
-      // The same quote from the same note belongs in one idea, once.
-      const key = `${ref}\n${q}`;
-      if (seen.has(key)) { problems.push({ idea: f, problem: `duplicate of ${seen.get(key)}`, line }); continue; }
-      seen.set(key, f);
+      if (q.split(' ').length < MIN_WORDS) { report({ idea: f, problem: 'too short', line }); continue; }
+      // The same quote from the same note belongs in one idea, once, also
+      // when the note was exported again under a new version.
+      const dup = seen.get(`${ref}\n${q}`) || seen.get(`${name}\n${q}`);
+      if (dup) { report({ idea: f, problem: `duplicate of ${dup.idea}`, line }, dup.line); continue; }
+      seen.set(`${ref}\n${q}`, { idea: f, line }).set(`${name}\n${q}`, { idea: f, line });
       const src = byRef.get(ref);
       if (src === undefined) {
         if (readRefs.has(ref)) unchecked++;
-        else problems.push({ idea: f, problem: 'unknown source', line });
+        else report({ idea: f, problem: 'unknown source', line });
         continue;
       }
       checked++;
-      if (!src.includes(q)) problems.push({ idea: f, problem: 'quote not in source', line });
+      if (!src.includes(q)) report({ idea: f, problem: 'quote not in source', line });
     }
   }
-  return { folder, ideas: files.length, checked, unchecked, problems };
+  return { folder, ideas: files.length, checked, unchecked, problems, earlier };
 }
 
 function parse(argv) {
@@ -255,11 +268,13 @@ export function main(argv, out = console.log) {
       out(o.json ? JSON.stringify(r, null, 2) : `Marked as read: ${r.marked.length}${r.alreadyRead ? `, already read: ${r.alreadyRead}` : ''}`);
       return 0;
     }
-    const r = verify(root, o.folder);
+    const r = verify(root, o.folder, o.rest);
     if (o.json) out(JSON.stringify(r, null, 2));
     else {
       out(`Mentions checked: ${r.checked}, source changed or gone: ${r.unchecked}, problems: ${r.problems.length}`);
       for (const p of r.problems) out(`- ${p.idea}: ${p.problem}: ${p.line}`);
+      if (r.earlier.length) out(`Earlier runs, not failing: ${r.earlier.length}`);
+      for (const p of r.earlier) out(`- ${p.idea}: ${p.problem}: ${p.line}`);
     }
     return r.problems.length ? 1 : 0;
   } catch (e) {

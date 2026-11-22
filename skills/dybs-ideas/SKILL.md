@@ -13,8 +13,10 @@ exists). This skill proposes; the human decides. Every idea it writes is
 `dybs/transcript-prompt.txt` when present, `dybs/ideas/`, and
 `dybs/context/prd.md` and `scope.md` when present.
 **Writes:** `dybs/ideas/<slug>.md` (new ideas from `template.md`, mentions
-added to existing ones) and the ledger `dybs/ideas/.read.json`. Nothing
-else: no code, no task, no other doc.
+added to existing ones), the ledger `dybs/ideas/.read.json`, and, through
+the script, the folder of this device in `dybs/ideas/.folder` with a
+`.folder` line in `dybs/ideas/.gitignore`. Nothing else: no code, no task,
+no other doc.
 
 **Asks nothing.** It runs the same by hand and headless. When something is
 missing it stops with the failure line below; it never waits for an answer.
@@ -107,16 +109,18 @@ A mention line, on one line:
 ## 4. Verify, then mark as read
 
 ```
-node <this skill>/scripts/dybs-ideas.mjs verify . --folder <folder>
+node <this skill>/scripts/dybs-ideas.mjs verify . <ref>... --folder <folder>
 ```
 
-Every mention must hold: the quote in the version of the note it cites,
-the line in the format, no duplicate in any idea. Fix or remove each
-problem it lists (a quote that is not in its source is removed, not
-reworded until it passes), and run it again until it exits 0. Fix only
-mentions you added in this run. A mention whose note was re-exported or
-removed since cannot be checked again; `verify` counts it and leaves it. Then mark the notes you read, with the `mark` values
-from step 1:
+With the `ref` of every note read in this run, every mention of those
+notes must hold: the quote in the version of the note it cites, the line
+in the format, no duplicate in any idea. Fix or remove each problem it
+lists (a quote that is not in its source is removed, not reworded until it
+passes), and run it again until it exits 0. Problems in mentions from
+earlier runs are listed under `earlier` and never fail the run: leave them
+and name them in the check-in. A mention whose note was re-exported or
+removed since cannot be checked again; `verify` counts it and leaves it.
+Then mark the notes you read, with the `mark` values from step 1:
 
 ```
 node <this skill>/scripts/dybs-ideas.mjs mark . <name@sha256>... --folder <folder>

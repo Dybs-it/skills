@@ -277,6 +277,56 @@ test('Markdown quote marks and WebVTT note blocks do not break a quote', () => {
   assert.equal(fold(vtt, 'a.vtt'), 'the reminder is always in Dutch.');
 });
 
+test('the same quote from a re-exported note is still a duplicate', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['mark', project, 'call.txt', '--folder', folder]);
+  const again = CALL + 'Anna: One more thing.\n';
+  writeFileSync(join(folder, 'call.txt'), again);
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([
+    `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`,
+    `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`call.txt@${ref(again)}\`, need)`,
+  ]));
+  const r = run(['verify', project, '--json', `call.txt@${ref(again)}`]);
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.problems.map((p) => p.problem), ['duplicate of x.md']);
+  rmSync(root, { recursive: true });
+});
+
+test('with the refs of this run, old problems are listed and never block it', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  // An earlier run's note, gone from the folder, and a ledger moved aside.
+  writeFileSync(join(project, 'dybs/ideas/old.md'), idea(['- "a quote from a meeting long ago" (Kim, 2026-01-02, `old.txt@aaaaaaaaaaaa`, need)', '- hand-edited line']));
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
+  let r = run(['verify', project, '--folder', folder, '--json', C]);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.earlier.map((p) => p.problem), ['unknown source', 'malformed']);
+  // A problem in this run's own mention still fails it.
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is never in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
+  r = run(['verify', project, '--json', C]);
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.problems.map((p) => p.problem), ['quote not in source']);
+  // Without refs, every problem fails (a check by hand).
+  assert.equal(run(['verify', project, '--json']).json.problems.length, 3);
+  assert.equal(run(['verify', project, 'not-a-ref']).code, 2);
+  rmSync(root, { recursive: true });
+});
+
+test('the folder is never written through a .gitignore that is a link or a folder', () => {
+  const { root, project, folder } = setup({});
+  const outside = join(root, 'outside.txt');
+  symlinkSync(outside, join(project, 'dybs/ideas/.gitignore'));
+  let r = run(['new', project, '--folder', folder]);
+  assert.equal(r.code, 2);
+  assert.match(r.text, /\.gitignore is not a plain file, so the folder was not remembered/);
+  assert.ok(!existsSync(outside));
+  assert.ok(!existsSync(join(project, FOLDER)));
+  rmSync(join(project, 'dybs/ideas/.gitignore'));
+  mkdirSync(join(project, 'dybs/ideas/.gitignore'));
+  r = run(['new', project, '--folder', folder]);
+  assert.equal(r.code, 2);
+  rmSync(root, { recursive: true });
+});
+
 test('subtitle files match without their numbering, timings and voice tags', () => {
   const srt = '1\n00:00:01,000 --> 00:00:03,000\nAnna: the reminder is\n\n2\n00:00:03,000 --> 00:00:05,000\nalways in Dutch.\n';
   assert.equal(fold(srt, 'a.srt'), 'Anna: the reminder is always in Dutch.');
