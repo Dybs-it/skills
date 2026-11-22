@@ -14,8 +14,9 @@ exists). This skill proposes; the human decides. Every idea it writes is
 `dybs/context/prd.md` and `scope.md` when present.
 **Writes:** `dybs/ideas/<slug>.md` (new ideas from `template.md`, mentions
 added to existing ones), the ledger `dybs/ideas/.read.json`, and, through
-the script, the folder of this device in `dybs/ideas/.folder` with a
-`.folder` line in `dybs/ideas/.gitignore`. Nothing else: no code, no task,
+the script, two files of this device that git is told to ignore in
+`dybs/ideas/.gitignore`: the folder (`.folder`) and the mentions there
+were when the run began (`.run.json`). Nothing else: no code, no task,
 no other doc.
 
 **Asks nothing.** It runs the same by hand and headless. When something is
@@ -36,7 +37,9 @@ ignore: a folder is personal, the ledger is shared).
 node <this skill>/scripts/dybs-ideas.mjs new . --folder <folder> --json
 ```
 
-Leave out `--folder` when no folder was given. Exit 2 means it cannot run:
+Leave out `--folder` when no folder was given. Run `new` first, before
+writing anything: it notes which mentions were already there. Exit 2 means
+it cannot run:
 stop with the failure line and the script's message. No new notes: end
 with the summary line (`0 read`). A note listed under `unreadable` is not
 read; name it in the check-in.
@@ -109,16 +112,15 @@ A mention line, on one line:
 ## 4. Verify, then mark as read
 
 ```
-node <this skill>/scripts/dybs-ideas.mjs verify . <ref>... --folder <folder>
+node <this skill>/scripts/dybs-ideas.mjs verify . --folder <folder>
 ```
 
-With the `ref` of every note read in this run, every mention of those
-notes must hold: the quote in the version of the note it cites, the line
-in the format, no duplicate in any idea. Fix or remove each problem it
-lists (a quote that is not in its source is removed, not reworded until it
-passes), and run it again until it exits 0. Problems in mentions from
-earlier runs are listed under `earlier` and never fail the run: leave them
-and name them in the check-in. A mention whose note was re-exported or
+Every mention this run added must hold: the quote in the version of the
+note it cites, the line in the format, no duplicate in any idea. Fix or
+remove each problem it lists (a quote that is not in its source is removed, not reworded until it
+passes), and run it again until it exits 0. Problems in mentions that
+were there before this run are listed under `earlier` and never fail it:
+leave them and name them in the check-in. A mention whose note was re-exported or
 removed since cannot be checked again; `verify` counts it and leaves it.
 Then mark the notes you read, with the `mark` values from step 1:
 

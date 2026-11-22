@@ -246,7 +246,7 @@ test('the folder is remembered on this device only, from the first run', () => {
   writeFileSync(join(project, 'dybs/ideas/.gitignore'), 'drafts/');
   run(['new', project, '--folder', folder]);
   run(['new', project, '--folder', folder]);
-  assert.equal(readFileSync(join(project, 'dybs/ideas/.gitignore'), 'utf8'), 'drafts/\n.folder\n');
+  assert.equal(readFileSync(join(project, 'dybs/ideas/.gitignore'), 'utf8'), 'drafts/\n.folder\n.run.json\n');
   rmSync(root, { recursive: true });
 });
 
@@ -286,28 +286,59 @@ test('the same quote from a re-exported note is still a duplicate', () => {
     `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`,
     `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`call.txt@${ref(again)}\`, need)`,
   ]));
-  const r = run(['verify', project, '--json', `call.txt@${ref(again)}`]);
+  const r = run(['verify', project, '--json']);
   assert.equal(r.code, 1);
   assert.deepEqual(r.json.problems.map((p) => p.problem), ['duplicate of x.md']);
   rmSync(root, { recursive: true });
 });
 
-test('with the refs of this run, old problems are listed and never block it', () => {
+test('problems in mentions from before this run are listed and never block it', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
-  // An earlier run's note, gone from the folder, and a ledger moved aside.
+  // An earlier run's note, gone from the folder, a hand-edited line, and a
+  // ledger moved aside: nobody can fix these now.
   writeFileSync(join(project, 'dybs/ideas/old.md'), idea(['- "a quote from a meeting long ago" (Kim, 2026-01-02, `old.txt@aaaaaaaaaaaa`, need)', '- hand-edited line']));
+  run(['new', project, '--folder', folder]);
   writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
-  let r = run(['verify', project, '--folder', folder, '--json', C]);
+  let r = run(['verify', project, '--json']);
   assert.equal(r.code, 0);
   assert.deepEqual(r.json.earlier.map((p) => p.problem), ['unknown source', 'malformed']);
-  // A problem in this run's own mention still fails it.
-  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is never in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
-  r = run(['verify', project, '--json', C]);
-  assert.equal(r.code, 1);
-  assert.deepEqual(r.json.problems.map((p) => p.problem), ['quote not in source']);
-  // Without refs, every problem fails (a check by hand).
+  // Every line this run adds is checked strictly, whatever it claims.
+  for (const bad of [
+    '- "Clients want Turkish reminders." (Anna, 2026-11-20, `made-up.txt@abcdefabcdef`, asked)',
+    `- "the reminder is never in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`,
+    '- a line without a ref',
+  ]) {
+    writeFileSync(join(project, 'dybs/ideas/x.md'), idea([bad]));
+    r = run(['verify', project, '--json']);
+    assert.equal(r.code, 1, bad);
+    assert.equal(r.json.problems.length, 1, bad);
+  }
+  // mark ends the run: without a snapshot, every problem fails again.
+  run(['mark', project, 'call.txt']);
+  assert.ok(!existsSync(join(project, 'dybs/ideas/.run.json')));
   assert.equal(run(['verify', project, '--json']).json.problems.length, 3);
-  assert.equal(run(['verify', project, 'not-a-ref']).code, 2);
+  assert.equal(run(['verify', project, 'call.txt']).code, 2);
+  rmSync(root, { recursive: true });
+});
+
+test('a duplicate is reported on the line this run added, never on the evidence', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  const line = `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`;
+  writeFileSync(join(project, 'dybs/ideas/z-old.md'), idea([line]));
+  run(['new', project, '--folder', folder]);
+  writeFileSync(join(project, 'dybs/ideas/a-new.md'), idea([line]));
+  const r = run(['verify', project, '--json']);
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.problems.map((p) => [p.idea, p.problem]), [['a-new.md', 'duplicate of z-old.md']]);
+  rmSync(root, { recursive: true });
+});
+
+test('a second new in the same run keeps the first snapshot', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['new', project, '--folder', folder]);
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea(['- "Clients want Turkish reminders." (Anna, 2026-11-20, `made-up.txt@abcdefabcdef`, asked)']));
+  run(['new', project]);
+  assert.equal(run(['verify', project]).code, 1);
   rmSync(root, { recursive: true });
 });
 
@@ -317,7 +348,7 @@ test('the folder is never written through a .gitignore that is a link or a folde
   symlinkSync(outside, join(project, 'dybs/ideas/.gitignore'));
   let r = run(['new', project, '--folder', folder]);
   assert.equal(r.code, 2);
-  assert.match(r.text, /\.gitignore is not a plain file, so the folder was not remembered/);
+  assert.match(r.text, /\.gitignore is not a plain file, so nothing was written\. Remove it or make it a plain file/);
   assert.ok(!existsSync(outside));
   assert.ok(!existsSync(join(project, FOLDER)));
   rmSync(join(project, 'dybs/ideas/.gitignore'));

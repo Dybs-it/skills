@@ -5,7 +5,7 @@
 //
 // Usage:
 //   node dybs-ideas.mjs new    [project] [--folder <dir>] [--json]
-//   node dybs-ideas.mjs verify [project] [<file@ref>...] [--folder <dir>] [--json]
+//   node dybs-ideas.mjs verify [project] [--folder <dir>] [--json]
 //   node dybs-ideas.mjs mark   [project] <file[@sha256]>... [--folder <dir>] [--json]
 //
 // The notes folder is --folder, else the one given last on this device, kept
@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 
 export const LEDGER = 'dybs/ideas/.read.json';
 export const FOLDER = 'dybs/ideas/.folder';
+export const SNAPSHOT = 'dybs/ideas/.run.json';
 export const PROMPT = 'dybs/transcript-prompt.txt';
 export const SUPPORTED = /\.(txt|md|srt|vtt)$/i;
 // The version of a note a mention cites: the first 12 hex of its sha256.
@@ -96,19 +97,58 @@ function publish(root, rel, body) {
   } finally { rmSync(tmp, { force: true }); }
 }
 
-// The folder is per device: remembered in a file git is told to ignore.
-// Git is told first, so a path is never written where it could be committed.
-function rememberFolder(root, dir) {
+// Files that belong to this device, never to the repository: git is told to
+// ignore them before they are written.
+const LOCAL = ['.folder', '.run.json'];
+function ignoreLocal(root) {
   ideasDir(root);
   const ignore = join(root, 'dybs/ideas/.gitignore');
   let st = null;
   try { st = lstatSync(ignore); } catch { /* none yet */ }
-  if (st && !st.isFile()) throw new Stop('dybs/ideas/.gitignore is not a plain file, so the folder was not remembered. Pass the folder on every run, or make it a plain file.');
+  if (st && !st.isFile()) throw new Stop('dybs/ideas/.gitignore is not a plain file, so nothing was written. Remove it or make it a plain file, then run again.');
   const cur = st ? readFileSync(ignore, 'utf8') : '';
-  if (!cur.split(/\r?\n/).some((l) => l.trim() === '.folder')) {
-    writeFileSync(ignore, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + '.folder\n', { flag: st ? 'r+' : 'wx' });
-  }
+  const have = new Set(cur.split(/\r?\n/).map((l) => l.trim()));
+  const add = LOCAL.filter((n) => !have.has(n));
+  if (add.length) writeFileSync(ignore, cur + (cur && !cur.endsWith('\n') ? '\n' : '') + add.join('\n') + '\n', { flag: st ? 'r+' : 'wx' });
+}
+
+function rememberFolder(root, dir) {
+  ignoreLocal(root);
   publish(root, FOLDER, dir + '\n');
+}
+
+// Every line under ## Mentions in dybs/ideas/*.md, in file order.
+function mentionLines(root) {
+  const dir = join(root, 'dybs/ideas');
+  const files = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.md')).sort() : [];
+  const out = [];
+  for (const f of files) {
+    const text = readFileSync(join(dir, f), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+    const section = text.split(/^## Mentions[ \t]*$/m)[1];
+    if (section === undefined) continue;
+    for (const raw of section.split(/^## /m)[0].split(/\r?\n/)) if (raw.trim()) out.push({ idea: f, line: raw.trim() });
+  }
+  return { files, lines: out };
+}
+const lineKey = (idea, line) => sha(`${idea}\n${line}`);
+
+// The mentions that were there before this run, so verify can tell them
+// from the ones the run adds. Taken by the first `new` of a run and dropped
+// by `mark`; a run that stops early leaves it, so the next run checks more
+// strictly, never less.
+function snapshot(root) {
+  if (existsSync(join(root, SNAPSHOT))) return;
+  ignoreLocal(root);
+  publish(root, SNAPSHOT, JSON.stringify({ version: 1, lines: mentionLines(root).lines.map((l) => lineKey(l.idea, l.line)) }) + '\n');
+}
+
+function readSnapshot(root) {
+  const p = join(root, SNAPSHOT);
+  try {
+    if (lstatSync(p).isSymbolicLink()) return new Set();
+    const s = JSON.parse(readFileSync(p, 'utf8'));
+    return new Set(Array.isArray(s.lines) ? s.lines : []);
+  } catch { return new Set(); }
 }
 
 export function folderOf(root, given) {
@@ -151,6 +191,7 @@ export function findNew(root, given) {
   const all = notes(folder);
   const readable = all.filter((n) => !n.unreadable);
   const fresh = readable.filter((n) => !known.has(n.sha256));
+  snapshot(root);
   return {
     folder,
     prompt: existsSync(join(root, PROMPT)) ? PROMPT : null,
@@ -177,6 +218,7 @@ export function mark(root, args, given) {
     added.push({ name, sha256: hash, read: today() });
   }
   publish(root, LEDGER, JSON.stringify({ version: 1, read: [...ledger.read, ...added] }, null, 2) + '\n');
+  rmSync(join(root, SNAPSHOT), { force: true });
   return { folder, marked: added.map((a) => a.name), alreadyRead: args.length - added.length };
 }
 
@@ -185,38 +227,38 @@ export function mark(root, args, given) {
 // folder, under any name. A version that was read and is gone since (the note
 // was re-exported or removed) cannot be checked again, and is counted, not
 // failed, so evidence on an idea is never lost to a later export.
-// Given the refs of the notes read in this run, only problems in mentions of
-// those notes fail; the others are listed under `earlier`, so an old line
-// nobody can fix now never blocks a run. Without refs, every problem fails.
-export function verify(root, given, runRefs = []) {
-  const run = runRefs.map((r) => { const m = r.match(/^(.+)@([0-9a-f]{12})[0-9a-f]*$/); if (!m) throw new Stop(`${r} is not a ref from \`new\`.`); return `${m[1]}@${m[2]}`; });
-  const ours = (...lines) => !run.length || lines.some((l) => run.some((r) => l.includes(r)));
+// A problem in a mention that was there before this run (see snapshot) is
+// listed under `earlier` and does not fail it, so an old line nobody can fix
+// now never blocks a run; every line the run added is checked strictly.
+// Without a snapshot, every problem fails.
+export function verify(root, given) {
+  const before = readSnapshot(root);
+  const old = (p) => before.has(lineKey(p.idea, p.line));
   const folder = folderOf(root, given);
   const readRefs = new Set(readLedger(root).read.map((r) => r.sha256.slice(0, REF)));
   const byRef = new Map();
   for (const n of notes(folder, { text: true })) if (!n.unreadable) byRef.set(n.sha256.slice(0, REF), fold(n.text, n.name));
-  const dir = join(root, 'dybs/ideas');
-  const files = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.md')).sort() : [];
+  const { files, lines } = mentionLines(root);
   const problems = [], earlier = [];
-  const report = (p, ...also) => (ours(p.line, ...also) ? problems : earlier).push(p);
+  const report = (p) => (old(p) ? earlier : problems).push(p);
   const seen = new Map();
   let checked = 0, unchecked = 0;
-  for (const f of files) {
-    const text = readFileSync(join(dir, f), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
-    const section = text.split(/^## Mentions[ \t]*$/m)[1];
-    if (section === undefined) continue;
-    for (const raw of section.split(/^## /m)[0].split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line) continue;
+  for (const { idea: f, line } of lines) {
       const m = line.match(MENTION);
       if (!m) { report({ idea: f, problem: 'malformed', line }); continue; }
       const [, quote, , , name, ref] = m;
       const q = fold(quote);
       if (q.split(' ').length < MIN_WORDS) { report({ idea: f, problem: 'too short', line }); continue; }
       // The same quote from the same note belongs in one idea, once, also
-      // when the note was exported again under a new version.
+      // when the note was exported again under a new version. The line this
+      // run added is the one reported, never the evidence that was there.
       const dup = seen.get(`${ref}\n${q}`) || seen.get(`${name}\n${q}`);
-      if (dup) { report({ idea: f, problem: `duplicate of ${dup.idea}`, line }, dup.line); continue; }
+      if (dup) {
+        const here = { idea: f, line };
+        if (old(here) && !old(dup)) report({ idea: dup.idea, problem: `duplicate of ${f}`, line: dup.line });
+        else report({ idea: f, problem: `duplicate of ${dup.idea}`, line });
+        continue;
+      }
       seen.set(`${ref}\n${q}`, { idea: f, line }).set(`${name}\n${q}`, { idea: f, line });
       const src = byRef.get(ref);
       if (src === undefined) {
@@ -226,7 +268,6 @@ export function verify(root, given, runRefs = []) {
       }
       checked++;
       if (!src.includes(q)) report({ idea: f, problem: 'quote not in source', line });
-    }
   }
   return { folder, ideas: files.length, checked, unchecked, problems, earlier };
 }
@@ -268,7 +309,8 @@ export function main(argv, out = console.log) {
       out(o.json ? JSON.stringify(r, null, 2) : `Marked as read: ${r.marked.length}${r.alreadyRead ? `, already read: ${r.alreadyRead}` : ''}`);
       return 0;
     }
-    const r = verify(root, o.folder, o.rest);
+    if (o.rest.length) throw new Stop('verify takes no notes; it checks every mention.');
+    const r = verify(root, o.folder);
     if (o.json) out(JSON.stringify(r, null, 2));
     else {
       out(`Mentions checked: ${r.checked}, source changed or gone: ${r.unchecked}, problems: ${r.problems.length}`);

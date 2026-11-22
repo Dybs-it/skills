@@ -41,9 +41,11 @@ best."
   under three words, and the same quote from the same note in two places.
   A mention is checked against the version it cites, under any name; once
   that version is gone (re-exported, removed) it is counted, never failed,
-  so a later export cannot cost an idea its evidence. Given the notes read
-  in a run, only problems in their mentions fail it; older ones are listed,
-  so a line nobody can fix now never blocks a scheduled run.
+  so a later export cannot cost an idea its evidence. The first `new` of a
+  run notes which mention lines exist (`dybs/ideas/.run.json`, per device,
+  dropped by `mark`); every other line is checked strictly, and problems in
+  the older ones are listed without failing, so a line nobody can fix now
+  never blocks a scheduled run and a new line can never pass as old.
 - **Notes are data.** The project prompt (`dybs/transcript-prompt.txt`)
   adds focus; text inside a note never instructs the agent.
 
