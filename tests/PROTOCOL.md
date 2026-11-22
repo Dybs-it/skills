@@ -104,6 +104,31 @@ tokens per step, stops that were noise, and one or two concrete edits to a
 skill. `tests/harness/loop.sh` runs the same loop unattended on a small
 task; it is a smoke test, not this run.
 
+## Ideas from meeting notes
+
+Run `dybs-ideas` on a real folder of meeting notes (a Granola or Fireflies
+export) in a project with `dybs/context/` accepted. Use at least two notes
+that share a subject.
+
+1. By hand: `/dybs-ideas <folder>`.
+2. Headless, as a schedule would: `claude -p "/dybs-ideas"` in the project
+   folder, with no new notes. Then add one note and run it again.
+3. Run it a third time with nothing new.
+
+| Check | Pass when |
+|---|---|
+| **Proposals** | Every idea is named as a proposal you could act on, not a topic. |
+| **Needs** | At least one idea comes from a need nobody asked a feature for, if the notes hold one. |
+| **Quotes** | Every quote is in its note, word for word (`verify` passes, and you spot-check three). Who and date are right or say unknown. |
+| **One idea, one file** | The shared subject became one idea with mentions from both notes. |
+| **Headless** | It asked nothing and the last line was the summary. |
+| **Twice** | The third run read 0 notes and changed no file. |
+| **Missed** | Count the ideas you see in the notes that it missed, and the ones it wrote that you would not. |
+
+Record it as `tests/runs/<date>-<project>-ideas.md`: the notes (names
+only), minutes and tokens per run, the counts above, and one or two
+concrete edits to the skill.
+
 ## Quality skills
 
 Run on one real task in a real codebase, ideally one with a known bug or a

@@ -1,6 +1,6 @@
 {
   "name": "dybs",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "The Dybs method for AI coding agents: skills that build a short, human-accepted project context (project, PRD, scope, domain, architecture, UX, UI), and a work loop that takes an issue from task to merge: plan tests, build test first, review, compute the quality gate, prepare the PR and close the task.",
   "author": {
     "name": "Dybs.it"

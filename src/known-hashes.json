@@ -367,10 +367,20 @@
   ],
   "dybs-idea/SKILL.md": [
     "16321e6ac401d19fb642e87a356b095905657629c609132e56531c3dd1454c8f",
-    "7dc5a8d5c3cf46acd81be2d2d577c797764c74d147c6b71c57fb13f630a144ed"
+    "7dc5a8d5c3cf46acd81be2d2d577c797764c74d147c6b71c57fb13f630a144ed",
+    "374e9a1a6e881c660993702c05dd4bcadb908d1400430f9c1b514e801ea8d031"
   ],
   "dybs-idea/template.md": [
     "ec7b130b17d2e56c6891f6b38acce6bba33084d098b52fa52ffd4619cde7c03b"
+  ],
+  "dybs-ideas/SKILL.md": [
+    "d631874b518dc53b5a3cd071cac23c4133dc40d138bb32919d0fda050cb17266"
+  ],
+  "dybs-ideas/scripts/dybs-ideas.mjs": [
+    "ff45dd718a1d86ed45cb945c478f18669aa2696a039ff23cc37da48ffd0fa273"
+  ],
+  "dybs-ideas/template.md": [
+    "cb7da6d2e00b47b933194ff9d6df5aee82778ca9938d4636a8e8cac05fdef938"
   ],
   "dybs-pr/SKILL.md": [
     "f79ba5bbbeb17bdce5544e213e1f1883b453a8d6733dfbaa6ad9aeba08e4b4f3",
@@ -606,7 +616,8 @@
     "7e17d8efb0c93f53720e1606746b387888f9aeb28ecee634e26252d10367debd",
     "169b5af49dc5e69a064a9b85ca2236e677f241ec0acd1ecfb36f04b791256241",
     "acc2d7d92df6a3f03b5d351b0544def81f78a07612f89eee42c35dc5d8a2288d",
-    "2a0322f55c159fb2fe03b0db06b7cac9a4da321c3bd20e8f4f61b701cfed6863"
+    "2a0322f55c159fb2fe03b0db06b7cac9a4da321c3bd20e8f4f61b701cfed6863",
+    "88d813b09c8078b1c98266203b7f83e9e1b03d1d01a0f055f452e4da0dd13bb5"
   ],
   "dybs-start/assets/project.md": [
     "1816cff46184d830f91f2e6cfcc1489ff03b3ebf1d57243a832c45f2672f0bae",

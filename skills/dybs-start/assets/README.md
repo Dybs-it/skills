@@ -1,6 +1,6 @@
 ---
 method: dybs
-method-version: 0.6.1
+method-version: 0.7.0
 ---
 
 # dybs/
@@ -37,6 +37,7 @@ dybs/
 
 `ideas/<slug>.md` holds one idea each, with its questions, the team's advice
 and the human's decision; `roadmap.md` is the ordered list of accepted ideas.
+`ideas/.read.json` lists the meeting notes `dybs-ideas` has already read.
 `work/<task>/` holds one folder per task: `task.md` (what is asked, and the
 task's status), then `test-plan.md`, `review.md`, `gate.md`, `pr.md` and
 `log.md` as the steps write them.

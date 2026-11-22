@@ -199,6 +199,19 @@ context, collects each persona's advice, and records the human's decision.
 - **Inspired by BMad** party mode: several personas reviewing one thing.
   Much smaller; no text taken.
 
+### `dybs-ideas`
+
+Reads new meeting notes and transcripts from a folder, writes each idea in
+them as a proposal in `dybs/ideas/<slug>.md` with the exact quotes behind
+it, and adds a mention to an existing idea instead of a duplicate. Asks
+nothing, so it runs headless on a schedule. Ships `scripts/dybs-ideas.mjs`
+(the ledger of read notes and the check that every quote is in its source).
+
+- **Our own:** all of it: the mention line, the asked and need kinds, the
+  ledger keyed by content, the verbatim check, the summary and failure
+  lines. The "need" kind (a problem described without asking for a
+  feature) follows common product discovery practice; no text taken.
+
 ### `dybs-roadmap`
 
 Keeps `dybs/roadmap.md`: links to accepted ideas in build order, nothing

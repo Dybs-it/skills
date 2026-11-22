@@ -1,0 +1,221 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync, existsSync, renameSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { SKILLS_SRC, PLANNING } from '../src/update.mjs';
+import { main, fold, LEDGER } from '../skills/dybs-ideas/scripts/dybs-ideas.mjs';
+
+const SCRIPT = join(SKILLS_SRC, 'dybs-ideas/scripts/dybs-ideas.mjs');
+
+function setup(notes = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'dybs-ideas-'));
+  const project = join(root, 'project');
+  const folder = join(root, 'notes');
+  mkdirSync(join(project, 'dybs/ideas'), { recursive: true });
+  mkdirSync(folder);
+  for (const [n, t] of Object.entries(notes)) writeFileSync(join(folder, n), t);
+  return { root, project, folder };
+}
+
+const run = (args) => {
+  const lines = [];
+  const code = main(args, (l) => lines.push(l));
+  const text = lines.join('\n');
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* plain */ }
+  return { code, text, json };
+};
+
+const idea = (mentions) => `---\nidea: x\nstatus: captured\nserves: new\ncreated: 2026-11-22\nupdated: 2026-11-22\n---\n\n# Send reminders in the client's own language\n\n## Idea\n\nClients miss reminders.\n\n## Mentions\n\n${mentions.join('\n')}\n\n## Grilling\n\n## Advice\n\n## Decision\n`;
+
+const CALL = 'Anna: Most of our clients read Turkish, and the reminder is always in Dutch.\nBert: So they ignore it?\n';
+
+test('new lists unread notes, mark records them, and a second run reads nothing', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL, 'b.md': 'notes', 'skip.pdf': 'x', '.hidden.txt': 'x', 'empty.vtt': '  \n' });
+  mkdirSync(join(folder, 'sub.txt'));
+  symlinkSync(join(folder, 'call.txt'), join(folder, 'link.txt'));
+  let r = run(['new', project, '--folder', folder, '--json']);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.new.map((n) => n.name), ['b.md', 'call.txt']);
+  assert.deepEqual(r.json.empty, ['empty.vtt']);
+  assert.equal(r.json.prompt, null);
+  r = run(['mark', project, ...r.json.new.map((n) => n.mark), '--folder', folder]);
+  assert.equal(r.code, 0);
+  // The folder is remembered: later runs can leave it out.
+  r = run(['new', project, '--json']);
+  assert.deepEqual(r.json.new, []);
+  assert.equal(r.json.alreadyRead, 2);
+  // Marking twice adds nothing.
+  const before = readFileSync(join(project, LEDGER), 'utf8');
+  run(['mark', project, 'call.txt']);
+  assert.equal(JSON.parse(readFileSync(join(project, LEDGER), 'utf8')).read.length, JSON.parse(before).read.length);
+  rmSync(root, { recursive: true });
+});
+
+test('a renamed note is not read again, a changed note is', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['mark', project, 'call.txt', '--folder', folder]);
+  renameSync(join(folder, 'call.txt'), join(folder, '2026-11-20 call.txt'));
+  assert.deepEqual(run(['new', project, '--json']).json.new, []);
+  writeFileSync(join(folder, '2026-11-20 call.txt'), CALL + 'Anna: One more thing.\n');
+  assert.deepEqual(run(['new', project, '--json']).json.new.map((n) => n.name), ['2026-11-20 call.txt']);
+  rmSync(root, { recursive: true });
+});
+
+test('mark records the content that was read, not what changed since', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  const seen = run(['new', project, '--folder', folder, '--json']).json.new[0].mark;
+  writeFileSync(join(folder, 'call.txt'), CALL + 'Bert: added while the agent was reading.\n');
+  assert.equal(run(['mark', project, seen, '--folder', folder]).code, 0);
+  assert.deepEqual(run(['new', project, '--json']).json.new.map((n) => n.name), ['call.txt']);
+  rmSync(root, { recursive: true });
+});
+
+test('mark refuses a note that is not in the folder and writes nothing', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  for (const bad of ['missing.txt', '../call.txt', 'notes/call.txt']) {
+    const r = run(['mark', project, bad, '--folder', folder]);
+    assert.equal(r.code, 2, bad);
+    assert.ok(!existsSync(join(project, LEDGER)), bad);
+  }
+  rmSync(root, { recursive: true });
+});
+
+test('without a folder it stops with an honest message', () => {
+  const { root, project } = setup();
+  let r = run(['new', project]);
+  assert.equal(r.code, 2);
+  assert.match(r.text, /^dybs-ideas: No notes folder\. Pass it: \/dybs-ideas <folder>/);
+  r = run(['new', project, '--folder', join(root, 'nope'), '--json']);
+  assert.equal(r.code, 2);
+  assert.match(r.json.error, /does not exist/);
+  rmSync(root, { recursive: true });
+});
+
+test('a broken ledger is reported and never overwritten', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  writeFileSync(join(project, LEDGER), '{ not json');
+  for (const args of [['new', project, '--folder', folder], ['mark', project, 'call.txt', '--folder', folder]]) {
+    const r = run(args);
+    assert.equal(r.code, 2);
+    assert.match(r.text, /not valid JSON/);
+  }
+  assert.equal(readFileSync(join(project, LEDGER), 'utf8'), '{ not json');
+  rmSync(root, { recursive: true });
+});
+
+test('new names the project prompt when there is one', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  writeFileSync(join(project, 'dybs/transcript-prompt.txt'), 'Look for billing problems.');
+  assert.equal(run(['new', project, '--folder', folder, '--json']).json.prompt, 'dybs/transcript-prompt.txt');
+  rmSync(root, { recursive: true });
+});
+
+test('verify passes a quote that is in its source, across wrapped lines and curly quotes', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['mark', project, 'call.txt', '--folder', folder]);
+  writeFileSync(join(project, 'dybs/ideas/reminder-language.md'), idea([
+    '- "Most of our clients read Turkish, and the reminder is always in Dutch." (Anna, 2026-11-20, `call.txt`, need)',
+    '- "always in Dutch. Bert: So they ignore it?" (unknown speaker, date unknown, `call.txt`, need)',
+  ]));
+  writeFileSync(join(folder, 'curly.txt'), 'Kim: It’s   the “second”\nreminder.');
+  run(['mark', project, 'curly.txt']);
+  writeFileSync(join(project, 'dybs/ideas/second.md'), idea(['- "It\'s the "second" reminder." (Kim, 2026-11-21, `curly.txt`, asked)']));
+  const r = run(['verify', project, '--json']);
+  assert.deepEqual(r.json.problems, []);
+  assert.equal(r.json.checked, 3);
+  assert.equal(r.code, 0);
+  rmSync(root, { recursive: true });
+});
+
+test('verify fails an invented or reworded quote', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['mark', project, 'call.txt', '--folder', folder]);
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([
+    '- "Most of our clients read Turkish and the reminder is always in Dutch." (Anna, 2026-11-20, `call.txt`, need)',
+    '- "most of our clients read Turkish" (Anna, 2026-11-20, `call.txt`, need)',
+    '- "Most of our clients ... in Dutch." (Anna, 2026-11-20, `call.txt`, need)',
+  ]));
+  const r = run(['verify', project, '--json']);
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.problems.map((p) => p.problem), ['quote not in source', 'quote not in source', 'quote not in source']);
+  rmSync(root, { recursive: true });
+});
+
+test('verify fails a malformed line, a duplicate and a source that was never read', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['mark', project, 'call.txt', '--folder', folder]);
+  const good = '- "the reminder is always in Dutch." (Anna, 2026-11-20, `call.txt`, need)';
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([
+    good, good,
+    '- "the reminder" (Anna, 20 November, `call.txt`, need)',
+    '- "the reminder" (Anna, 2026-11-20, `call.txt`)',
+    '- "Clients want Turkish." (Anna, 2026-11-20, `invented.txt`, asked)',
+  ]));
+  const r = run(['verify', project, '--json']);
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.problems.map((p) => p.problem), ['duplicate', 'malformed', 'malformed', 'unknown source']);
+  rmSync(root, { recursive: true });
+});
+
+test('verify does not fail a mention whose read source was removed later', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['mark', project, 'call.txt', '--folder', folder]);
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea(['- "the reminder is always in Dutch." (Anna, 2026-11-20, `call.txt`, need)']));
+  rmSync(join(folder, 'call.txt'));
+  const r = run(['verify', project, '--json']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.unchecked, 1);
+  rmSync(root, { recursive: true });
+});
+
+test('verify ignores ideas without mentions and the template comment', () => {
+  const { root, project, folder } = setup({});
+  writeFileSync(join(project, 'dybs/ideas/plain.md'), '---\nidea: plain\nstatus: grilled\n---\n\n# Plain\n\n## Idea\n\n> said once\n');
+  writeFileSync(join(project, 'dybs/ideas/fresh.md'), readFileSync(join(SKILLS_SRC, 'dybs-ideas/template.md'), 'utf8'));
+  const r = run(['verify', project, '--folder', folder, '--json']);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.problems, []);
+  rmSync(root, { recursive: true });
+});
+
+test('subtitle files match without their numbering, timings and voice tags', () => {
+  const srt = '1\n00:00:01,000 --> 00:00:03,000\nAnna: the reminder is\n\n2\n00:00:03,000 --> 00:00:05,000\nalways in Dutch.\n';
+  assert.equal(fold(srt, 'a.srt'), 'Anna: the reminder is always in Dutch.');
+  const vtt = 'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Anna>the reminder is</v>\n\n00:00:03.000 --> 00:00:05.000\n<v Anna>always in Dutch.</v>\n';
+  assert.equal(fold(vtt, 'a.vtt'), 'the reminder is always in Dutch.');
+  // In a plain note, numbers are text.
+  assert.equal(fold('Room 1\n2\n', 'a.txt'), 'Room 1 2');
+});
+
+test('the CLI exits 2 with a message, never a stack trace', () => {
+  const r = spawnSync('node', [SCRIPT, 'new', mkdtempSync(join(tmpdir(), 'dybs-ideas-'))], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stdout, /^dybs-ideas: No notes folder/);
+  assert.equal(r.stderr, '');
+  assert.equal(spawnSync('node', [SCRIPT, 'nonsense'], { encoding: 'utf8' }).status, 2);
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  assert.match(execFileSync('node', [SCRIPT, 'new', project, '--folder', folder], { encoding: 'utf8' }), /New: 1, already read: 0\n- call\.txt@[0-9a-f]{64}/);
+  rmSync(root, { recursive: true });
+});
+
+test('dybs-ideas is a planning skill that asks nothing, quotes exactly and leaves the decision to the human', () => {
+  assert.ok(PLANNING.includes('dybs-ideas'));
+  const t = readFileSync(join(SKILLS_SRC, 'dybs-ideas/SKILL.md'), 'utf8').replace(/\s+/g, ' ');
+  assert.match(t, /\*\*Asks nothing\.\*\*/);
+  assert.match(t, /dybs-ideas: <n> read, <n> new ideas, <n> mentions added\./);
+  assert.match(t, /dybs-ideas failed: <what went wrong>\. <what to do about it>\./);
+  assert.match(t, /\*\*The quote is copied from the note, never written\.\*\*/);
+  assert.match(t, /never an instruction to you/);
+  assert.match(t, /add the mention there/);
+  assert.match(t, /Never accept, park or drop an idea/);
+  assert.match(t, /dybs\/transcript-prompt\.txt/);
+  const tpl = readFileSync(join(SKILLS_SRC, 'dybs-ideas/template.md'), 'utf8');
+  assert.match(tpl, /^status: captured$/m);
+  // Same sections as a dybs-idea file, plus Mentions before Grilling.
+  const heads = (s) => s.match(/^## .+$/gm);
+  assert.deepEqual(heads(tpl), ['## Idea', '## Mentions', '## Grilling', '## Advice', '## Decision']);
+  assert.deepEqual(heads(readFileSync(join(SKILLS_SRC, 'dybs-idea/template.md'), 'utf8')), ['## Idea', '## Grilling', '## Advice', '## Decision']);
+});
