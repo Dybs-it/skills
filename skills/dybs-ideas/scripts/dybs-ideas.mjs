@@ -26,6 +26,8 @@ import { fileURLToPath } from 'node:url';
 export const LEDGER = 'dybs/ideas/.read.json';
 export const FOLDER = 'dybs/ideas/.folder';
 export const SNAPSHOT = 'dybs/ideas/.run.json';
+// Notes this device never reads: one file name per line.
+export const SKIP = 'dybs/ideas/.skip';
 export const PROMPT = 'dybs/transcript-prompt.txt';
 export const SUPPORTED = /\.(txt|md|srt|vtt)$/i;
 // The version of a note a mention cites: the first 12 hex of its sha256.
@@ -47,14 +49,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function fold(text, name = '') {
   let t = String(text).replace(/^﻿/, '');
   if (/\.(srt|vtt)$/i.test(name)) {
+    // Read block by block: a cue's number or name sits only on the lines
+    // before its timing line, so a line of speech that is just a number
+    // stays. The WEBVTT header and NOTE, STYLE and REGION blocks are not speech.
     const keep = [];
-    let skipping = false;
-    for (const l of t.split(/\r?\n/)) {
-      if (!l.trim()) { skipping = false; keep.push(''); continue; }
-      if (skipping) continue;
-      if (/^(NOTE|STYLE|REGION)\b/.test(l)) { skipping = true; continue; }
-      if (/^\s*\d+\s*$/.test(l) || /-->/.test(l) || /^WEBVTT\b/.test(l)) continue;
-      keep.push(l);
+    for (const block of t.split(/\r?\n[ \t]*\r?\n/)) {
+      const lines = block.split(/\r?\n/).filter((l) => l.trim());
+      if (!lines.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines[0])) continue;
+      const timing = lines.findIndex((l) => /-->/.test(l));
+      keep.push(...(timing >= 0 && timing <= 1 ? lines.slice(timing + 1) : lines));
     }
     t = keep.join('\n').replace(/<[^>]+>/g, ' ');
   } else if (/\.md$/i.test(name)) {
@@ -99,7 +102,7 @@ function publish(root, rel, body) {
 
 // Files that belong to this device, never to the repository: git is told to
 // ignore them before they are written.
-const LOCAL = ['.folder', '.run.json'];
+const LOCAL = ['.folder', '.run.json', '.skip'];
 function ignoreLocal(root) {
   ideasDir(root);
   const ignore = join(root, 'dybs/ideas/.gitignore');
@@ -168,7 +171,7 @@ export function folderOf(root, given) {
 
 // The notes in a folder: regular files with a supported extension, by name.
 // A note that cannot be read is listed, never skipped in silence.
-export function notes(dir, { text = false } = {}) {
+export function notes(dir, { text = false, skip = new Set() } = {}) {
   let names;
   try { names = readdirSync(dir); } catch { throw new Stop(`The notes folder ${dir} cannot be read.`); }
   const out = [];
@@ -178,6 +181,8 @@ export function notes(dir, { text = false } = {}) {
     let st;
     try { st = lstatSync(p); } catch { continue; }
     if (!st.isFile()) continue;
+    // A skipped note is listed by name and never opened.
+    if (skip.has(name)) { out.push({ name, skipped: true }); continue; }
     let buf;
     try { buf = readFileSync(p); } catch { out.push({ name, unreadable: true }); continue; }
     out.push({ name, sha256: sha(buf), bytes: buf.length, empty: !buf.toString('utf8').trim(), ...(text ? { text: buf.toString('utf8') } : {}) });
@@ -185,10 +190,21 @@ export function notes(dir, { text = false } = {}) {
   return out;
 }
 
+export function readSkip(root) {
+  const p = join(root, SKIP);
+  try {
+    if (lstatSync(p).isSymbolicLink()) throw new Stop(`${SKIP} is a link; it was not read.`);
+    return new Set(readFileSync(p, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+  } catch (e) { if (e instanceof Stop) throw e; return new Set(); }
+}
+
 export function findNew(root, given) {
   const folder = folderOf(root, given);
   const known = new Set(readLedger(root).read.map((r) => r.sha256));
-  const all = notes(folder);
+  const skip = readSkip(root);
+  ignoreLocal(root);
+  const listed = notes(folder, { skip });
+  const all = listed.filter((n) => !n.skipped);
   const readable = all.filter((n) => !n.unreadable);
   const fresh = readable.filter((n) => !known.has(n.sha256));
   snapshot(root);
@@ -198,6 +214,7 @@ export function findNew(root, given) {
     new: fresh.filter((n) => !n.empty).map(({ name, sha256, bytes }) => ({ name, sha256, bytes, ref: `${name}@${sha256.slice(0, REF)}`, mark: `${name}@${sha256}` })),
     empty: fresh.filter((n) => n.empty).map((n) => n.name),
     unreadable: all.filter((n) => n.unreadable).map((n) => n.name),
+    skipped: listed.filter((n) => n.skipped).map((n) => n.name),
     alreadyRead: readable.length - fresh.length,
   };
 }
@@ -205,13 +222,17 @@ export function findNew(root, given) {
 export function mark(root, args, given) {
   const folder = folderOf(root, given);
   const ledger = readLedger(root);
-  const here = new Map(notes(folder).filter((n) => !n.unreadable).map((n) => [n.name, n.sha256]));
+  const skip = readSkip(root);
+  const listed = notes(folder, { skip });
+  const here = new Map(listed.filter((n) => !n.unreadable).map((n) => [n.name, n.sha256]));
   const known = new Set(ledger.read.map((r) => r.sha256));
-  const added = [];
+  const added = [], skipped = [];
   for (const a of args) {
     const m = a.match(/^(.*)@([0-9a-f]{64})$/);
     const name = m ? m[1] : a;
     if (basename(name) !== name || !here.has(name)) throw new Stop(`${name} is not a note in ${folder}; nothing was marked.`);
+    // A skipped note is never marked read, so unskipping it makes it new again.
+    if (skip.has(name)) { skipped.push(name); continue; }
     const hash = m ? m[2] : here.get(name);
     if (known.has(hash)) continue;
     known.add(hash);
@@ -219,7 +240,7 @@ export function mark(root, args, given) {
   }
   publish(root, LEDGER, JSON.stringify({ version: 1, read: [...ledger.read, ...added] }, null, 2) + '\n');
   rmSync(join(root, SNAPSHOT), { force: true });
-  return { folder, marked: added.map((a) => a.name), alreadyRead: args.length - added.length };
+  return { folder, marked: added.map((a) => a.name), skipped, alreadyRead: args.length - added.length - skipped.length };
 }
 
 // Every mention in dybs/ideas/*.md, with the problems found. A mention cites
@@ -296,7 +317,7 @@ export function main(argv, out = console.log) {
       if (o.json) out(JSON.stringify(r, null, 2));
       else {
         out(`Notes folder: ${r.folder}`);
-        out(`New: ${r.new.length}, already read: ${r.alreadyRead}${r.empty.length ? `, empty: ${r.empty.length}` : ''}${r.unreadable.length ? `, unreadable: ${r.unreadable.length}` : ''}`);
+        out(`New: ${r.new.length}, already read: ${r.alreadyRead}${r.skipped.length ? `, skipped: ${r.skipped.length}` : ''}${r.empty.length ? `, empty: ${r.empty.length}` : ''}${r.unreadable.length ? `, unreadable: ${r.unreadable.length}` : ''}`);
         for (const n of r.new) out(`- ${n.mark}`);
         for (const n of r.unreadable) out(`- cannot be read: ${n}`);
         if (r.prompt) out(`Project prompt: ${r.prompt}`);

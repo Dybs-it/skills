@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { SKILLS_SRC, PLANNING } from '../src/update.mjs';
-import { main, fold, LEDGER, FOLDER } from '../skills/dybs-ideas/scripts/dybs-ideas.mjs';
+import { main, fold, LEDGER, FOLDER, SKIP } from '../skills/dybs-ideas/scripts/dybs-ideas.mjs';
 
 const SCRIPT = join(SKILLS_SRC, 'dybs-ideas/scripts/dybs-ideas.mjs');
 
@@ -246,7 +246,7 @@ test('the folder is remembered on this device only, from the first run', () => {
   writeFileSync(join(project, 'dybs/ideas/.gitignore'), 'drafts/');
   run(['new', project, '--folder', folder]);
   run(['new', project, '--folder', folder]);
-  assert.equal(readFileSync(join(project, 'dybs/ideas/.gitignore'), 'utf8'), 'drafts/\n.folder\n.run.json\n');
+  assert.equal(readFileSync(join(project, 'dybs/ideas/.gitignore'), 'utf8'), 'drafts/\n.folder\n.run.json\n.skip\n');
   rmSync(root, { recursive: true });
 });
 
@@ -269,6 +269,13 @@ test('a note that cannot be read is listed, and the run goes on', { skip: proces
   assert.match(r.json.new[0].ref, /^call\.txt@[0-9a-f]{12}$/);
   chmodSync(join(folder, 'locked.txt'), 0o600);
   rmSync(root, { recursive: true });
+});
+
+test('a subtitle line that is only a number is speech, not a cue number', () => {
+  const srt = '1\n00:00:01,000 --> 00:00:03,000\nWe need\n2\nreminders per customer.\n\n2\n00:00:03,000 --> 00:00:05,000\n3\n';
+  assert.equal(fold(srt, 'a.srt'), 'We need 2 reminders per customer. 3');
+  const vtt = 'WEBVTT\n\nintro\n00:00:01.000 --> 00:00:03.000\nWe need\n2\nreminders.\n\n00:00:03.000 --> 00:00:05.000\n42\n';
+  assert.equal(fold(vtt, 'a.vtt'), 'We need 2 reminders. 42');
 });
 
 test('Markdown quote marks and WebVTT note blocks do not break a quote', () => {
@@ -355,6 +362,32 @@ test('the folder is never written through a .gitignore that is a link or a folde
   mkdirSync(join(project, 'dybs/ideas/.gitignore'));
   r = run(['new', project, '--folder', folder]);
   assert.equal(r.code, 2);
+  rmSync(root, { recursive: true });
+});
+
+test('a skipped note is never read or marked, and unskipping makes it eligible again', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL, 'private.txt': 'Personal talk.', 'later.md': 'notes' });
+  run(['new', project, '--folder', folder]);
+  // Never opened: a skipped note that cannot be read changes nothing.
+  if (process.getuid?.() !== 0) chmodSync(join(folder, 'private.txt'), 0o000);
+  writeFileSync(join(project, SKIP), 'private.txt\n\n  later.md  \n');
+  assert.match(readFileSync(join(project, 'dybs/ideas/.gitignore'), 'utf8'), /^\.skip$/m);
+  let r = run(['new', project, '--json']);
+  assert.deepEqual(r.json.new.map((n) => n.name), ['call.txt']);
+  assert.deepEqual(r.json.skipped, ['later.md', 'private.txt']);
+  assert.deepEqual(r.json.unreadable, []);
+  // A skipped note is not marked, even when asked.
+  r = run(['mark', project, 'call.txt', 'private.txt', '--json']);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.marked, ['call.txt']);
+  assert.deepEqual(r.json.skipped, ['private.txt']);
+  assert.deepEqual(JSON.parse(readFileSync(join(project, LEDGER), 'utf8')).read.map((n) => n.name), ['call.txt']);
+  // A note added to the folder later is read by default.
+  writeFileSync(join(folder, 'next.vtt'), 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhello there everyone\n');
+  assert.deepEqual(run(['new', project, '--json']).json.new.map((n) => n.name), ['next.vtt']);
+  chmodSync(join(folder, 'private.txt'), 0o600);
+  writeFileSync(join(project, SKIP), 'later.md\n');
+  assert.deepEqual(run(['new', project, '--json']).json.new.map((n) => n.name), ['next.vtt', 'private.txt']);
   rmSync(root, { recursive: true });
 });
 

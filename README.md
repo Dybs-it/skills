@@ -125,7 +125,9 @@ claude -p "/dybs-ideas ~/Notes/meetings" --allowedTools "Read,Write,Edit,Bash(no
 A headless run cannot answer a permission prompt, so allow it to read and
 write files and to run `node` (the skill's script). The folder is
 remembered on this device (`dybs/ideas/.folder`, kept out of git), so later
-runs can leave it out. Each run reads
+runs can leave it out. The whole folder is read, also notes added later;
+to skip one, put its file name on a line in `dybs/ideas/.skip` (also kept
+out of git). Each run reads
 only notes it has not read before (`dybs/ideas/.read.json`), so running it
 twice is safe. Every quote is checked against its source by a script; a
 quote that is not there is removed. The last line says what happened:

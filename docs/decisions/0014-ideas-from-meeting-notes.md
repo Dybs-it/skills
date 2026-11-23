@@ -26,7 +26,11 @@ best."
 - **The folder is an argument**, remembered per device in
   `dybs/ideas/.folder`, which the script lists in `dybs/ideas/.gitignore`.
   The app keeps its folder per device and passes it; nothing shared holds
-  a personal path.
+  a personal path. The whole folder is read, also notes added later. Single
+  notes are skipped through `dybs/ideas/.skip` (per device, one file name
+  per line, ignored by git): a skipped note is never opened and never
+  marked read, so removing it from the list makes it new again. Owner
+  decision 2026-11-23 (design boards W25 and Settings 8g).
 - **The ledger is `dybs/ideas/.read.json`**, keyed by a hash of each note's
   content, so a renamed note is not read again and a changed one is.
   A note is marked only after its ideas are written and verified.

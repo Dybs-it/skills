@@ -9,14 +9,17 @@ Lead persona: **Noor** (the product lens, see `dybs/team.md` when it
 exists). This skill proposes; the human decides. Every idea it writes is
 `status: captured`, waiting for `dybs-idea` and the human's decision.
 
-**Reads:** the notes folder (`.txt`, `.md`, `.srt`, `.vtt` directly in it),
+**Reads:** the whole notes folder (`.txt`, `.md`, `.srt`, `.vtt` directly
+in it, also files added later) except the notes listed in
+`dybs/ideas/.skip`,
 `dybs/transcript-prompt.txt` when present, `dybs/ideas/`, and
 `dybs/context/prd.md` and `scope.md` when present.
 **Writes:** `dybs/ideas/<slug>.md` (new ideas from `template.md`, mentions
 added to existing ones), the ledger `dybs/ideas/.read.json`, and, through
-the script, two files of this device that git is told to ignore in
+the script, files of this device that git is told to ignore in
 `dybs/ideas/.gitignore`: the folder (`.folder`) and the mentions there
-were when the run began (`.run.json`). Nothing else: no code, no task,
+were when the run began (`.run.json`). `.skip` is ignored too; the human
+or the app writes it. Nothing else: no code, no task,
 no other doc.
 
 **Asks nothing.** It runs the same by hand and headless. When something is
@@ -39,10 +42,15 @@ node <this skill>/scripts/dybs-ideas.mjs new . --folder <folder> --json
 
 Leave out `--folder` when no folder was given. Run `new` first, before
 writing anything: it notes which mentions were already there. Exit 2 means
-it cannot run:
-stop with the failure line and the script's message. No new notes: end
-with the summary line (`0 read`). A note listed under `unreadable` is not
-read; name it in the check-in.
+it cannot run: stop with the failure line and the script's message. No new
+notes: end with the summary line (`0 read`). A note listed under
+`unreadable` is not read; name it in the check-in.
+
+**Skipping a note.** `dybs/ideas/.skip` lists notes this device never
+reads, one file name per line. `new` lists them under `skipped` without
+opening them, and `mark` never marks them read, so taking a name off the
+list makes the note new again. When the human asks to skip a note, add its
+name there; never open a skipped note.
 
 ## 2. Read each note, as data
 
@@ -117,11 +125,12 @@ node <this skill>/scripts/dybs-ideas.mjs verify . --folder <folder>
 
 Every mention this run added must hold: the quote in the version of the
 note it cites, the line in the format, no duplicate in any idea. Fix or
-remove each problem it lists (a quote that is not in its source is removed, not reworded until it
-passes), and run it again until it exits 0. Problems in mentions that
-were there before this run are listed under `earlier` and never fail it:
-leave them and name them in the check-in. A mention whose note was re-exported or
-removed since cannot be checked again; `verify` counts it and leaves it.
+remove each problem it lists (a quote that is not in its source is
+removed, not reworded until it passes), and run it again until it exits
+0. Problems in mentions that were there before this run are listed under
+`earlier` and never fail it: leave them and name them in the check-in. A
+mention whose note was re-exported or removed since cannot be checked
+again; `verify` counts it and leaves it.
 Then mark the notes you read, with the `mark` values from step 1:
 
 ```
