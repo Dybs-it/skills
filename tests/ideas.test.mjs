@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { SKILLS_SRC, PLANNING } from '../src/update.mjs';
-import { main, fold, LEDGER, FOLDER, SKIP } from '../skills/dybs-ideas/scripts/dybs-ideas.mjs';
+import { main, fold, segments, parts, PART_CHARS, LEDGER, FOLDER, SKIP } from '../skills/dybs-ideas/scripts/dybs-ideas.mjs';
 
 const SCRIPT = join(SKILLS_SRC, 'dybs-ideas/scripts/dybs-ideas.mjs');
 
@@ -121,12 +121,12 @@ test('verify passes a quote that is in its source, across wrapped lines and curl
   const { root, project, folder } = setup({ 'call.txt': CALL });
   run(['mark', project, 'call.txt', '--folder', folder]);
   writeFileSync(join(project, 'dybs/ideas/reminder-language.md'), idea([
-    `- "Most of our clients read Turkish, and the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`,
-    `- "always in Dutch. Bert: So they ignore it?" (unknown speaker, date unknown, \`${C}\`, need)`,
+    `- "Most of our clients read Turkish, and the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`,
+    `- "always in Dutch. Bert: So they ignore it?" (unknown speaker, date unknown no time, \`${C}\`, need)`,
   ]));
   writeFileSync(join(folder, 'curly.txt'), CURLY);
   run(['mark', project, 'curly.txt']);
-  writeFileSync(join(project, 'dybs/ideas/second.md'), idea([`- "It's the "second" reminder." (Kim, 2026-11-21, \`curly.txt@${ref(CURLY)}\`, asked)`]));
+  writeFileSync(join(project, 'dybs/ideas/second.md'), idea([`- "It's the "second" reminder." (Kim, 2026-11-21 no time, \`curly.txt@${ref(CURLY)}\`, asked)`]));
   const r = run(['verify', project, '--json']);
   assert.deepEqual(r.json.problems, []);
   assert.equal(r.json.checked, 3);
@@ -138,9 +138,9 @@ test('verify fails an invented or reworded quote', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
   run(['mark', project, 'call.txt', '--folder', folder]);
   writeFileSync(join(project, 'dybs/ideas/x.md'), idea([
-    `- "Most of our clients read Turkish and the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`,
-    `- "most of our clients read Turkish" (Anna, 2026-11-20, \`${C}\`, need)`,
-    `- "Most of our clients ... in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`,
+    `- "Most of our clients read Turkish and the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`,
+    `- "most of our clients read Turkish" (Anna, 2026-11-20 no time, \`${C}\`, need)`,
+    `- "Most of our clients ... in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`,
   ]));
   const r = run(['verify', project, '--json']);
   assert.equal(r.code, 1);
@@ -151,12 +151,12 @@ test('verify fails an invented or reworded quote', () => {
 test('verify fails a malformed line, a duplicate and a source that was never read', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
   run(['mark', project, 'call.txt', '--folder', folder]);
-  const good = `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`;
+  const good = `- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`;
   writeFileSync(join(project, 'dybs/ideas/x.md'), idea([
     good, good,
     `- "the reminder" (Anna, 20 November, \`${C}\`, need)`,
-    `- "the reminder" (Anna, 2026-11-20, \`${C}\`)`,
-    `- "Clients want Turkish." (Anna, 2026-11-20, \`invented.txt@0123456789ab\`, asked)`,
+    `- "the reminder" (Anna, 2026-11-20 no time, \`${C}\`)`,
+    `- "Clients want Turkish." (Anna, 2026-11-20 no time, \`invented.txt@0123456789ab\`, asked)`,
   ]));
   const r = run(['verify', project, '--json']);
   assert.equal(r.code, 1);
@@ -167,7 +167,7 @@ test('verify fails a malformed line, a duplicate and a source that was never rea
 test('verify does not fail a mention whose read source was removed later', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
   run(['mark', project, 'call.txt', '--folder', folder]);
-  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`]));
   rmSync(join(folder, 'call.txt'));
   const r = run(['verify', project, '--json']);
   assert.equal(r.code, 0);
@@ -188,7 +188,7 @@ test('verify ignores ideas without mentions and the template comment', () => {
 test('a re-exported note never fails the evidence already taken from it', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
   run(['mark', project, 'call.txt', '--folder', folder]);
-  writeFileSync(join(project, 'dybs/ideas/accepted.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]).replace('status: captured', 'status: accepted'));
+  writeFileSync(join(project, 'dybs/ideas/accepted.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`]).replace('status: captured', 'status: accepted'));
   // The meeting tool exports the same call again with one word changed.
   writeFileSync(join(folder, 'call.txt'), CALL.replace('always', 'mostly'));
   const r = run(['verify', project, '--json']);
@@ -203,11 +203,11 @@ test('a renamed note is still checked, by its content', () => {
   run(['mark', project, 'call.txt', '--folder', folder]);
   renameSync(join(folder, 'call.txt'), join(folder, 'renamed.txt'));
   writeFileSync(join(folder, 'call.txt'), 'Another meeting entirely.');
-  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`]));
   let r = run(['verify', project, '--json']);
   assert.equal(r.code, 0);
   assert.equal(r.json.checked, 1);
-  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "Most of our clients read Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "Most of our clients read Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`]));
   r = run(['verify', project, '--json']);
   assert.deepEqual(r.json.problems.map((p) => p.problem), ['quote not in source']);
   rmSync(root, { recursive: true });
@@ -216,7 +216,7 @@ test('a renamed note is still checked, by its content', () => {
 test('the same quote from the same note in two ideas is a duplicate', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
   run(['mark', project, 'call.txt', '--folder', folder]);
-  const line = `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`;
+  const line = `- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`;
   writeFileSync(join(project, 'dybs/ideas/a.md'), idea([line]));
   writeFileSync(join(project, 'dybs/ideas/b.md'), idea([line]));
   const r = run(['verify', project, '--json']);
@@ -228,7 +228,7 @@ test('the same quote from the same note in two ideas is a duplicate', () => {
 test('a quote of one or two words proves nothing', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
   run(['mark', project, 'call.txt', '--folder', folder]);
-  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`]));
   assert.deepEqual(run(['verify', project, '--json']).json.problems.map((p) => p.problem), ['too short']);
   rmSync(root, { recursive: true });
 });
@@ -290,8 +290,8 @@ test('the same quote from a re-exported note is still a duplicate', () => {
   const again = CALL + 'Anna: One more thing.\n';
   writeFileSync(join(folder, 'call.txt'), again);
   writeFileSync(join(project, 'dybs/ideas/x.md'), idea([
-    `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`,
-    `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`call.txt@${ref(again)}\`, need)`,
+    `- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`,
+    `- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`call.txt@${ref(again)}\`, need)`,
   ]));
   const r = run(['verify', project, '--json']);
   assert.equal(r.code, 1);
@@ -303,16 +303,16 @@ test('problems in mentions from before this run are listed and never block it', 
   const { root, project, folder } = setup({ 'call.txt': CALL });
   // An earlier run's note, gone from the folder, a hand-edited line, and a
   // ledger moved aside: nobody can fix these now.
-  writeFileSync(join(project, 'dybs/ideas/old.md'), idea(['- "a quote from a meeting long ago" (Kim, 2026-01-02, `old.txt@aaaaaaaaaaaa`, need)', '- hand-edited line']));
+  writeFileSync(join(project, 'dybs/ideas/old.md'), idea(['- "a quote from a meeting long ago" (Kim, 2026-01-02 no time, `old.txt@aaaaaaaaaaaa`, need)', '- hand-edited line']));
   run(['new', project, '--folder', folder]);
-  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`]));
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`]));
   let r = run(['verify', project, '--json']);
   assert.equal(r.code, 0);
   assert.deepEqual(r.json.earlier.map((p) => p.problem), ['unknown source', 'malformed']);
   // Every line this run adds is checked strictly, whatever it claims.
   for (const bad of [
-    '- "Clients want Turkish reminders." (Anna, 2026-11-20, `made-up.txt@abcdefabcdef`, asked)',
-    `- "the reminder is never in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`,
+    '- "Clients want Turkish reminders." (Anna, 2026-11-20 no time, `made-up.txt@abcdefabcdef`, asked)',
+    `- "the reminder is never in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`,
     '- a line without a ref',
   ]) {
     writeFileSync(join(project, 'dybs/ideas/x.md'), idea([bad]));
@@ -330,7 +330,7 @@ test('problems in mentions from before this run are listed and never block it', 
 
 test('a duplicate is reported on the line this run added, never on the evidence', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
-  const line = `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`;
+  const line = `- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`;
   writeFileSync(join(project, 'dybs/ideas/z-old.md'), idea([line]));
   run(['new', project, '--folder', folder]);
   writeFileSync(join(project, 'dybs/ideas/a-new.md'), idea([line]));
@@ -343,7 +343,7 @@ test('a duplicate is reported on the line this run added, never on the evidence'
 test('a second new in the same run keeps the first snapshot', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
   run(['new', project, '--folder', folder]);
-  writeFileSync(join(project, 'dybs/ideas/x.md'), idea(['- "Clients want Turkish reminders." (Anna, 2026-11-20, `made-up.txt@abcdefabcdef`, asked)']));
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea(['- "Clients want Turkish reminders." (Anna, 2026-11-20 no time, `made-up.txt@abcdefabcdef`, asked)']));
   run(['new', project]);
   assert.equal(run(['verify', project]).code, 1);
   rmSync(root, { recursive: true });
@@ -398,7 +398,7 @@ test('a run with nothing to read leaves no record behind for the next run', () =
   assert.deepEqual(run(['new', project, '--json']).json.new, []);
   assert.ok(!existsSync(join(project, 'dybs/ideas/.run.json')));
   // A person adds a line by hand; the next run must not hold it to this run.
-  writeFileSync(join(project, 'dybs/ideas/old.md'), idea(['- "a quote from a meeting long ago" (Kim, 2026-01-02, `old.txt@aaaaaaaaaaaa`, need)']));
+  writeFileSync(join(project, 'dybs/ideas/old.md'), idea(['- "a quote from a meeting long ago" (Kim, 2026-01-02 no time, `old.txt@aaaaaaaaaaaa`, need)']));
   writeFileSync(join(folder, 'next.txt'), 'Bert: we should text the clients instead of mailing them.\n');
   run(['new', project]);
   const r = run(['verify', project, '--json']);
@@ -411,17 +411,17 @@ test('verify never opens a skipped note and never accepts a quote from it', () =
   const { root, project, folder } = setup({ 'call.txt': CALL, 'private.txt': 'Kim: the secret plan is to raise prices.\n' });
   run(['new', project, '--folder', folder]);
   writeFileSync(join(project, SKIP), 'private.txt\n');
-  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the secret plan is to raise prices." (Kim, 2026-11-20, \`private.txt@${ref('Kim: the secret plan is to raise prices.\n')}\`, need)`]));
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the secret plan is to raise prices." (Kim, 2026-11-20 no time, \`private.txt@${ref('Kim: the secret plan is to raise prices.\n')}\`, need)`]));
   const r = run(['verify', project, '--json']);
   assert.equal(r.code, 1);
   assert.equal(r.json.checked, 0);
-  assert.deepEqual(r.json.problems.map((p) => p.problem), ['unknown source']);
+  assert.deepEqual(r.json.problems.map((p) => p.problem), ['source skipped or gone']);
   rmSync(root, { recursive: true });
 });
 
 test('a second copy of a line already in the same idea is new, and fails', () => {
   const { root, project, folder } = setup({ 'call.txt': CALL });
-  const line = `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`;
+  const line = `- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${C}\`, need)`;
   writeFileSync(join(project, 'dybs/ideas/x.md'), idea([line]));
   run(['new', project, '--folder', folder]);
   writeFileSync(join(project, 'dybs/ideas/x.md'), idea([line, line]));
@@ -442,6 +442,112 @@ test('the skip list ignores case, and mark says which notes it skipped', () => {
   writeFileSync(join(project, SKIP), 'private.txt\n');
   assert.deepEqual(run(['new', project, '--json']).json.skipped, ['Private.TXT']);
   assert.match(run(['mark', project, 'call.txt', 'Private.TXT']).text, /Marked as read: 1, skipped: Private\.TXT/);
+  rmSync(root, { recursive: true });
+});
+
+test('a spoken line with an arrow in it is speech, not a timing line', () => {
+  const srt = '1\n00:00:01,000 --> 00:00:03,000\nthe flow goes A --> B every time\n';
+  assert.equal(fold(srt, 'a.srt'), 'the flow goes A --> B every time');
+});
+
+test('a quote from a note read before and now skipped never passes', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL, 'private.txt': 'Kim: the plan is to raise prices next year.\n' });
+  run(['mark', project, 'call.txt', 'private.txt', '--folder', folder]);
+  writeFileSync(join(project, SKIP), 'private.txt\n');
+  writeFileSync(join(folder, 'next.txt'), 'Bert: we should text the clients instead of mailing them.\n');
+  run(['new', project]);
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the plan is to lower prices next year." (Kim, 2026-11-20 no time, \`private.txt@${ref('Kim: the plan is to raise prices next year.\n')}\`, need)`]));
+  const r = run(['verify', project, '--json']);
+  assert.equal(r.code, 1);
+  assert.equal(r.json.unchecked, 0);
+  assert.deepEqual(r.json.problems.map((p) => p.problem), ['not a note of this run']);
+  rmSync(root, { recursive: true });
+});
+
+test('a stopped run keeps its record while a line it added never passed verify', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['new', project, '--folder', folder]);
+  // The run writes a mention and stops before verify; then its note is skipped.
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea(['- "Clients want Turkish reminders." (Anna, 2026-11-20 no time, `made-up.txt@abcdefabcdef`, asked)']));
+  writeFileSync(join(project, SKIP), 'call.txt\n');
+  run(['new', project]);
+  assert.ok(existsSync(join(project, 'dybs/ideas/.run.json')));
+  writeFileSync(join(folder, 'next.txt'), 'Bert: we should text the clients instead of mailing them.\n');
+  run(['new', project]);
+  assert.equal(run(['verify', project]).code, 1);
+  rmSync(root, { recursive: true });
+});
+
+test('a run record of an older version is ignored, so every problem fails', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  writeFileSync(join(project, 'dybs/ideas/old.md'), idea(['- "a quote from a meeting long ago" (Kim, 2026-01-02 no time, `old.txt@aaaaaaaaaaaa`, need)']));
+  run(['new', project, '--folder', folder]);
+  const rec = JSON.parse(readFileSync(join(project, 'dybs/ideas/.run.json'), 'utf8'));
+  assert.equal(rec.version, 2);
+  writeFileSync(join(project, 'dybs/ideas/.run.json'), JSON.stringify({ version: 1, lines: rec.lines }));
+  assert.deepEqual(run(['verify', project, '--json']).json.problems.map((p) => p.problem), ['unknown source']);
+  rmSync(root, { recursive: true });
+});
+
+const TIMED = '[09:58:02] Anna: Morning all.\n\n[10:03:41] Anna: Most of our clients read Turkish, and the reminder\nis always in Dutch.\n\n[10:04:10] Bert: So they ignore it?\n';
+const T = `call.txt@${ref(TIMED)}`;
+
+test('a mention carries the time its quote starts at, and a wrong or missing one fails', () => {
+  const { root, project, folder } = setup({ 'call.txt': TIMED, 'plain.txt': CALL });
+  run(['new', project, '--folder', folder]);
+  const P = `plain.txt@${ref(CALL)}`;
+  const check = (lines) => {
+    writeFileSync(join(project, 'dybs/ideas/x.md'), idea(lines));
+    return run(['verify', project, '--json']).json.problems.map((p) => p.problem);
+  };
+  assert.deepEqual(check([
+    `- "the reminder is always in Dutch." (Anna, 2026-11-20 10:03, \`${T}\`, need)`,
+    `- "always in Dutch. Bert: So they ignore it?" (Bert, 2026-11-20 10:03, \`${T}\`, need)`,
+    `- "Most of our clients read Turkish" (Anna, 2026-11-20 no time, \`${P}\`, need)`,
+  ]), []);
+  assert.deepEqual(check([`- "the reminder is always in Dutch." (Anna, 2026-11-20 10:04, \`${T}\`, need)`]), ['wrong time']);
+  assert.deepEqual(check([`- "the reminder is always in Dutch." (Anna, 2026-11-20 no time, \`${T}\`, need)`]), ['time missing']);
+  assert.deepEqual(check([`- "Most of our clients read Turkish" (Anna, 2026-11-20 10:03, \`${P}\`, need)`]), ['time not in note']);
+  assert.deepEqual(check([`- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${T}\`, need)`]), ['malformed']);
+  rmSync(root, { recursive: true });
+});
+
+test('subtitle cues give their start time; text timestamps are not part of the text', () => {
+  const srt = '1\n01:02:03,000 --> 01:02:05,000\nWe need\n2\nreminders.\n';
+  assert.deepEqual(segments(srt, 'a.srt'), [{ time: '01:02', text: 'We need 2 reminders.' }]);
+  const vtt = 'WEBVTT\n\n00:07.000 --> 00:09.000 align:start\nhello there\n';
+  assert.deepEqual(segments(vtt, 'a.vtt'), [{ time: '00:00', text: 'hello there' }]);
+  assert.equal(fold('(09:01:02) Kim: we meet at 10:30 today', 'a.txt'), 'Kim: we meet at 10:30 today');
+});
+
+test('a long note is read in parts, and is marked only when every part was read', () => {
+  // Generic filler, then the only idea in the last part of the note.
+  const filler = Array.from({ length: 70 }, (_, i) => `[10:${String(i % 60).padStart(2, '0')}:00] Speaker ${i % 3}: ${'we went through the agenda and the open points again. '.repeat(20)}`);
+  const last = '[11:15:00] Kim: I keep copying every invoice into a spreadsheet by hand before I can send it.';
+  const long = filler.join('\n') + '\n' + last + '\n';
+  assert.ok(long.length > 3 * PART_CHARS);
+  const { root, project, folder } = setup({ 'long.txt': long });
+  const n = run(['new', project, '--folder', folder, '--json']).json.new[0];
+  assert.ok(n.parts.length >= 3);
+  const end = n.parts[n.parts.length - 1];
+  assert.equal(end.lines[1], long.split('\n').length);
+  assert.equal(end.to, '11:15');
+  assert.deepEqual(parts(long, 'long.txt'), n.parts);
+  // The quote from the last part verifies with its own time.
+  writeFileSync(join(project, 'dybs/ideas/invoice-copying.md'), idea([`- "I keep copying every invoice into a spreadsheet by hand" (Kim, 2026-11-20 11:15, \`${n.ref}\`, need)`]));
+  assert.equal(run(['verify', project]).code, 0);
+  // Marking waits for every part.
+  const all = n.parts.map((p) => String(p.part));
+  let r = run(['part', project, n.ref, ...all.slice(0, -1)]);
+  assert.equal(r.code, 0);
+  r = run(['mark', project, n.mark]);
+  assert.equal(r.code, 2);
+  assert.match(r.text, new RegExp(`part ${n.parts.length} of ${n.parts.length} not read`));
+  assert.equal(run(['part', project, n.ref, String(n.parts.length + 1)]).code, 2);
+  run(['part', project, n.ref, all[all.length - 1]]);
+  assert.equal(run(['mark', project, n.mark]).code, 0);
+  const entry = JSON.parse(readFileSync(join(project, LEDGER), 'utf8')).read[0];
+  assert.equal(entry.parts, n.parts.length);
   rmSync(root, { recursive: true });
 });
 

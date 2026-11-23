@@ -36,9 +36,16 @@ best."
   A note is marked only after its ideas are written and verified.
 - **An idea is a proposal** in the `dybs-idea` format, `status: captured`,
   with a **Mentions** section: one line per quote with who, the meeting
-  date, the source file and the version of it (`<file>@<12 hex>` of its
-  content hash), and whether it was asked or a need. A repeated
-  idea gets a mention in the existing file, never a second file.
+  date and the time the quote starts at (`no time` when the note shows
+  none; `verify` checks it), the source file and the version of it
+  (`<file>@<12 hex>` of its content hash), and whether it was asked or a
+  need. A repeated idea gets a mention in the existing file, never a
+  second file.
+- **Long notes are read in parts** of about 20,000 characters, because one
+  file can hold several meetings and the end of a long note got less
+  attention than its start in the field run. `new` lists the parts, the
+  agent ticks each one off (`part`), `mark` refuses a note until every part
+  is ticked, and the ledger records how many parts were read.
 - **Quotes are checked by a script**, not trusted: `dybs-ideas.mjs verify`
   fails a quote that is not in its source after folding spaces, line
   breaks, subtitle timings, Markdown quote marks and curly quotes, a quote
@@ -46,8 +53,10 @@ best."
   A mention is checked against the version it cites, under any name; once
   that version is gone (re-exported, removed) it is counted, never failed,
   so a later export cannot cost an idea its evidence. The first `new` of a
-  run notes which mention lines exist (`dybs/ideas/.run.json`, per device,
-  dropped by `mark` or by a run with nothing to read); every other line,
+  run notes which mention lines exist and which notes the run reads
+  (`dybs/ideas/.run.json`, per device, dropped by `mark`, or by a run with
+  nothing to read once every line added since passed `verify`). A line the
+  run adds must cite one of its own notes, not skipped; every other line,
   a second copy of an old line included, is checked strictly, and problems
   in the older ones are listed without failing, so a line nobody can fix
   now never blocks a scheduled run and a new line can never pass as old.
@@ -66,6 +75,7 @@ best."
 
 ## Consequences
 
-- The skill is unverified until a field run on a real transcript.
+- One field run on a real transcript so far (`tests/runs/`); it led to the
+  time on each mention and reading long notes in parts.
 - The app can show ideas from notes without any new channel: it reads
   `dybs/ideas/` as before, and the Mentions lines have one fixed format.
