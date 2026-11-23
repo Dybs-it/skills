@@ -106,13 +106,33 @@ which one to add; without the validator, it checks the doc by hand.
 ## Ideas and roadmap
 
 ```
-dybs-idea → the human decides → dybs-roadmap → dybs-task
+(dybs-ideas) → dybs-idea → the human decides → dybs-roadmap → dybs-task
 ```
 
 | Skill | Does | Writes |
 |---|---|---|
 | `dybs-idea` | Captures one idea, questions it against the context in rounds with recommended answers, and collects each persona's advice: go, change, park or drop. You decide | `dybs/ideas/<slug>.md` |
+| `dybs-ideas` | Reads new meeting notes (Granola, Fireflies and the like, as `.txt`, `.md`, `.srt`, `.vtt`) and writes each idea in them as a proposal with the exact quotes behind it. A repeated idea gets a mention, not a second file. Asks nothing, so it also runs on a schedule | `dybs/ideas/<slug>.md`, `dybs/ideas/.read.json` |
 | `dybs-roadmap` | Proposes an order for the accepted ideas; you set it. Links only, so it cannot drift from the ideas | `dybs/roadmap.md` |
+
+`dybs-ideas` runs in your own coding agent, so no provider API key is
+needed. By hand, or from a schedule (cron, launchd) in the project folder:
+
+```
+claude -p "/dybs-ideas ~/Notes/meetings" --allowedTools "Read,Write,Edit,Bash(node:*)"
+```
+
+A headless run cannot answer a permission prompt, so allow it to read and
+write files and to run `node` (the skill's script). The folder is
+remembered on this device (`dybs/ideas/.folder`, kept out of git), so later
+runs can leave it out. The whole folder is read, also notes added later;
+to skip one, put its file name on a line in `dybs/ideas/.skip` (also kept
+out of git). Each run reads
+only notes it has not read before (`dybs/ideas/.read.json`), so running it
+twice is safe. Every quote is checked against its source by a script; a
+quote that is not there is removed. The last line says what happened:
+`dybs-ideas: 2 read, 1 new ideas, 3 mentions added.` or
+`dybs-ideas failed: <why>. <what to do>.` See decision 0014.
 
 ## Quality: test, review, gate, PR
 

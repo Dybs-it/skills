@@ -48,7 +48,7 @@ function walk(dir) {
 // quality skills share quality.md. A test keeps these lists complete.
 export const GETTING_STARTED = ['dybs-start', 'dybs-discover', 'dybs-prd', 'dybs-scope', 'dybs-domain', 'dybs-architecture', 'dybs-ux', 'dybs-ui', 'dybs-working', 'dybs-check'];
 // Planning skills (ideas, roadmap) share no file: each carries all it needs.
-export const PLANNING = ['dybs-idea', 'dybs-roadmap'];
+export const PLANNING = ['dybs-idea', 'dybs-ideas', 'dybs-roadmap'];
 export const QUALITY = ['dybs-task', 'dybs-test-plan', 'dybs-build', 'dybs-tests', 'dybs-review', 'dybs-gate', 'dybs-pr', 'dybs-done'];
 
 export function skillNames() {

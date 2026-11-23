@@ -29,6 +29,10 @@ the first line of the advice, it is the human's call to change the scope.
 
 If an idea file on the same subject exists, edit that one.
 
+An idea found in meeting notes by `dybs-ideas` has **Mentions**: quotes
+with who said them and when. Read them as the evidence for the problem, and
+never edit them.
+
 ## 2. Grill
 
 Test the idea against what the project already says. Look up what can be

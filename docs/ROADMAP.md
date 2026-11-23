@@ -48,6 +48,18 @@ dybs/ideas/<slug>.md    one idea, its grilling, the team's advice, the human's d
 - The **human decides**, in the idea file: accepted, parked or dropped, with
   a line why. Agents never decide.
 
+### Ideas from meeting notes (v0.7, built, one field run)
+
+- `dybs-ideas`: reads new notes and transcripts from a folder and writes
+  each idea in them as a proposal with the exact quotes behind it, by hand
+  or headless on a schedule. A repeated idea gets a mention, so evidence
+  grows in one file. A script keeps the ledger of read notes and checks
+  every quote against its source. See decision 0014.
+- One field run on a real export (`tests/runs/2026-11-23-ideas-field-run.md`).
+- Open: whether "same idea" is judged well enough across many notes, and
+  telling product ideas from ideas about the team's way of working, from
+  the PRD.
+
 ## 3. Roadmap (v0.5, built, not run)
 
 ```
