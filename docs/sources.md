@@ -205,7 +205,8 @@ Reads new meeting notes and transcripts from a folder, writes each idea in
 them as a proposal in `dybs/ideas/<slug>.md` with the exact quotes behind
 it, and adds a mention to an existing idea instead of a duplicate. Asks
 nothing, so it runs headless on a schedule. Ships `scripts/dybs-ideas.mjs`
-(the ledger of read notes and the check that every quote is in its source).
+(the ledger of read notes, the check that every quote is in its source,
+the per-device skip list and the record of which mentions a run found).
 
 - **Our own:** all of it: the mention line, the asked and need kinds, the
   ledger keyed by content, the verbatim check, the summary and failure

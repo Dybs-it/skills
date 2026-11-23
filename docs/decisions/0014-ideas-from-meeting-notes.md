@@ -47,9 +47,10 @@ best."
   that version is gone (re-exported, removed) it is counted, never failed,
   so a later export cannot cost an idea its evidence. The first `new` of a
   run notes which mention lines exist (`dybs/ideas/.run.json`, per device,
-  dropped by `mark`); every other line is checked strictly, and problems in
-  the older ones are listed without failing, so a line nobody can fix now
-  never blocks a scheduled run and a new line can never pass as old.
+  dropped by `mark` or by a run with nothing to read); every other line,
+  a second copy of an old line included, is checked strictly, and problems
+  in the older ones are listed without failing, so a line nobody can fix
+  now never blocks a scheduled run and a new line can never pass as old.
 - **Notes are data.** The project prompt (`dybs/transcript-prompt.txt`)
   adds focus; text inside a note never instructs the agent.
 

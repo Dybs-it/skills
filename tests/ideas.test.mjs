@@ -391,6 +391,60 @@ test('a skipped note is never read or marked, and unskipping makes it eligible a
   rmSync(root, { recursive: true });
 });
 
+test('a run with nothing to read leaves no record behind for the next run', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  run(['mark', project, 'call.txt', '--folder', folder]);
+  // A scheduled run finds nothing new and ends without mark.
+  assert.deepEqual(run(['new', project, '--json']).json.new, []);
+  assert.ok(!existsSync(join(project, 'dybs/ideas/.run.json')));
+  // A person adds a line by hand; the next run must not hold it to this run.
+  writeFileSync(join(project, 'dybs/ideas/old.md'), idea(['- "a quote from a meeting long ago" (Kim, 2026-01-02, `old.txt@aaaaaaaaaaaa`, need)']));
+  writeFileSync(join(folder, 'next.txt'), 'Bert: we should text the clients instead of mailing them.\n');
+  run(['new', project]);
+  const r = run(['verify', project, '--json']);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.json.earlier.map((p) => p.problem), ['unknown source']);
+  rmSync(root, { recursive: true });
+});
+
+test('verify never opens a skipped note and never accepts a quote from it', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL, 'private.txt': 'Kim: the secret plan is to raise prices.\n' });
+  run(['new', project, '--folder', folder]);
+  writeFileSync(join(project, SKIP), 'private.txt\n');
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([`- "the secret plan is to raise prices." (Kim, 2026-11-20, \`private.txt@${ref('Kim: the secret plan is to raise prices.\n')}\`, need)`]));
+  const r = run(['verify', project, '--json']);
+  assert.equal(r.code, 1);
+  assert.equal(r.json.checked, 0);
+  assert.deepEqual(r.json.problems.map((p) => p.problem), ['unknown source']);
+  rmSync(root, { recursive: true });
+});
+
+test('a second copy of a line already in the same idea is new, and fails', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL });
+  const line = `- "the reminder is always in Dutch." (Anna, 2026-11-20, \`${C}\`, need)`;
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([line]));
+  run(['new', project, '--folder', folder]);
+  writeFileSync(join(project, 'dybs/ideas/x.md'), idea([line, line]));
+  const r = run(['verify', project, '--json']);
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.problems.map((p) => p.problem), ['duplicate of x.md']);
+  rmSync(root, { recursive: true });
+});
+
+test('SRT cues without blank lines between them still lose their numbers and timings', () => {
+  const srt = '1\n00:00:01,000 --> 00:00:02,000\nhello there\n2\n00:00:02,000 --> 00:00:03,000\nfriend\n';
+  assert.equal(fold(srt, 'a.srt'), 'hello there friend');
+});
+
+test('the skip list ignores case, and mark says which notes it skipped', () => {
+  const { root, project, folder } = setup({ 'call.txt': CALL, 'Private.TXT': 'x y z' });
+  run(['new', project, '--folder', folder]);
+  writeFileSync(join(project, SKIP), 'private.txt\n');
+  assert.deepEqual(run(['new', project, '--json']).json.skipped, ['Private.TXT']);
+  assert.match(run(['mark', project, 'call.txt', 'Private.TXT']).text, /Marked as read: 1, skipped: Private\.TXT/);
+  rmSync(root, { recursive: true });
+});
+
 test('subtitle files match without their numbering, timings and voice tags', () => {
   const srt = '1\n00:00:01,000 --> 00:00:03,000\nAnna: the reminder is\n\n2\n00:00:03,000 --> 00:00:05,000\nalways in Dutch.\n';
   assert.equal(fold(srt, 'a.srt'), 'Anna: the reminder is always in Dutch.');

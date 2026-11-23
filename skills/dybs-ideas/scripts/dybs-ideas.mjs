@@ -57,7 +57,10 @@ export function fold(text, name = '') {
       const lines = block.split(/\r?\n/).filter((l) => l.trim());
       if (!lines.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines[0])) continue;
       const timing = lines.findIndex((l) => /-->/.test(l));
-      keep.push(...(timing >= 0 && timing <= 1 ? lines.slice(timing + 1) : lines));
+      const speech = timing >= 0 && timing <= 1 ? lines.slice(timing + 1) : lines;
+      // Cues run together without a blank line: drop each later timing line
+      // and the number right before it.
+      keep.push(...speech.filter((l, i) => !/-->/.test(l) && !(/^\s*\d+\s*$/.test(l) && /-->/.test(speech[i + 1] || ''))));
     }
     t = keep.join('\n').replace(/<[^>]+>/g, ' ');
   } else if (/\.md$/i.test(name)) {
@@ -131,9 +134,16 @@ function mentionLines(root) {
     if (section === undefined) continue;
     for (const raw of section.split(/^## /m)[0].split(/\r?\n/)) if (raw.trim()) out.push({ idea: f, line: raw.trim() });
   }
+  // The nth copy of a line is its own line: a copy added next to an old one
+  // is new.
+  const count = new Map();
+  for (const l of out) {
+    const k = `${l.idea}\n${l.line}`;
+    l.key = sha(`${k}\n${count.get(k) || 0}`);
+    count.set(k, (count.get(k) || 0) + 1);
+  }
   return { files, lines: out };
 }
-const lineKey = (idea, line) => sha(`${idea}\n${line}`);
 
 // The mentions that were there before this run, so verify can tell them
 // from the ones the run adds. Taken by the first `new` of a run and dropped
@@ -142,7 +152,7 @@ const lineKey = (idea, line) => sha(`${idea}\n${line}`);
 function snapshot(root) {
   if (existsSync(join(root, SNAPSHOT))) return;
   ignoreLocal(root);
-  publish(root, SNAPSHOT, JSON.stringify({ version: 1, lines: mentionLines(root).lines.map((l) => lineKey(l.idea, l.line)) }) + '\n');
+  publish(root, SNAPSHOT, JSON.stringify({ version: 1, lines: mentionLines(root).lines.map((l) => l.key) }) + '\n');
 }
 
 function readSnapshot(root) {
@@ -182,7 +192,7 @@ export function notes(dir, { text = false, skip = new Set() } = {}) {
     try { st = lstatSync(p); } catch { continue; }
     if (!st.isFile()) continue;
     // A skipped note is listed by name and never opened.
-    if (skip.has(name)) { out.push({ name, skipped: true }); continue; }
+    if (skip.has(name.toLowerCase())) { out.push({ name, skipped: true }); continue; }
     let buf;
     try { buf = readFileSync(p); } catch { out.push({ name, unreadable: true }); continue; }
     out.push({ name, sha256: sha(buf), bytes: buf.length, empty: !buf.toString('utf8').trim(), ...(text ? { text: buf.toString('utf8') } : {}) });
@@ -194,7 +204,7 @@ export function readSkip(root) {
   const p = join(root, SKIP);
   try {
     if (lstatSync(p).isSymbolicLink()) throw new Stop(`${SKIP} is a link; it was not read.`);
-    return new Set(readFileSync(p, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+    return new Set(readFileSync(p, 'utf8').split(/\r?\n/).map((l) => l.trim().toLowerCase()).filter(Boolean));
   } catch (e) { if (e instanceof Stop) throw e; return new Set(); }
 }
 
@@ -207,7 +217,11 @@ export function findNew(root, given) {
   const all = listed.filter((n) => !n.skipped);
   const readable = all.filter((n) => !n.unreadable);
   const fresh = readable.filter((n) => !known.has(n.sha256));
-  snapshot(root);
+  // A run with nothing to read ends here, without mark: it leaves no record
+  // for the next run. A run that stopped with notes unread keeps its record,
+  // so the next one checks more strictly, never less.
+  if (fresh.some((n) => !n.empty)) snapshot(root);
+  else rmSync(join(root, SNAPSHOT), { force: true });
   return {
     folder,
     prompt: existsSync(join(root, PROMPT)) ? PROMPT : null,
@@ -232,7 +246,7 @@ export function mark(root, args, given) {
     const name = m ? m[1] : a;
     if (basename(name) !== name || !here.has(name)) throw new Stop(`${name} is not a note in ${folder}; nothing was marked.`);
     // A skipped note is never marked read, so unskipping it makes it new again.
-    if (skip.has(name)) { skipped.push(name); continue; }
+    if (skip.has(name.toLowerCase())) { skipped.push(name); continue; }
     const hash = m ? m[2] : here.get(name);
     if (known.has(hash)) continue;
     known.add(hash);
@@ -254,41 +268,40 @@ export function mark(root, args, given) {
 // Without a snapshot, every problem fails.
 export function verify(root, given) {
   const before = readSnapshot(root);
-  const old = (p) => before.has(lineKey(p.idea, p.line));
+  const old = (l) => before.has(l.key);
   const folder = folderOf(root, given);
   const readRefs = new Set(readLedger(root).read.map((r) => r.sha256.slice(0, REF)));
   const byRef = new Map();
-  for (const n of notes(folder, { text: true })) if (!n.unreadable) byRef.set(n.sha256.slice(0, REF), fold(n.text, n.name));
+  for (const n of notes(folder, { text: true, skip: readSkip(root) })) if (!n.unreadable && !n.skipped) byRef.set(n.sha256.slice(0, REF), fold(n.text, n.name));
   const { files, lines } = mentionLines(root);
   const problems = [], earlier = [];
-  const report = (p) => (old(p) ? earlier : problems).push(p);
+  const report = (l, problem) => (old(l) ? earlier : problems).push({ idea: l.idea, problem, line: l.line });
   const seen = new Map();
   let checked = 0, unchecked = 0;
-  for (const { idea: f, line } of lines) {
-      const m = line.match(MENTION);
-      if (!m) { report({ idea: f, problem: 'malformed', line }); continue; }
-      const [, quote, , , name, ref] = m;
-      const q = fold(quote);
-      if (q.split(' ').length < MIN_WORDS) { report({ idea: f, problem: 'too short', line }); continue; }
-      // The same quote from the same note belongs in one idea, once, also
-      // when the note was exported again under a new version. The line this
-      // run added is the one reported, never the evidence that was there.
-      const dup = seen.get(`${ref}\n${q}`) || seen.get(`${name}\n${q}`);
-      if (dup) {
-        const here = { idea: f, line };
-        if (old(here) && !old(dup)) report({ idea: dup.idea, problem: `duplicate of ${f}`, line: dup.line });
-        else report({ idea: f, problem: `duplicate of ${dup.idea}`, line });
-        continue;
-      }
-      seen.set(`${ref}\n${q}`, { idea: f, line }).set(`${name}\n${q}`, { idea: f, line });
-      const src = byRef.get(ref);
-      if (src === undefined) {
-        if (readRefs.has(ref)) unchecked++;
-        else report({ idea: f, problem: 'unknown source', line });
-        continue;
-      }
-      checked++;
-      if (!src.includes(q)) report({ idea: f, problem: 'quote not in source', line });
+  for (const here of lines) {
+    const m = here.line.match(MENTION);
+    if (!m) { report(here, 'malformed'); continue; }
+    const [, quote, , , name, ref] = m;
+    const q = fold(quote);
+    if (q.split(' ').length < MIN_WORDS) { report(here, 'too short'); continue; }
+    // The same quote from the same note belongs in one idea, once, also
+    // when the note was exported again under a new version. The line this
+    // run added is the one reported, never the evidence that was there.
+    const dup = seen.get(`${ref}\n${q}`) || seen.get(`${name}\n${q}`);
+    if (dup) {
+      if (old(here) && !old(dup)) report(dup, `duplicate of ${here.idea}`);
+      else report(here, `duplicate of ${dup.idea}`);
+      continue;
+    }
+    seen.set(`${ref}\n${q}`, here).set(`${name}\n${q}`, here);
+    const src = byRef.get(ref);
+    if (src === undefined) {
+      if (readRefs.has(ref)) unchecked++;
+      else report(here, 'unknown source');
+      continue;
+    }
+    checked++;
+    if (!src.includes(q)) report(here, 'quote not in source');
   }
   return { folder, ideas: files.length, checked, unchecked, problems, earlier };
 }
@@ -327,7 +340,7 @@ export function main(argv, out = console.log) {
     if (cmd === 'mark') {
       if (!o.rest.length) throw new Stop('mark needs the notes that were read.');
       const r = mark(root, o.rest, o.folder);
-      out(o.json ? JSON.stringify(r, null, 2) : `Marked as read: ${r.marked.length}${r.alreadyRead ? `, already read: ${r.alreadyRead}` : ''}`);
+      out(o.json ? JSON.stringify(r, null, 2) : `Marked as read: ${r.marked.length}${r.skipped.length ? `, skipped: ${r.skipped.join(', ')}` : ''}${r.alreadyRead ? `, already read: ${r.alreadyRead}` : ''}`);
       return 0;
     }
     if (o.rest.length) throw new Stop('verify takes no notes; it checks every mention.');
